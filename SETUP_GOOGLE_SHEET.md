@@ -143,3 +143,4 @@ Whenever you modify `apps-script/Code.gs`:
 - **CORS / Network Error**: Ensure deployment access is set to **Who has access: Anyone**.
 - **Conflict Detected Modal**: If someone modified the Sheet directly while local changes were pending, the dashboard prompts whether to overwrite or pull remote changes.
 - **Vercel 404 on Deployment**: Ensure Vercel is serving from the project root or `dist/` where `index.html` is generated. Run `node build.js` to ensure `index.html` is up to date.
+
