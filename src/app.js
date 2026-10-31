@@ -79,6 +79,16 @@
   const dnum = s => isDate(s) ? Math.floor(new Date(s + 'T00:00:00').getTime() / 86400000) : null;
   const daysFromToday = s => { const d = dnum(s); return d == null ? null : d - dnum(todayStr()); };
   const fmt = s => { if (!s) return '<span class="tbd">TBD</span>'; if (!isDate(s)) return esc(s); const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); };
+  const fmtShort = s => { if (!s || !isDate(s)) return ''; const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  const dueBadge = s => {
+    if (!s || !isDate(s)) return '<span class="brief-tag">No due date</span>';
+    const d = daysFromToday(s);
+    if (d < 0) return '<span class="brief-tag overdue">' + Math.abs(d) + 'd overdue</span>';
+    if (d === 0) return '<span class="brief-tag urgent">Due today</span>';
+    if (d === 1) return '<span class="brief-tag urgent">Due tomorrow</span>';
+    if (d <= 3) return '<span class="brief-tag urgent">Due in ' + d + 'd</span>';
+    return '<span class="brief-tag">Due ' + fmtShort(s) + '</span>';
+  };
   const isTBD = v => !v || /^tbd/i.test(String(v).trim());
   const person = v => isTBD(v) ? '<span class="tbd">' + esc(v || 'TBD') + '</span>' : esc(v);
   const uid = p => p + '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -551,15 +561,117 @@
     const blockers = aq.filter(a => a.rank <= 2);
     const intervene = st.hs.filter(x => x.h.rag === 'Red' || x.p.priority === 'P0' || (x.h.rag === 'Amber' && (x.p.priority === 'P1')) || S.decisions.some(d => d.status === 'Open' && d.projectId === x.p.id && d.owner === 'Head of Sales'));
     const noOwner = S.projects.filter(p => isTBD(p.owner)).length;
+    const unassigned = S.projects.filter(p => isTBD(p.owner)).sort((a, b) => (a.priority || '').localeCompare(b.priority || ''));
     const myDecs = S.decisions.filter(d => d.status === 'Open' && d.owner === 'Head of Sales').sort((a, b) => (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
     const stuck = st.hs.filter(x => x.h.rag === 'Red' || x.h.rag === 'Amber').sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1));
     const due7 = aq.filter(a => a.rank === 4);
-    const li = (items, fn, empty) => items.length ? '<ul class="brief-list">' + items.slice(0, 5).map(fn).join('') + '</ul>' + (items.length > 5 ? '<div class="mini">+ ' + (items.length - 5) + ' more</div>' : '') : '<div class="mini">' + empty + '</div>';
 
-    const brief = '<div class="brief section"><div class="brief-card"><div class="brief-h"><span>Needs your decision</span><b>' + myDecs.length + '</b></div>' + li(myDecs, d => '<li><span class="link" data-act="nav" data-v="decisions">' + esc(d.decision) + '</span><span class="when">' + (d.requiredBy ? 'by ' + fmt(d.requiredBy) : '') + '</span></li>', 'No open decisions with you.') + '</div>'
-      + '<div class="brief-card"><div class="brief-h"><span>Slipping or blocked</span><b>' + stuck.length + '</b></div>' + li(stuck, x => '<li class="stack"><div><span class="dot ' + x.h.rag.toLowerCase() + '"></span><span class="link" data-act="open" data-id="' + x.p.id + '">' + esc(x.p.name) + '</span></div><div class="when">' + esc(x.h.reasons[0]) + '</div></li>', 'Nothing is slipping.') + '</div>'
-      + '<div class="brief-card"><div class="brief-h"><span>Due in the next 7 days</span><b>' + due7.length + '</b></div>' + li(due7, a => '<li><span class="link" data-act="go" data-go=\'' + JSON.stringify(a.go) + '\'>' + esc(a.text) + '</span><span class="when">' + fmt(a.due) + '</span></li>', 'Nothing due this week.') + '</div>'
-      + '<div class="brief-card"><div class="brief-h"><span>Unassigned</span><b>' + noOwner + '</b></div><div class="mini">' + (noOwner ? noOwner + ' of ' + st.total + ' projects still have a placeholder owner. Assign them from each project\'s charter.' : 'Every project has an owner.') + '</div><div style="margin-top:8px"><span class="link" data-act="go-portfolio">Open portfolio</span></div></div></div>';
+    const card1List = myDecs.length
+      ? '<ul class="brief-list">' + myDecs.slice(0, 5).map(d => `
+        <li class="brief-item" data-act="nav" data-v="decisions" title="${esc(d.decision)}">
+          <div class="brief-item-title">${esc(d.decision)}</div>
+          <div class="brief-item-meta">
+            ${dueBadge(d.requiredBy)}
+            ${d.projectId ? '<span class="brief-meta-proj" title="' + esc(pName(d.projectId)) + '">' + esc(pName(d.projectId)) + '</span>' : ''}
+            <span class="brief-meta-action">Review & decide →</span>
+          </div>
+        </li>`).join('') + '</ul>'
+      : '<div class="brief-empty-state"><span class="brief-empty-icon">✓</span><p><b>No decisions pending</b></p><span class="mini">All decisions assigned to you are completed.</span></div>';
+
+    const card2List = stuck.length
+      ? '<ul class="brief-list">' + stuck.slice(0, 5).map(x => `
+        <li class="brief-item" data-act="open" data-id="${x.p.id}" title="${esc(x.p.name)}: ${esc(x.h.reasons.join('; '))}">
+          <div class="brief-proj-head">
+            <span class="dot ${x.h.rag.toLowerCase()}"></span>
+            <span class="brief-item-title">${esc(x.p.name)}</span>
+            <span class="pill-mini ${x.h.rag.toLowerCase()}">${x.h.rag}</span>
+          </div>
+          <div class="brief-item-desc">${esc(x.h.reasons[0])}</div>
+        </li>`).join('') + '</ul>'
+      : '<div class="brief-empty-state"><span class="brief-empty-icon">✓</span><p><b>All projects on track</b></p><span class="mini">No initiatives currently flagged as Red or Amber.</span></div>';
+
+    const card3List = due7.length
+      ? '<ul class="brief-list">' + due7.slice(0, 5).map(a => `
+        <li class="brief-item" data-act="go" data-go=\'${JSON.stringify(a.go)}\' title="${esc(a.text)} (${esc(pName(a.project))})">
+          <div class="brief-item-title">${esc(a.text)}</div>
+          <div class="brief-item-meta">
+            ${dueBadge(a.due)}
+            <span class="brief-meta-proj" title="${esc(pName(a.project))}">${esc(pName(a.project))}</span>
+            ${a.prio ? '<span class="pill-mini ' + a.prio.toLowerCase() + '">' + a.prio + '</span>' : ''}
+          </div>
+        </li>`).join('') + '</ul>'
+      : '<div class="brief-empty-state"><span class="brief-empty-icon">✓</span><p><b>No upcoming deadlines</b></p><span class="mini">No tasks or milestones due in the next 7 days.</span></div>';
+
+    const card4List = unassigned.length
+      ? `<div class="brief-alert-strip">
+          <span style="font-size:14px">⚠️</span>
+          <span><b>${unassigned.length} of ${st.total} projects</b> need a confirmed owner.</span>
+        </div>
+        <ul class="brief-list">` + unassigned.slice(0, 4).map(p => `
+          <li class="brief-item" data-act="open" data-id="${p.id}" data-tab="charter" title="Assign owner to ${esc(p.name)}">
+            <div class="brief-item-title">${esc(p.name)}</div>
+            <div class="brief-item-meta">
+              <span class="pill-mini ${p.priority.toLowerCase()}">${p.priority}</span>
+              <span class="brief-meta-proj">${esc(p.category || 'General')}</span>
+              <span class="brief-meta-action">Assign →</span>
+            </div>
+          </li>`).join('') + '</ul>'
+      : `<div class="brief-empty-state"><span class="brief-empty-icon">✓</span><p><b>All projects assigned</b></p><span class="mini">Every initiative in the portfolio has an owner.</span></div>`;
+
+    const brief = `
+    <div class="brief section">
+      <div class="brief-card card-decisions">
+        <div class="brief-h">
+          <span>Needs your decision</span>
+          <b class="count-blue">${myDecs.length}</b>
+        </div>
+        ${card1List}
+        <div class="brief-foot">
+          <button class="brief-more-btn" data-act="nav" data-v="decisions">
+            ${myDecs.length > 5 ? 'View all ' + myDecs.length + ' decisions →' : 'Open decisions queue →'}
+          </button>
+        </div>
+      </div>
+
+      <div class="brief-card card-slipping">
+        <div class="brief-h">
+          <span>Slipping or blocked</span>
+          <b class="count-amber">${stuck.length}</b>
+        </div>
+        ${card2List}
+        <div class="brief-foot">
+          <button class="brief-more-btn" data-act="nav" data-v="portfolio">
+            ${stuck.length > 5 ? 'View all ' + stuck.length + ' slipping projects →' : 'View portfolio health →'}
+          </button>
+        </div>
+      </div>
+
+      <div class="brief-card card-upcoming">
+        <div class="brief-h">
+          <span>Due in the next 7 days</span>
+          <b class="count-purple">${due7.length}</b>
+        </div>
+        ${card3List}
+        <div class="brief-foot">
+          <button class="brief-more-btn" data-act="nav" data-v="actions">
+            ${due7.length > 5 ? 'View all ' + due7.length + ' upcoming items →' : 'View full action queue →'}
+          </button>
+        </div>
+      </div>
+
+      <div class="brief-card card-unassigned">
+        <div class="brief-h">
+          <span>Unassigned</span>
+          <b class="count-muted">${noOwner}</b>
+        </div>
+        ${card4List}
+        <div class="brief-foot">
+          <button class="brief-more-btn" data-act="go-portfolio">
+            Manage portfolio owners →
+          </button>
+        </div>
+      </div>
+    </div>`;
 
     return `
     <div class="sec-title" style="margin-bottom:12px">
