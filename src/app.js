@@ -1,21 +1,75 @@
 /* ============================================================
    APPLICATION — Suraasa Sales Project Management Control Tower
-   Single-file app. State persists in browser localStorage only.
+   Single-file app with full Add/Edit/Delete & Google Sheets Sync.
    ============================================================ */
 (function () {
   'use strict';
   const KEY = 'suraasa_sales_control_tower_v1';
-  const PRIOS = ['P0', 'P1', 'P2', 'P3'];
-  const PSTATUS = ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'];
-  const TSTATUS = ['Not Started', 'In Progress', 'Awaiting Approval', 'Blocked', 'On Hold', 'Completed'];
-  const TKINDS = ['Task', 'Subtask', 'Recurring', 'Decision'];
-  const MSTATUS = ['Pending', 'In Progress', 'Completed'];
-  const CATS = ['Revenue Generation', 'Funnel Conversion & Sales Productivity', 'B2B Business Development', 'Marketing & Demand Generation', 'Cross-functional Dependencies'];
-  const PTYPES = ['Project', 'Strategic Project', 'Experiment', 'Recurring Operation', 'Recurring Programme', 'Project → Recurring Ops', 'Dependency Cluster', 'Recurring Operation + Experiment'];
-  const VALUECLASS = ['Revenue-generating', 'Conversion improvement', 'Operational efficiency', 'Strategic growth', 'Experiment', 'Dependency'];
 
-  let S = null; // state
-  const UI = { view: 'overview', projectId: null, ptab: 'charter', taskFilter: 'all', q: '', me: '', sort: {}, filters: {}, ganttOpen: {}, riskTab: 'risks' };
+  // Fallback defaults for configurable option lists
+  const FALLBACKS = {
+    priorities: ['P0', 'P1', 'P2', 'P3'],
+    projectStatuses: ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'],
+    taskStatuses: ['Not Started', 'In Progress', 'Awaiting Approval', 'Blocked', 'On Hold', 'Completed'],
+    taskKinds: ['Task', 'Subtask', 'Recurring', 'Decision'],
+    milestoneStatuses: ['Pending', 'In Progress', 'Completed'],
+    categories: [
+      'Revenue Generation',
+      'Funnel Conversion & Sales Productivity',
+      'B2B Business Development',
+      'Marketing & Demand Generation',
+      'Cross-functional Dependencies'
+    ],
+    projectTypes: [
+      'Project',
+      'Strategic Project',
+      'Experiment',
+      'Recurring Operation',
+      'Recurring Programme',
+      'Project → Recurring Ops',
+      'Dependency Cluster',
+      'Recurring Operation + Experiment'
+    ],
+    valueClasses: [
+      'Revenue-generating',
+      'Conversion improvement',
+      'Operational efficiency',
+      'Strategic growth',
+      'Experiment',
+      'Dependency'
+    ],
+    riskLevels: ['High', 'Medium', 'Low'],
+    riskStatuses: ['Open', 'Mitigated', 'Resolved', 'Escalated', 'Closed'],
+    dependencyStatuses: ['Open', 'Escalated', 'Resolved', 'Closed'],
+    decisionStatuses: ['Open', 'Pending AK/Ankit decision', 'Closed', 'Escalated'],
+    actionKinds: ['Immediate action', 'Pending action', 'Recommendation'],
+    actionBuckets: [
+      'Implement immediately',
+      'Requires a decision',
+      'Requires technology / CRM support',
+      'Requires another department',
+      'Requires a complete project plan',
+      'Requires a pilot / experiment'
+    ],
+    updateRag: ['Green', 'Amber', 'Red']
+  };
+
+  let S = null; // State object
+  const UI = {
+    view: 'overview',
+    projectId: null,
+    ptab: 'charter',
+    taskFilter: 'all',
+    q: '',
+    me: '',
+    sort: {},
+    filters: {},
+    ganttOpen: {},
+    riskTab: 'risks'
+  };
+
+  // Helper to dynamically get option list from S.options or fallback
+  const opt = k => (S && S.options && Array.isArray(S.options[k]) && S.options[k].length) ? S.options[k] : (FALLBACKS[k] || []);
 
   // ---------- utils ----------
   const $ = (s, r) => (r || document).querySelector(s);
@@ -31,10 +85,24 @@
   const nowIso = () => new Date().toISOString();
   const clone = o => JSON.parse(JSON.stringify(o));
   const by = (k, dir) => (a, b) => { const x = a[k] == null ? '' : a[k], y = b[k] == null ? '' : b[k]; return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'desc' ? -1 : 1); };
-  const pillRag = r => '<span class="pill ' + r.toLowerCase() + '">' + r + '</span>';
+  const pillRag = r => '<span class="pill ' + (r || 'grey').toLowerCase() + '">' + esc(r || 'Grey') + '</span>';
   const pillPrio = p => '<span class="pill ' + (p || 'p3').toLowerCase() + '">' + esc(p || '—') + '</span>';
-  const pillStatus = s => { const m = { 'Completed': 'green', 'In Progress': 'blue', 'Blocked': 'red', 'On Hold': 'amber', 'Awaiting Approval': 'amber', 'Not Started': 'grey', 'Pending': 'grey', 'Open': 'amber', 'Closed': 'green', 'Resolved': 'green', 'Mitigated': 'green', 'Escalated': 'red' }; return '<span class="pill ' + (m[s] || 'outline') + '">' + esc(s) + '</span>'; };
-  function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : ''); clearTimeout(toast._t); toast._t = setTimeout(() => t.className = 'toast', 2600); }
+  const pillStatus = s => {
+    const m = {
+      'Completed': 'green', 'In Progress': 'blue', 'Blocked': 'red', 'On Hold': 'amber',
+      'Awaiting Approval': 'amber', 'Not Started': 'grey', 'Pending': 'grey', 'Open': 'amber',
+      'Closed': 'green', 'Resolved': 'green', 'Mitigated': 'green', 'Escalated': 'red', 'Decided': 'green'
+    };
+    return '<span class="pill ' + (m[s] || 'outline') + '">' + esc(s || '—') + '</span>';
+  };
+  function toast(msg, err) {
+    const t = $('#toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.className = 'toast', 2800);
+  }
 
   // ---------- persistence ----------
   function load() {
@@ -45,10 +113,19 @@
         if (d && Array.isArray(d.projects) && Array.isArray(d.tasks)) {
           S = d;
           if (!Array.isArray(S.roles)) S.roles = [];
+          if (!Array.isArray(S.programs)) S.programs = [];
+          if (!S.options) S.options = buildSeed().options;
+          if (!S.governance) S.governance = buildSeed().governance;
+          if (!S.meta) S.meta = {};
+          if (!S.meta.sync) {
+            S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+          }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
             S.roles = S.roles.filter(r => r.name !== 'Shrayansh SoodCRM/Tech');
             save(false);
           }
+
+          // Ensure standard roles exist in proper order
           const seedRoles = buildSeed().roles;
           const roleNames = new Set(S.roles.map(r => r.name));
           let changed = false;
@@ -59,6 +136,14 @@
               changed = true;
             }
           });
+          // Ensure options are populated with all lists
+          Object.keys(FALLBACKS).forEach(k => {
+            if (!Array.isArray(S.options[k]) || !S.options[k].length) {
+              S.options[k] = FALLBACKS[k].slice();
+              changed = true;
+            }
+          });
+
           if (changed) save(false);
           return;
         }
@@ -67,9 +152,32 @@
     S = buildSeed();
     save(false);
   }
-  function save(logIt) { try { S.meta.savedAt = nowIso(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Could not save to localStorage: ' + e.message, true); } }
-  function log(text) { S.activity.unshift({ ts: nowIso(), text }); if (S.activity.length > 500) S.activity.length = 500; }
-  function commit(text) { if (text) log(text); save(); render(); if (text) toast(text); }
+
+  function save(triggerSync) {
+    if (triggerSync === undefined) triggerSync = true;
+    try {
+      S.meta = S.meta || {};
+      S.meta.savedAt = nowIso();
+      S.meta.version = (S.meta.version || 1) + 1;
+      localStorage.setItem(KEY, JSON.stringify(S));
+      if (triggerSync && window.SYNC && window.SYNC.onLocalChange) {
+        window.SYNC.onLocalChange();
+      }
+    } catch (e) { toast('Could not save to localStorage: ' + e.message, true); }
+  }
+
+  function log(text) {
+    S.activity = S.activity || [];
+    S.activity.unshift({ ts: nowIso(), text });
+    if (S.activity.length > 500) S.activity.length = 500;
+  }
+
+  function commit(text) {
+    if (text) log(text);
+    save(true);
+    render();
+    if (text) toast(text);
+  }
 
   // ---------- lookups ----------
   const P = id => S.projects.find(p => p.id === id);
@@ -77,20 +185,191 @@
   const pName = id => { const p = P(id); return p ? p.name : (id || '—'); };
   const ws = (p, id) => (p.workstreams || []).find(w => w.id === id);
   const ms = (p, id) => (p.milestones || []).find(m => m.id === id);
+
   function people() {
+    const list = [];
     const set = new Set();
-    (S.roles || []).forEach(r => { if (r.name !== 'Shrayansh SoodCRM/Tech') set.add(r.name); });
-    try { (buildSeed().roles || []).forEach(r => { if (r.name !== 'Shrayansh SoodCRM/Tech') set.add(r.name); }); } catch (e) {}
-    S.projects.forEach(p => { [p.owner, p.accountable, p.sponsor].forEach(v => { if (!isTBD(v) && v !== 'Shrayansh SoodCRM/Tech') set.add(v); }); (p.raci || []).forEach(r => { [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => { if (!isTBD(v) && v !== 'Shrayansh SoodCRM/Tech') set.add(v); }); }); });
-    S.tasks.forEach(t => { [t.owner, t.accountable].forEach(v => { if (!isTBD(v)) String(v).split(',').forEach(x => { const tr = x.trim(); if (tr && tr !== 'Shrayansh SoodCRM/Tech') set.add(tr); }); }); });
-    return [...set].filter(Boolean).sort();
+    // 1. Follow S.roles exact order first
+    (S.roles || []).forEach(r => {
+      if (r && r.name && r.name !== 'Shrayansh SoodCRM/Tech' && !set.has(r.name)) {
+        set.add(r.name);
+        list.push(r.name);
+      }
+    });
+    // 2. Add any other people referenced in projects/tasks that aren't in roles
+    const extras = new Set();
+    (S.projects || []).forEach(p => {
+      [p.owner, p.accountable, p.sponsor].forEach(v => {
+        if (v && !isTBD(v) && v !== 'Shrayansh SoodCRM/Tech' && !set.has(v)) extras.add(v);
+      });
+      (p.raci || []).forEach(r => {
+        [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => {
+          if (v && !isTBD(v) && v !== 'Shrayansh SoodCRM/Tech' && !set.has(v)) extras.add(v);
+        });
+      });
+    });
+    (S.tasks || []).forEach(t => {
+      [t.owner, t.accountable].forEach(v => {
+        if (v && !isTBD(v)) {
+          String(v).split(',').forEach(x => {
+            const tr = x.trim();
+            if (tr && !isTBD(tr) && tr !== 'Shrayansh SoodCRM/Tech' && !set.has(tr)) extras.add(tr);
+          });
+        }
+      });
+    });
+    return list.concat([...extras].sort());
+  }
+
+  // ---------- Person / Role cascading rename & delete ----------
+  function renamePerson(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    const role = (S.roles || []).find(r => r.name === oldName);
+    if (role) role.name = newName;
+
+    S.projects.forEach(p => {
+      if (p.owner === oldName) p.owner = newName;
+      if (p.accountable === oldName) p.accountable = newName;
+      if (p.sponsor === oldName) p.sponsor = newName;
+      (p.raci || []).forEach(r => {
+        if (r.A === oldName) r.A = newName;
+        if (Array.isArray(r.R)) r.R = r.R.map(x => x === oldName ? newName : x);
+        if (Array.isArray(r.C)) r.C = r.C.map(x => x === oldName ? newName : x);
+        if (Array.isArray(r.I)) r.I = r.I.map(x => x === oldName ? newName : x);
+      });
+    });
+
+    S.tasks.forEach(t => {
+      if (t.owner === oldName) t.owner = newName;
+      else if (t.owner && t.owner.includes(oldName)) {
+        t.owner = t.owner.split(',').map(s => s.trim() === oldName ? newName : s.trim()).join(', ');
+      }
+      if (t.accountable === oldName) t.accountable = newName;
+      else if (t.accountable && t.accountable.includes(oldName)) {
+        t.accountable = t.accountable.split(',').map(s => s.trim() === oldName ? newName : s.trim()).join(', ');
+      }
+    });
+
+    (S.risks || []).forEach(r => { if (r.owner === oldName) r.owner = newName; });
+    (S.dependencies || []).forEach(d => {
+      if (d.responsible === oldName) d.responsible = newName;
+      if (d.externalOwner === oldName) d.externalOwner = newName;
+    });
+    (S.decisions || []).forEach(d => { if (d.owner === oldName) d.owner = newName; });
+    (S.updates || []).forEach(u => { if (u.author === oldName) u.author = newName; });
+
+    if (UI.me === oldName) UI.me = newName;
+  }
+
+  function deletePerson(targetName) {
+    if (!confirm('Delete person "' + targetName + '"? References across projects, tasks and RACI will be set to TBD.')) return;
+    S.roles = S.roles.filter(r => r.name !== targetName);
+    const repl = 'TBD';
+
+    S.projects.forEach(p => {
+      if (p.owner === targetName) p.owner = repl;
+      if (p.accountable === targetName) p.accountable = repl;
+      if (p.sponsor === targetName) p.sponsor = repl;
+      (p.raci || []).forEach(r => {
+        if (r.A === targetName) r.A = repl;
+        if (Array.isArray(r.R)) r.R = r.R.map(x => x === targetName ? repl : x);
+        if (Array.isArray(r.C)) r.C = r.C.map(x => x === targetName ? repl : x);
+        if (Array.isArray(r.I)) r.I = r.I.map(x => x === targetName ? repl : x);
+      });
+    });
+
+    S.tasks.forEach(t => {
+      if (t.owner === targetName) t.owner = repl;
+      else if (t.owner && t.owner.includes(targetName)) {
+        t.owner = t.owner.split(',').map(s => s.trim() === targetName ? repl : s.trim()).join(', ');
+      }
+      if (t.accountable === targetName) t.accountable = repl;
+      else if (t.accountable && t.accountable.includes(targetName)) {
+        t.accountable = t.accountable.split(',').map(s => s.trim() === targetName ? repl : s.trim()).join(', ');
+      }
+    });
+
+    (S.risks || []).forEach(r => { if (r.owner === targetName) r.owner = repl; });
+    (S.dependencies || []).forEach(d => {
+      if (d.responsible === targetName) d.responsible = repl;
+      if (d.externalOwner === targetName) d.externalOwner = repl;
+    });
+    (S.decisions || []).forEach(d => { if (d.owner === targetName) d.owner = repl; });
+
+    if (UI.me === targetName) UI.me = '';
+    commit('Deleted person ' + targetName);
+  }
+
+  // ---------- Option list usage validation ----------
+  function checkOptionUsage(optKey, val) {
+    const usages = [];
+    if (optKey === 'priorities') {
+      const pCount = S.projects.filter(p => p.priority === val).length;
+      if (pCount) usages.push(pCount + ' project(s)');
+      const tCount = S.tasks.filter(t => t.priority === val).length;
+      if (tCount) usages.push(tCount + ' task(s)');
+      const aCount = S.actions.filter(a => a.priority === val).length;
+      if (aCount) usages.push(aCount + ' action(s)');
+    } else if (optKey === 'projectStatuses') {
+      const count = S.projects.filter(p => p.status === val).length;
+      if (count) usages.push(count + ' project(s)');
+    } else if (optKey === 'taskStatuses') {
+      const count = S.tasks.filter(t => t.status === val).length;
+      if (count) usages.push(count + ' task(s)');
+    } else if (optKey === 'taskKinds') {
+      const count = S.tasks.filter(t => t.kind === val).length;
+      if (count) usages.push(count + ' task(s)');
+    } else if (optKey === 'milestoneStatuses') {
+      let count = 0;
+      S.projects.forEach(p => { (p.milestones || []).forEach(m => { if (m.status === val) count++; }); });
+      if (count) usages.push(count + ' milestone(s)');
+    } else if (optKey === 'categories') {
+      const count = S.projects.filter(p => p.category === val).length;
+      if (count) usages.push(count + ' project(s)');
+    } else if (optKey === 'projectTypes') {
+      const count = S.projects.filter(p => p.type === val).length;
+      if (count) usages.push(count + ' project(s)');
+    } else if (optKey === 'valueClasses') {
+      const count = S.projects.filter(p => p.valueClass === val).length;
+      if (count) usages.push(count + ' project(s)');
+    } else if (optKey === 'riskLevels') {
+      const count = S.risks.filter(r => r.impact === val || r.probability === val).length;
+      if (count) usages.push(count + ' risk(s)');
+    } else if (optKey === 'riskStatuses') {
+      const count = S.risks.filter(r => r.status === val).length;
+      if (count) usages.push(count + ' risk(s)');
+    } else if (optKey === 'dependencyStatuses') {
+      const count = S.dependencies.filter(d => d.status === val).length;
+      if (count) usages.push(count + ' dependency(ies)');
+    } else if (optKey === 'decisionStatuses') {
+      const count = S.decisions.filter(d => d.status === val).length;
+      if (count) usages.push(count + ' decision(s)');
+    } else if (optKey === 'actionKinds') {
+      const count = S.actions.filter(a => a.kind === val).length;
+      if (count) usages.push(count + ' action(s)');
+    } else if (optKey === 'actionBuckets') {
+      const count = S.actions.filter(a => a.bucket === val).length;
+      if (count) usages.push(count + ' action(s)');
+    }
+    return usages;
   }
 
   // ---------- computed ----------
   function taskOverdue(t) { return t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) < 0; }
-  function projectProgress(id) { const ts = pTasks(id).filter(t => t.kind !== 'Recurring'); if (!ts.length) return 0; return Math.round(ts.reduce((a, t) => a + (t.status === 'Completed' ? 100 : (+t.progress || 0)), 0) / ts.length); }
-  function nextMilestone(p) { const open = (p.milestones || []).filter(m => m.status !== 'Completed'); const dated = open.filter(m => isDate(m.due)).sort(by('due')); return dated[0] || open[0] || null; }
-  function lastUpdate(id) { const u = S.updates.filter(u => u.projectId === id).sort((a, b) => b.ts > a.ts ? 1 : -1); return u[0] || null; }
+  function projectProgress(id) {
+    const ts = pTasks(id).filter(t => t.kind !== 'Recurring');
+    if (!ts.length) return 0;
+    return Math.round(ts.reduce((a, t) => a + (t.status === 'Completed' ? 100 : (+t.progress || 0)), 0) / ts.length);
+  }
+  function nextMilestone(p) {
+    const open = (p.milestones || []).filter(m => m.status !== 'Completed');
+    const dated = open.filter(m => isDate(m.due)).sort(by('due'));
+    return dated[0] || open[0] || null;
+  }
+  function lastUpdate(id) {
+    const u = S.updates.filter(u => u.projectId === id).sort((a, b) => b.ts > a.ts ? 1 : -1);
+    return u[0] || null;
+  }
   function health(p) {
     const reasons = [];
     const ts = pTasks(p.id);
@@ -105,10 +384,17 @@
     if (!started) return { rag: 'Grey', reasons: ['Not started'] };
     const amber = [];
     const soonM = (p.milestones || []).filter(m => m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) <= 7);
-    soonM.forEach(m => { const mt = ts.filter(t => t.ms === m.id); const prog = mt.length ? Math.round(mt.reduce((a, t) => a + (t.status === 'Completed' ? 100 : +t.progress || 0), 0) / mt.length) : 0; if (prog < 50) amber.push('Milestone "' + m.name + '" due in ' + daysFromToday(m.due) + 'd at ' + prog + '% task progress'); });
-    const soonT = ts.filter(t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) <= 7 && (+t.progress || 0) < 50 && (t.priority === 'P0' || t.priority === 'P1')); if (soonT.length) amber.push(soonT.length + ' P0/P1 task' + (soonT.length > 1 ? 's' : '') + ' due within 7 days with <50% progress');
-    const soonD = deps.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 14); if (soonD.length) amber.push(soonD.length + ' open dependency due within 14 days');
-    const lu = lastUpdate(p.id); const ageOk = lu && (Date.now() - new Date(lu.ts).getTime()) / 86400000 <= 14;
+    soonM.forEach(m => {
+      const mt = ts.filter(t => t.ms === m.id);
+      const prog = mt.length ? Math.round(mt.reduce((a, t) => a + (t.status === 'Completed' ? 100 : +t.progress || 0), 0) / mt.length) : 0;
+      if (prog < 50) amber.push('Milestone "' + m.name + '" due in ' + daysFromToday(m.due) + 'd at ' + prog + '% task progress');
+    });
+    const soonT = ts.filter(t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) <= 7 && (+t.progress || 0) < 50 && (t.priority === 'P0' || t.priority === 'P1'));
+    if (soonT.length) amber.push(soonT.length + ' P0/P1 task' + (soonT.length > 1 ? 's' : '') + ' due within 7 days with <50% progress');
+    const soonD = deps.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 14);
+    if (soonD.length) amber.push(soonD.length + ' open dependency due within 14 days');
+    const lu = lastUpdate(p.id);
+    const ageOk = lu && (Date.now() - new Date(lu.ts).getTime()) / 86400000 <= 14;
     if (!ageOk && p.status === 'In Progress') amber.push(lu ? 'No owner update in 14+ days' : 'No weekly owner update submitted yet');
     if (isTBD(p.accountable)) amber.push('No confirmed Accountable owner');
     if (p.status === 'On Hold') amber.push('On hold');
@@ -125,7 +411,9 @@
       });
       if (!(p.raci || []).length) out.push({ projectId: p.id, item: '(project)', issue: 'No RACI defined', sev: 'red' });
     });
-    S.tasks.forEach(t => { if (t.status !== 'Completed' && isTBD(t.owner)) out.push({ projectId: t.projectId, item: t.id + ' ' + t.name, issue: 'Task has no Responsible owner', sev: 'amber' }); });
+    S.tasks.forEach(t => {
+      if (t.status !== 'Completed' && isTBD(t.owner)) out.push({ projectId: t.projectId, item: t.id + ' ' + t.name, issue: 'Task has no Responsible owner', sev: 'amber' });
+    });
     return out;
   }
   function stats() {
@@ -157,7 +445,19 @@
   }
 
   // ---------- navigation ----------
-  function go(v, params) { UI.view = v; if (params) { if (params.id !== undefined) UI.projectId = params.id; if (params.tab) { if (v === 'project') UI.ptab = params.tab; if (v === 'risks') UI.riskTab = params.tab; if (v === 'tasks') UI.taskFilter = params.tab; } } window.scrollTo(0, 0); render(); }
+  function go(v, params) {
+    UI.view = v;
+    if (params) {
+      if (params.id !== undefined) UI.projectId = params.id;
+      if (params.tab) {
+        if (v === 'project') UI.ptab = params.tab;
+        if (v === 'risks') UI.riskTab = params.tab;
+        if (v === 'tasks') UI.taskFilter = params.tab;
+      }
+    }
+    window.scrollTo(0, 0);
+    render();
+  }
 
   // ---------- render root ----------
   const NAV = [
@@ -179,20 +479,62 @@
     data: '<path d="M12 3C7 3 3 4.8 3 7v10c0 2.2 4 4 9 4s9-1.8 9-4V7c0-2.2-4-4-9-4zm0 2c4.4 0 7 1.5 7 2s-2.6 2-7 2-7-1.5-7-2 2.6-2 7-2z"/>'
   };
   const ico = k => '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">' + (ICON[k] || '') + '</svg>';
+
   function render() {
-    const st = stats(); const aq = actionQueue();
-    const counts = { overview: '', actions: aq.filter(a => a.rank <= 3).length, portfolio: st.total, tasks: st.overdue ? st.overdue + ' overdue' : S.tasks.filter(t => t.status !== 'Completed').length, raci: raciIssues().filter(i => i.sev === 'red').length, risks: st.deps, decisions: st.decisions, weekly: S.projects.filter(p => p.status === 'In Progress' && !lastUpdate(p.id)).length, timeline: '', governance: '', data: '' };
+    const st = stats();
+    const aq = actionQueue();
+    const counts = {
+      overview: '',
+      actions: aq.filter(a => a.rank <= 3).length,
+      portfolio: st.total,
+      tasks: st.overdue ? st.overdue + ' overdue' : S.tasks.filter(t => t.status !== 'Completed').length,
+      raci: raciIssues().filter(i => i.sev === 'red').length,
+      risks: st.deps,
+      decisions: st.decisions,
+      weekly: S.projects.filter(p => p.status === 'In Progress' && !lastUpdate(p.id)).length,
+      timeline: '',
+      governance: '',
+      data: ''
+    };
     const cls = { actions: 'red', tasks: st.overdue ? 'red' : '', raci: 'amber', decisions: 'amber', risks: 'amber', weekly: 'amber' };
+
     $('#nav').innerHTML = NAV.map(g => '<div class="grp">' + g[0] + '</div>' + g[1].map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (UI.view === n[0] || (UI.view === 'project' && n[0] === 'portfolio') ? 'active' : '') + '"><span class="nl">' + ico(n[0]) + n[1] + '</span>' + (counts[n[0]] !== '' && counts[n[0]] !== 0 ? '<span class="cnt ' + (cls[n[0]] || '') + '">' + counts[n[0]] + '</span>' : '') + '</button>').join('')).join('');
-    const me = people(); $('#me').innerHTML = '<option value="">Viewing as: everyone</option>' + me.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('');
-    const v = UI.view; const titles = { overview: 'Executive Overview', actions: 'Immediate Action Queue', portfolio: 'Project Portfolio', timeline: 'Roadmap', tasks: 'Task Management', raci: 'RACI Management', risks: 'Risk & Dependency Register', decisions: 'Decision Register', weekly: 'Weekly Review', governance: 'Governance & operating cadence', data: 'Data & settings', project: UI.projectId ? pName(UI.projectId) : 'Project' };
+
+    const me = people();
+    $('#me').innerHTML = '<option value="">Viewing as: everyone</option>' + me.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('');
+
+    const v = UI.view;
+    const titles = {
+      overview: 'Executive Overview',
+      actions: 'Immediate Action Queue',
+      portfolio: 'Project Portfolio',
+      timeline: 'Roadmap',
+      tasks: 'Task Management',
+      raci: 'RACI Management',
+      risks: 'Risk & Dependency Register',
+      decisions: 'Decision Register',
+      weekly: 'Weekly Review',
+      governance: 'Governance & operating cadence',
+      data: 'Data & settings',
+      project: UI.projectId ? pName(UI.projectId) : 'Project'
+    };
     $('#vtitle').textContent = titles[v] || '';
-    const R = { overview: vOverview, actions: vActions, portfolio: vPortfolio, timeline: vTimeline, tasks: vTasks, raci: vRaci, risks: vRisks, decisions: vDecisions, weekly: vWeekly, governance: vGovernance, data: vData, project: vProject };
+
+    const R = {
+      overview: vOverview, actions: vActions, portfolio: vPortfolio, timeline: vTimeline,
+      tasks: vTasks, raci: vRaci, risks: vRisks, decisions: vDecisions, weekly: vWeekly,
+      governance: vGovernance, data: vData, project: vProject
+    };
     $('#main').innerHTML = (R[v] || vOverview)(st, aq);
+
+    if (window.SYNC && window.SYNC.updateUI) {
+      window.SYNC.updateUI();
+    }
   }
 
   // ---------- views ----------
   function kpi(cls, v, l, act) { return '<div class="kpi ' + cls + '" data-act="' + act + '"><div class="v">' + v + '</div><div class="l">' + l + '</div></div>'; }
+
   function vOverview(st, aq) {
     const dist = { Green: 0, Amber: 0, Red: 0, Grey: 0 }; st.hs.forEach(x => dist[x.h.rag]++);
     const prio = { P0: 0, P1: 0, P2: 0, P3: 0 }; S.projects.forEach(p => prio[p.priority] = (prio[p.priority] || 0) + 1);
@@ -206,11 +548,23 @@
     const stuck = st.hs.filter(x => x.h.rag === 'Red' || x.h.rag === 'Amber').sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1));
     const due7 = aq.filter(a => a.rank === 4);
     const li = (items, fn, empty) => items.length ? '<ul class="brief-list">' + items.slice(0, 5).map(fn).join('') + '</ul>' + (items.length > 5 ? '<div class="mini">+ ' + (items.length - 5) + ' more</div>' : '') : '<div class="mini">' + empty + '</div>';
+
     const brief = '<div class="brief section"><div class="brief-card"><div class="brief-h"><span>Needs your decision</span><b>' + myDecs.length + '</b></div>' + li(myDecs, d => '<li><span class="link" data-act="nav" data-v="decisions">' + esc(d.decision) + '</span><span class="when">' + (d.requiredBy ? 'by ' + fmt(d.requiredBy) : '') + '</span></li>', 'No open decisions with you.') + '</div>'
       + '<div class="brief-card"><div class="brief-h"><span>Slipping or blocked</span><b>' + stuck.length + '</b></div>' + li(stuck, x => '<li class="stack"><div><span class="dot ' + x.h.rag.toLowerCase() + '"></span><span class="link" data-act="open" data-id="' + x.p.id + '">' + esc(x.p.name) + '</span></div><div class="when">' + esc(x.h.reasons[0]) + '</div></li>', 'Nothing is slipping.') + '</div>'
       + '<div class="brief-card"><div class="brief-h"><span>Due in the next 7 days</span><b>' + due7.length + '</b></div>' + li(due7, a => '<li><span class="link" data-act="go" data-go=\'' + JSON.stringify(a.go) + '\'>' + esc(a.text) + '</span><span class="when">' + fmt(a.due) + '</span></li>', 'Nothing due this week.') + '</div>'
       + '<div class="brief-card"><div class="brief-h"><span>Unassigned</span><b>' + noOwner + '</b></div><div class="mini">' + (noOwner ? noOwner + ' of ' + st.total + ' projects still have a placeholder owner. Assign them from each project\'s charter.' : 'Every project has an owner.') + '</div><div style="margin-top:8px"><span class="link" data-act="go-portfolio">Open portfolio</span></div></div></div>';
+
     return `
+    <div class="sec-title" style="margin-bottom:12px">
+      <h2>Executive Summary</h2>
+      <div class="btnrow no-print">
+        <button class="btn sm primary" data-act="add-project">+ Project</button>
+        <button class="btn sm" data-act="add-task">+ Task</button>
+        <button class="btn sm" data-act="add-decision">+ Decision</button>
+        <button class="btn sm" data-act="add-risk">+ Risk</button>
+        <button class="btn sm" data-act="add-action">+ Action</button>
+      </div>
+    </div>
     <div class="kpis">
       ${kpi('', st.total, 'Total projects', 'go-portfolio')}${kpi('green', st.active, 'Active (In Progress)', 'go-portfolio')}${kpi('grey', st.notStarted, 'Not started', 'go-portfolio')}
       ${kpi('amber', st.atRisk, 'At risk (Amber)', 'go-portfolio')}${kpi('red', st.delayed, 'Delayed / blocked (Red)', 'go-portfolio')}${kpi('green', st.completed, 'Completed', 'go-portfolio')}
@@ -221,9 +575,9 @@
       <div class="card"><div class="hd"><h3>Project health (RAG)</h3><span class="sub">computed live</span></div><div class="bd">
         ${bar('Green — on track', dist.Green, st.total, '#22c55e')}${bar('Amber — at risk', dist.Amber, st.total, '#f59e0b')}${bar('Red — delayed/blocked', dist.Red, st.total, '#ef4444')}${bar('Grey — not started', dist.Grey, st.total, '#9ca3af')}
         <div class="mini" style="margin-top:8px">Health is derived from dates, milestones, dependencies and owner updates — not from task completion %.</div></div></div>
-      <div class="card"><div class="hd"><h3>Priority distribution</h3><span class="sub">proposed, pending approval</span></div><div class="bd">
-        ${bar('P0 — critical / immediate', prio.P0, st.total, '#0f1b33')}${bar('P1 — high business impact', prio.P1, st.total, '#b91c1c')}${bar('P2 — capability development', prio.P2, st.total, '#d97706')}${bar('P3 — strategic / longer-term', prio.P3, st.total, '#9ca3af')}</div></div>
-      <div class="card"><div class="hd"><h3>Projects by category</h3></div><div class="bd">${Object.entries(cat).map(([k, n]) => bar(k, n, st.total, '#2f5bea')).join('')}</div></div>
+      <div class="card"><div class="hd"><h3>Priority distribution</h3><span class="sub">configured</span></div><div class="bd">
+        ${opt('priorities').map(pr => bar(pr, prio[pr] || 0, st.total, pr === 'P0' ? '#0f1b33' : pr === 'P1' ? '#b91c1c' : pr === 'P2' ? '#d97706' : '#9ca3af')).join('')}</div></div>
+      <div class="card"><div class="hd"><h3>Projects by category</h3></div><div class="bd">${opt('categories').map(k => bar(k, cat[k] || 0, st.total, '#2f5bea')).join('')}</div></div>
     </div>
     <div class="grid g2 section">
       <div class="card"><div class="hd"><h3>Projects requiring leadership intervention</h3><span class="sub">${intervene.length}</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Project</th><th class="nosort">Prio</th><th class="nosort">Health</th><th class="nosort">Why</th></tr></thead><tbody>
@@ -240,15 +594,19 @@
 
   function vActions(st, aq) {
     const seeded = S.actions;
-    const buckets = ['Implement immediately', 'Requires a decision', 'Requires technology / CRM support', 'Requires another department', 'Requires a pilot / experiment', 'Requires a complete project plan'];
+    const buckets = opt('actionBuckets');
     const row = a => '<tr class="row"><td>' + pillPrio(a.priority) + '</td><td><b>' + esc(a.action) + '</b><div class="mini">' + esc(a.why) + '</div></td><td>' + esc(a.ownerRole) + '</td><td class="mini">' + esc(a.output) + '</td><td class="mini">' + esc(a.dependency) + '</td><td class="mini">' + esc(a.timeline) + '</td><td>' + (a.projectId ? '<span class="link" data-act="open" data-id="' + a.projectId + '">' + esc(a.projectId) + '</span>' : '—') + (a.taskId ? '<div class="mini">' + esc(a.taskId) + '</div>' : '') + '</td><td><span class="pill ' + (a.kind === 'Pending action' ? 'red' : 'outline') + '">' + esc(a.kind) + '</span></td><td class="btnrow no-print"><button class="btn sm" data-act="edit-action" data-id="' + a.id + '">Edit</button><button class="btn sm danger" data-act="del-action" data-id="' + a.id + '">Delete</button></td></tr>';
+
     return `
     <div class="sub section">The queue below is computed from live data, in order: overdue, blockers, pending decisions, upcoming deadlines, high-priority unassigned. The analysis further down separates confirmed pending actions from recommendations.</div>
     <div class="card section"><div class="hd"><h3>Computed queue — what needs attention now</h3><span class="sub">${aq.length} items</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">#</th><th class="nosort">Type</th><th class="nosort">Item</th><th class="nosort">Project</th><th class="nosort">Owner</th><th class="nosort">Due</th><th class="nosort">Prio</th></tr></thead><tbody>
       ${aq.length ? aq.map((a, i) => '<tr class="row"><td class="num">' + (i + 1) + '</td><td><span class="pill ' + (a.rank <= 2 ? 'red' : a.rank === 3 ? 'amber' : 'outline') + '">' + esc(a.type) + '</span></td><td><span class="link" data-act="go" data-go=\'' + JSON.stringify(a.go) + '\'>' + esc(a.text) + '</span><div class="mini">' + esc(a.ref) + '</div></td><td>' + esc(pName(a.project)) + '</td><td>' + person(a.owner) + '</td><td>' + fmt(a.due) + '</td><td>' + pillPrio(a.prio) + '</td></tr>').join('') : '<tr><td colspan="7" class="empty">Queue is empty.</td></tr>'}
     </tbody></table></div></div>
     <div class="sec-title"><h2>Implementability analysis</h2><button class="btn primary" data-act="add-action">+ Add action</button></div>
-    ${buckets.map(b => { const items = seeded.filter(a => a.bucket === b).sort((x, y) => x.priority.localeCompare(y.priority)); return items.length ? '<div class="card section"><div class="hd"><h3>' + esc(b) + '</h3><span class="sub">' + items.length + '</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Prio</th><th class="nosort">Action / why</th><th class="nosort">Suggested owner role</th><th class="nosort">Expected output</th><th class="nosort">Dependency</th><th class="nosort">Timeline</th><th class="nosort">Ref</th><th class="nosort">Kind</th><th class="nosort"></th></tr></thead><tbody>' + items.map(row).join('') + '</tbody></table></div></div>' : ''; }).join('')}`;
+    ${buckets.map(b => {
+      const items = seeded.filter(a => a.bucket === b).sort((x, y) => (x.priority || '').localeCompare(y.priority || ''));
+      return items.length ? '<div class="card section"><div class="hd"><h3>' + esc(b) + '</h3><div class="btnrow"><span class="sub">' + items.length + '</span><button class="btn sm" data-act="add-action">+ Add</button></div></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Prio</th><th class="nosort">Action / why</th><th class="nosort">Suggested owner role</th><th class="nosort">Expected output</th><th class="nosort">Dependency</th><th class="nosort">Timeline</th><th class="nosort">Ref</th><th class="nosort">Kind</th><th class="nosort"></th></tr></thead><tbody>' + items.map(row).join('') + '</tbody></table></div></div>' : '';
+    }).join('')}`;
   }
 
   function vPortfolio(st) {
@@ -263,15 +621,37 @@
     rows.sort((a, b) => { const x = key(a), y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * (sk.d === 'desc' ? -1 : 1); });
     const th = (k, l) => '<th data-act="sort" data-t="portfolio" data-k="' + k + '">' + l + (sk.k === k ? (sk.d === 'asc' ? ' ▲' : ' ▼') : '') + '</th>';
     const sel = (k, l, opts) => '<select data-act="filter" data-k="' + k + '"><option value="">' + l + '</option>' + opts.map(o => '<option value="' + esc(o[0]) + '" ' + (f[k] === o[0] ? 'selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+
+    // Programs listing
+    const programsHtml = `
+    <div class="card section" style="margin-top:20px">
+      <div class="hd">
+        <h3>Strategic Programs</h3>
+        <button class="btn sm primary" data-act="add-program">+ Add program</button>
+      </div>
+      ${S.programs && S.programs.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Program Name</th><th class="nosort">Objective</th><th class="nosort">Child Projects</th><th class="nosort">Notes</th><th class="nosort"></th></tr></thead><tbody>' +
+        S.programs.map(pg => {
+          const kids = (pg.children || []).map(cid => '<span class="link" data-act="open" data-id="' + cid + '">' + esc(cid) + '</span>').join(', ') || '<span class="mini tbd">No projects</span>';
+          return '<tr class="row"><td><b>' + esc(pg.id) + '</b></td><td><b>' + esc(pg.name) + '</b></td><td class="mini">' + esc(pg.objective) + '</td><td>' + kids + '</td><td class="mini">' + esc(pg.note || '—') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-program" data-id="' + pg.id + '">Edit</button><button class="btn sm danger" data-act="del-program" data-id="' + pg.id + '">Delete</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="empty">No programs configured. <button class="btn sm primary" data-act="add-program">+ Add program</button></div>'}
+    </div>`;
+
     return `
     <div class="filters">
-      ${sel('category', 'All categories', CATS.map(c => [c, c]))}${sel('priority', 'All priorities', PRIOS.map(p => [p, p]))}${sel('status', 'All statuses', PSTATUS.map(s => [s, s]))}${sel('health', 'All health', ['Red', 'Amber', 'Green', 'Grey'].map(s => [s, s]))}${sel('type', 'All types', [...new Set(S.projects.map(p => p.type))].map(t => [t, t]))}${sel('program', 'All programs', [['none', '(No program)']].concat(S.programs.map(p => [p.id, p.id + ' ' + p.name])))}${sel('owner', 'Any owner', people().map(p => [p, p]))}
+      ${sel('category', 'All categories', opt('categories').map(c => [c, c]))}
+      ${sel('priority', 'All priorities', opt('priorities').map(p => [p, p]))}
+      ${sel('status', 'All statuses', opt('projectStatuses').map(s => [s, s]))}
+      ${sel('health', 'All health', ['Red', 'Amber', 'Green', 'Grey'].map(s => [s, s]))}
+      ${sel('type', 'All types', opt('projectTypes').map(t => [t, t]))}
+      ${sel('program', 'All programs', [['none', '(No program)']].concat((S.programs || []).map(p => [p.id, p.id + ' ' + p.name])))}
+      ${sel('owner', 'Any owner', people().map(p => [p, p]))}
       <button class="btn sm" data-act="clear-filters">Clear</button><span style="flex:1"></span><button class="btn primary" data-act="add-project">+ New project</button>
     </div>
-    <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>${th('id', 'ID')}${th('name', 'Project')}${th('category', 'Category')}${th('priority', 'Prio')}${th('owner', 'Owner')}${th('accountable', 'Accountable')}${th('status', 'Status')}${th('health', 'Health')}${th('progress', 'Progress')}${th('nm', 'Next milestone')}${th('due', 'Due')}${th('deps', 'Deps')}</tr></thead><tbody>
-      ${rows.length ? rows.map(r => '<tr class="row"><td class="mini">' + esc(r.p.id) + '</td><td><span class="link" data-act="open" data-id="' + r.p.id + '">' + esc(r.p.name) + '</span><div class="mini">' + esc(r.p.type) + (r.p.program ? ' · ' + r.p.program : '') + '</div></td><td class="mini">' + esc(r.p.category) + '</td><td>' + pillPrio(r.p.priority) + '</td><td>' + person(r.p.owner) + '</td><td>' + person(r.p.accountable) + '</td><td>' + pillStatus(r.p.status) + '</td><td title="' + esc(r.h.reasons.join('; ')) + '">' + pillRag(r.h.rag) + '</td><td><div class="progwrap"><div class="prog"><i style="width:' + r.progress + '%"></i></div>' + r.progress + '%</div></td><td class="mini">' + (r.nm ? esc(r.nm.name) + '<br>' + fmt(r.nm.due) : '—') + '</td><td>' + (r.p.due ? fmt(r.p.due) : '<span class="mini">ongoing</span>') + '</td><td class="num">' + r.deps + '</td></tr>').join('') : '<tr><td colspan="12" class="empty">No projects match.</td></tr>'}
+    <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>${th('id', 'ID')}${th('name', 'Project')}${th('category', 'Category')}${th('priority', 'Prio')}${th('owner', 'Owner')}${th('accountable', 'Accountable')}${th('status', 'Status')}${th('health', 'Health')}${th('progress', 'Progress')}${th('nm', 'Next milestone')}${th('due', 'Due')}${th('deps', 'Deps')}<th class="nosort"></th></tr></thead><tbody>
+      ${rows.length ? rows.map(r => '<tr class="row"><td class="mini">' + esc(r.p.id) + '</td><td><span class="link" data-act="open" data-id="' + r.p.id + '">' + esc(r.p.name) + '</span><div class="mini">' + esc(r.p.type) + (r.p.program ? ' · ' + r.p.program : '') + '</div></td><td class="mini">' + esc(r.p.category) + '</td><td>' + pillPrio(r.p.priority) + '</td><td>' + person(r.p.owner) + '</td><td>' + person(r.p.accountable) + '</td><td>' + pillStatus(r.p.status) + '</td><td title="' + esc(r.h.reasons.join('; ')) + '">' + pillRag(r.h.rag) + '</td><td><div class="progwrap"><div class="prog"><i style="width:' + r.progress + '%"></i></div>' + r.progress + '%</div></td><td class="mini">' + (r.nm ? esc(r.nm.name) + '<br>' + fmt(r.nm.due) : '—') + '</td><td>' + (r.p.due ? fmt(r.p.due) : '<span class="mini">ongoing</span>') + '</td><td class="num">' + r.deps + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-project" data-id="' + r.p.id + '">Edit</button><button class="btn sm danger" data-act="del-project" data-id="' + r.p.id + '">Del</button></td></tr>').join('') : '<tr><td colspan="13" class="empty">No projects match. <button class="btn sm primary" data-act="add-project">+ New project</button></td></tr>'}
     </tbody></table></div></div>
-    <div class="mini" style="margin-top:8px">${rows.length} of ${S.projects.length} projects. Click a column header to sort. Hover Health for reasons.</div>`;
+    <div class="mini" style="margin-top:8px">${rows.length} of ${S.projects.length} projects. Click a column header to sort. Hover Health for reasons.</div>
+    ${programsHtml}`;
   }
 
   function vProject() {
@@ -280,6 +660,7 @@
     const tabs = [['charter', 'Charter'], ['plan', 'Workstreams & Milestones'], ['tasks', 'Tasks'], ['raci', 'RACI'], ['risks', 'Risks & Dependencies'], ['updates', 'Updates & Comments'], ['history', 'Activity']];
     const tab = UI.ptab;
     let body = '';
+
     if (tab === 'charter') {
       body = `<div class="two">
         <div class="card"><div class="hd"><h3>Project charter</h3><button class="btn sm" data-act="edit-project" data-id="${p.id}">Edit charter</button></div><div class="bd"><dl class="dl">
@@ -305,24 +686,42 @@
         </div></div>`;
     } else if (tab === 'plan') {
       body = '<div class="btnrow section"><button class="btn" data-act="add-ws" data-id="' + p.id + '">+ Workstream</button><button class="btn primary" data-act="add-ms" data-id="' + p.id + '">+ Milestone</button></div>' +
-        (p.workstreams || []).map(w => { const mss = (p.milestones || []).filter(m => m.ws === w.id); const wts = ts.filter(t => t.ws === w.id); return '<div class="ws-block"><div class="ws-hd"><span>' + esc(w.id) + ' · ' + esc(w.name) + ' <span class="mini">' + wts.length + ' tasks</span></span><span class="btnrow"><button class="btn sm" data-act="edit-ws" data-id="' + p.id + '" data-ws="' + w.id + '">Edit</button><button class="btn sm danger" data-act="del-ws" data-id="' + p.id + '" data-ws="' + w.id + '">Delete</button></span></div>' + (mss.length ? mss.map(m => msRow(p, m)).join('') : '<div class="ms-row mini">No milestones in this workstream.</div>') + '</div>'; }).join('') +
+        (p.workstreams || []).map(w => {
+          const mss = (p.milestones || []).filter(m => m.ws === w.id);
+          const wts = ts.filter(t => t.ws === w.id);
+          return '<div class="ws-block"><div class="ws-hd"><span>' + esc(w.id) + ' · ' + esc(w.name) + ' <span class="mini">' + wts.length + ' tasks</span></span><span class="btnrow"><button class="btn sm" data-act="edit-ws" data-id="' + p.id + '" data-ws="' + w.id + '">Edit</button><button class="btn sm danger" data-act="del-ws" data-id="' + p.id + '" data-ws="' + w.id + '">Delete</button></span></div>' + (mss.length ? mss.map(m => msRow(p, m)).join('') : '<div class="ms-row mini">No milestones in this workstream. <button class="btn sm" data-act="add-ms" data-id="' + p.id + '">+ Milestone</button></div>') + '</div>';
+        }).join('') +
         (() => { const orphan = (p.milestones || []).filter(m => !ws(p, m.ws)); return orphan.length ? '<div class="ws-block"><div class="ws-hd">Milestones without a workstream</div>' + orphan.map(m => msRow(p, m)).join('') + '</div>' : ''; })() +
-        ((p.workstreams || []).length ? '' : '<div class="empty">No workstreams yet.</div>');
+        ((p.workstreams || []).length ? '' : '<div class="empty">No workstreams yet. <button class="btn sm primary" data-act="add-ws" data-id="' + p.id + '">+ Add workstream</button></div>');
     } else if (tab === 'tasks') {
       body = '<div class="btnrow section"><button class="btn primary" data-act="add-task" data-pid="' + p.id + '">+ Add task</button><span class="mini">' + ts.filter(t => t.status === 'Completed').length + ' of ' + ts.length + ' completed · ' + ts.filter(taskOverdue).length + ' overdue</span></div>' + taskTable(ts.filter(t => !t.parent), true);
     } else if (tab === 'raci') {
       body = '<div class="btnrow section"><button class="btn primary" data-act="add-raci" data-id="' + p.id + '">+ RACI entry</button><span class="mini">Exactly one Accountable per item. Missing or conflicting entries are flagged.</span></div>' + raciTable(p);
     } else if (tab === 'risks') {
       const rs = S.risks.filter(r => r.projectId === p.id), ds = S.dependencies.filter(d => d.projectId === p.id);
-      body = '<div class="btnrow section"><button class="btn primary" data-act="add-risk" data-pid="' + p.id + '">+ Risk</button><button class="btn" data-act="add-dep" data-pid="' + p.id + '">+ Dependency</button></div><div class="card section"><div class="hd"><h3>Risks & blockers</h3></div>' + riskTable(rs) + '</div><div class="card"><div class="hd"><h3>Dependencies</h3></div>' + depTable(ds) + '</div>';
+      body = '<div class="btnrow section"><button class="btn primary" data-act="add-risk" data-pid="' + p.id + '">+ Risk</button><button class="btn" data-act="add-dep" data-pid="' + p.id + '">+ Dependency</button></div><div class="card section"><div class="hd"><h3>Risks & blockers</h3><button class="btn sm" data-act="add-risk" data-pid="' + p.id + '">+ Add</button></div>' + riskTable(rs) + '</div><div class="card"><div class="hd"><h3>Dependencies</h3><button class="btn sm" data-act="add-dep" data-pid="' + p.id + '">+ Add</button></div>' + depTable(ds) + '</div>';
     } else if (tab === 'updates') {
       const ups = S.updates.filter(u => u.projectId === p.id).sort((a, b) => b.ts > a.ts ? 1 : -1);
-      body = '<div class="two"><div><div class="btnrow section"><button class="btn primary" data-act="add-update" data-pid="' + p.id + '">+ Submit weekly update</button></div>' + (ups.length ? ups.map(updateCard).join('') : '<div class="empty">No weekly updates submitted yet. Health will show Amber for active projects until the owner submits one.</div>') + '</div>' +
-        '<div class="card"><div class="hd"><h3>Comments</h3></div><div class="bd"><form data-act="add-comment" data-pid="' + p.id + '" class="btnrow"><input class="search" style="flex:1" name="c" placeholder="Add a comment…" required><input name="who" placeholder="Your name" style="width:130px;padding:6px 9px;border:1px solid var(--border);border-radius:6px"><button class="btn primary">Post</button></form>' + ((p.comments || []).slice().reverse().map(c => '<div class="comment"><div>' + esc(c.text) + '</div><div class="m">' + esc(c.who || 'Anonymous') + ' · ' + new Date(c.ts).toLocaleString() + '</div></div>').join('') || '<div class="empty">No comments.</div>') + '</div></div></div>';
+      const commentsList = (p.comments || []).map((c, idx) => `
+        <div class="comment" style="display:flex; flex-direction:column; gap:4px">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="m"><b>${esc(c.who || 'Anonymous')}</b> · ${new Date(c.ts).toLocaleString()} ${c.editedAt ? '<span class="mini">(edited)</span>' : ''}</div>
+            <div class="btnrow no-print">
+              <button class="btn sm ghost" data-act="edit-comment" data-pid="${p.id}" data-i="${idx}">Edit</button>
+              <button class="btn sm danger" data-act="del-comment" data-pid="${p.id}" data-i="${idx}">Delete</button>
+            </div>
+          </div>
+          <div>${esc(c.text)}</div>
+        </div>
+      `).join('') || '<div class="empty">No comments yet.</div>';
+
+      body = '<div class="two"><div><div class="btnrow section"><button class="btn primary" data-act="add-update" data-pid="' + p.id + '">+ Submit weekly update</button></div>' + (ups.length ? ups.map(updateCard).join('') : '<div class="empty">No weekly updates submitted yet. Health will show Amber for active projects until the owner submits one. <br><button class="btn sm primary" style="margin-top:8px" data-act="add-update" data-pid="' + p.id + '">+ Submit update</button></div>') + '</div>' +
+        '<div class="card"><div class="hd"><h3>Comments</h3></div><div class="bd"><form data-act="add-comment" data-pid="' + p.id + '" class="btnrow" style="margin-bottom:12px"><input class="search" style="flex:1" name="c" placeholder="Add a comment…" required><input name="who" placeholder="Your name" style="width:130px;padding:6px 9px;border:1px solid var(--border);border-radius:6px"><button class="btn primary">Post</button></form>' + commentsList + '</div></div></div>';
     } else if (tab === 'history') {
       const acts = S.activity.filter(a => a.text.includes(p.id) || a.text.includes(p.name));
       body = '<div class="card"><div class="bd">' + (acts.length ? acts.map(a => '<div class="comment"><div>' + esc(a.text) + '</div><div class="m">' + new Date(a.ts).toLocaleString() + '</div></div>').join('') : '<div class="empty">No activity recorded for this project yet.</div>') + '</div></div>';
     }
+
     return `<span class="back" data-act="nav" data-v="portfolio">← Portfolio</span>
       <div class="card section"><div class="bd" style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap">
         <div><div class="mini">${esc(p.id)} · ${esc(p.category)} · ${esc(p.type)}</div><h1 style="margin:2px 0 6px">${esc(p.name)}</h1><div class="chips">${pillPrio(p.priority)}${pillStatus(p.status)}${pillRag(h.rag)}<span class="pill outline">Owner: ${esc(p.owner)}</span><span class="pill outline">A: ${esc(p.accountable)}</span></div></div>
@@ -332,12 +731,25 @@
       ${body}
       <div id="print-area" style="display:none"></div>`;
   }
-  function msRow(p, m) { const d = daysFromToday(m.due); const late = m.status !== 'Completed' && d != null && d < 0; const mt = pTasks(p.id).filter(t => t.ms === m.id); return '<div class="ms-row"><span class="dot ' + (m.status === 'Completed' ? 'green' : late ? 'red' : d != null && d <= 7 ? 'amber' : 'grey') + '"></span><span class="n"><b>' + esc(m.name) + '</b> <span class="mini">' + esc(m.id) + ' · ' + mt.length + ' tasks</span></span><span class="mini">' + fmt(m.due) + (late ? ' <span class="tbd">(' + Math.abs(d) + 'd overdue)</span>' : '') + '</span>' + pillStatus(m.status) + '<span class="btnrow"><button class="btn sm" data-act="edit-ms" data-id="' + p.id + '" data-ms="' + m.id + '">Edit</button><button class="btn sm danger" data-act="del-ms" data-id="' + p.id + '" data-ms="' + m.id + '">Delete</button></span></div>'; }
-  function updateCard(u) { return '<div class="card section"><div class="hd"><h3>Week of ' + fmt(u.week) + '</h3><span class="btnrow"><span class="mini">' + esc(u.author || '') + ' · ' + new Date(u.ts).toLocaleDateString() + '</span><button class="btn sm" data-act="edit-update" data-id="' + u.id + '">Edit</button><button class="btn sm danger" data-act="del-update" data-id="' + u.id + '">Delete</button></span></div><div class="bd"><dl class="dl"><dt>RAG (owner view)</dt><dd>' + pillRag(u.rag || 'Grey') + '</dd><dt>Last week\'s progress</dt><dd>' + esc(u.progress) + '</dd><dt>Deliverables completed</dt><dd>' + esc(u.completed) + '</dd><dt>Current blockers</dt><dd>' + esc(u.blockers) + '</dd><dt>Missed commitments</dt><dd>' + esc(u.missed) + '</dd><dt>Next week\'s commitments</dt><dd>' + esc(u.next) + '</dd><dt>Decisions required</dt><dd>' + esc(u.decisions) + '</dd></dl></div></div>'; }
+
+  function msRow(p, m) {
+    const d = daysFromToday(m.due);
+    const late = m.status !== 'Completed' && d != null && d < 0;
+    const mt = pTasks(p.id).filter(t => t.ms === m.id);
+    return '<div class="ms-row"><span class="dot ' + (m.status === 'Completed' ? 'green' : late ? 'red' : d != null && d <= 7 ? 'amber' : 'grey') + '"></span><span class="n"><b>' + esc(m.name) + '</b> <span class="mini">' + esc(m.id) + ' · ' + mt.length + ' tasks</span></span><span class="mini">' + fmt(m.due) + (late ? ' <span class="tbd">(' + Math.abs(d) + 'd overdue)</span>' : '') + '</span>' + pillStatus(m.status) + '<span class="btnrow"><button class="btn sm" data-act="edit-ms" data-id="' + p.id + '" data-ms="' + m.id + '">Edit</button><button class="btn sm danger" data-act="del-ms" data-id="' + p.id + '" data-ms="' + m.id + '">Delete</button></span></div>';
+  }
+
+  function updateCard(u) {
+    return '<div class="card section"><div class="hd"><h3>Week of ' + fmt(u.week) + '</h3><span class="btnrow"><span class="mini">' + esc(u.author || '') + ' · ' + new Date(u.ts).toLocaleDateString() + '</span><button class="btn sm" data-act="edit-update" data-id="' + u.id + '">Edit</button><button class="btn sm danger" data-act="del-update" data-id="' + u.id + '">Delete</button></span></div><div class="bd"><dl class="dl"><dt>RAG (owner view)</dt><dd>' + pillRag(u.rag || 'Grey') + '</dd><dt>Last week\'s progress</dt><dd>' + esc(u.progress) + '</dd><dt>Deliverables completed</dt><dd>' + esc(u.completed) + '</dd><dt>Current blockers</dt><dd>' + esc(u.blockers) + '</dd><dt>Missed commitments</dt><dd>' + esc(u.missed) + '</dd><dt>Next week\'s commitments</dt><dd>' + esc(u.next) + '</dd><dt>Decisions required</dt><dd>' + esc(u.decisions) + '</dd></dl></div></div>';
+  }
 
   function taskTable(list, showSub) {
-    if (!list.length) return '<div class="card"><div class="empty">No tasks.</div></div>';
-    const row = (t, sub) => { const od = taskOverdue(t); return '<tr class="row' + (sub ? ' task-sub' : '') + '"><td class="mini">' + (sub ? '↳ ' : '') + esc(t.id) + '</td><td><span class="link" data-act="edit-task" data-id="' + t.id + '">' + esc(t.name) + '</span><div class="mini">' + esc(t.deliverable || '') + (t.dependency ? ' · dep: ' + esc(t.dependency) : '') + '</div></td>' + (showSub ? '' : '<td><span class="link" data-act="open" data-id="' + t.projectId + '" data-tab="tasks">' + esc(pName(t.projectId)) + '</span></td>') + '<td>' + person(t.owner) + '</td><td>' + person(t.accountable) + '</td><td>' + pillPrio(t.priority) + '</td><td><select class="inline-sel" data-act="task-status" data-id="' + t.id + '">' + TSTATUS.map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + s + '</option>').join('') + '</select></td><td class="' + (od ? 'tbd' : '') + '">' + fmt(t.due) + (od ? '<div class="mini">' + Math.abs(daysFromToday(t.due)) + 'd overdue</div>' : '') + '</td><td><input class="inline-inp" type="number" min="0" max="100" value="' + (+t.progress || 0) + '" data-act="task-progress" data-id="' + t.id + '">%</td><td class="mini">' + esc(t.kind || 'Task') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="add-subtask" data-id="' + t.id + '" title="Add subtask">+Sub</button><button class="btn sm danger" data-act="del-task" data-id="' + t.id + '">Del</button></td></tr>' + (showSub ? S.tasks.filter(x => x.parent === t.id).map(x => row(x, true)).join('') : ''); };
+    if (!list.length) return '<div class="card"><div class="empty">No tasks. <button class="btn sm primary" data-act="add-task">+ Add task</button></div></div>';
+    const taskStatuses = opt('taskStatuses');
+    const row = (t, sub) => {
+      const od = taskOverdue(t);
+      return '<tr class="row' + (sub ? ' task-sub' : '') + '"><td class="mini">' + (sub ? '↳ ' : '') + esc(t.id) + '</td><td><span class="link" data-act="edit-task" data-id="' + t.id + '">' + esc(t.name) + '</span><div class="mini">' + esc(t.deliverable || '') + (t.dependency ? ' · dep: ' + esc(t.dependency) : '') + '</div></td>' + (showSub ? '' : '<td><span class="link" data-act="open" data-id="' + t.projectId + '" data-tab="tasks">' + esc(pName(t.projectId)) + '</span></td>') + '<td>' + person(t.owner) + '</td><td>' + person(t.accountable) + '</td><td>' + pillPrio(t.priority) + '</td><td><select class="inline-sel" data-act="task-status" data-id="' + t.id + '">' + taskStatuses.map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + s + '</option>').join('') + '</select></td><td class="' + (od ? 'tbd' : '') + '">' + fmt(t.due) + (od ? '<div class="mini">' + Math.abs(daysFromToday(t.due)) + 'd overdue</div>' : '') + '</td><td><input class="inline-inp" type="number" min="0" max="100" value="' + (+t.progress || 0) + '" data-act="task-progress" data-id="' + t.id + '">%</td><td class="mini">' + esc(t.kind || 'Task') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-task" data-id="' + t.id + '">Edit</button><button class="btn sm" data-act="add-subtask" data-id="' + t.id + '" title="Add subtask">+Sub</button><button class="btn sm danger" data-act="del-task" data-id="' + t.id + '">Del</button></td></tr>' + (showSub ? S.tasks.filter(x => x.parent === t.id).map(x => row(x, true)).join('') : '');
+    };
     return '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Task</th>' + (showSub ? '' : '<th class="nosort">Project</th>') + '<th class="nosort">Owner (R)</th><th class="nosort">Accountable</th><th class="nosort">Prio</th><th class="nosort">Status</th><th class="nosort">Due</th><th class="nosort">Progress</th><th class="nosort">Kind</th><th class="nosort"></th></tr></thead><tbody>' + list.map(t => row(t, !!t.parent)).join('') + '</tbody></table></div></div>';
   }
 
@@ -352,9 +764,10 @@
     const ff = UI.filters; if (ff.tproject) list = list.filter(t => t.projectId === ff.tproject); if (ff.tprio) list = list.filter(t => t.priority === ff.tprio); if (ff.towner) list = list.filter(t => (t.owner || '').includes(ff.towner));
     const sk = UI.sort.tasks || { k: 'due', d: 'asc' }; list.sort((a, b) => { let x = a[sk.k] || 'zzzz', y = b[sk.k] || 'zzzz'; return (x > y ? 1 : x < y ? -1 : 0) * (sk.d === 'desc' ? -1 : 1); });
     const tabs = [['all', 'All tasks'], ['my', 'My tasks'], ['overdue', 'Overdue'], ['week', 'Due this week'], ['pending', 'Pending'], ['completed', 'Completed'], ['approval', 'Awaiting approval / decision'], ['unassigned', 'Unassigned']];
+
     return `<div class="tabs">${tabs.map(t => '<button data-act="tfilter" data-f="' + t[0] + '" class="' + (f === t[0] ? 'active' : '') + '">' + t[1] + '<span class="cnt">' + counts[t[0]] + '</span></button>').join('')}</div>
       ${f === 'my' && !UI.me ? '<div class="note info section">Select a person in "Viewing as" (top bar) to see their tasks.</div>' : ''}
-      <div class="filters"><select data-act="filter" data-k="tproject"><option value="">All projects</option>${S.projects.map(p => '<option value="' + p.id + '" ' + (ff.tproject === p.id ? 'selected' : '') + '>' + esc(p.id + ' ' + p.name) + '</option>').join('')}</select><select data-act="filter" data-k="tprio"><option value="">All priorities</option>${PRIOS.map(p => '<option ' + (ff.tprio === p ? 'selected' : '') + '>' + p + '</option>').join('')}</select><select data-act="filter" data-k="towner"><option value="">Any owner</option>${people().map(p => '<option ' + (ff.towner === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select>
+      <div class="filters"><select data-act="filter" data-k="tproject"><option value="">All projects</option>${S.projects.map(p => '<option value="' + p.id + '" ' + (ff.tproject === p.id ? 'selected' : '') + '>' + esc(p.id + ' ' + p.name) + '</option>').join('')}</select><select data-act="filter" data-k="tprio"><option value="">All priorities</option>${opt('priorities').map(p => '<option ' + (ff.tprio === p ? 'selected' : '') + '>' + p + '</option>').join('')}</select><select data-act="filter" data-k="towner"><option value="">Any owner</option>${people().map(p => '<option ' + (ff.towner === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select>
       <select data-act="sort-sel" data-t="tasks"><option value="due:asc" ${sk.k === 'due' && sk.d === 'asc' ? 'selected' : ''}>Sort: due ↑</option><option value="due:desc" ${sk.k === 'due' && sk.d === 'desc' ? 'selected' : ''}>Sort: due ↓</option><option value="priority:asc" ${sk.k === 'priority' ? 'selected' : ''}>Sort: priority</option><option value="projectId:asc" ${sk.k === 'projectId' ? 'selected' : ''}>Sort: project</option><option value="status:asc" ${sk.k === 'status' ? 'selected' : ''}>Sort: status</option></select>
       <button class="btn sm" data-act="clear-filters">Clear</button><span style="flex:1"></span><button class="btn primary" data-act="add-task">+ Add task</button></div>
       ${taskTable(list, false)}<div class="mini" style="margin-top:8px">${list.length} tasks shown. Change status or progress inline; click a task name to edit all fields.</div>`;
@@ -362,16 +775,59 @@
 
   function raciTable(p, filterFn) {
     const rows = (p.raci || []).filter(r => !filterFn || filterFn(r));
-    if (!rows.length) return '<div class="card"><div class="empty">No RACI entries' + (filterFn ? ' match' : '') + '.</div></div>';
+    if (!rows.length) return '<div class="card"><div class="empty">No RACI entries' + (filterFn ? ' match' : '') + '. <button class="btn sm primary" data-act="add-raci" data-id="' + p.id + '">+ Add RACI entry</button></div></div>';
     const cell = arr => (arr || []).length ? (arr || []).map(x => person(x)).join(', ') : '<span class="badge-miss">none</span>';
-    return '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Item / deliverable</th><th class="nosort">R — Responsible</th><th class="nosort">A — Accountable</th><th class="nosort">C — Consulted</th><th class="nosort">I — Informed</th><th class="nosort">Flags</th><th class="nosort"></th></tr></thead><tbody>' + rows.map((r, i) => { const idx = p.raci.indexOf(r); const flags = []; if (isTBD(r.A)) flags.push('<span class="badge-miss">Missing A</span>'); else if (/\/|,| or /i.test(r.A)) flags.push('<span class="badge-miss">Conflicting A</span>'); if (!(r.R || []).filter(x => !isTBD(x)).length) flags.push('<span class="badge-miss">No confirmed R</span>'); return '<tr class="row"><td><b>' + esc(r.item) + '</b></td><td>' + cell(r.R) + '</td><td>' + (r.A ? person(r.A) : '<span class="badge-miss">none</span>') + '</td><td class="mini">' + cell(r.C) + '</td><td class="mini">' + cell(r.I) + '</td><td>' + (flags.join(' ') || '<span class="pill green">OK</span>') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-raci" data-id="' + p.id + '" data-i="' + idx + '">Edit</button><button class="btn sm danger" data-act="del-raci" data-id="' + p.id + '" data-i="' + idx + '">Del</button></td></tr>'; }).join('') + '</tbody></table></div></div>';
+    return '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Item / deliverable</th><th class="nosort">R — Responsible</th><th class="nosort">A — Accountable</th><th class="nosort">C — Consulted</th><th class="nosort">I — Informed</th><th class="nosort">Flags</th><th class="nosort"></th></tr></thead><tbody>' + rows.map((r, i) => {
+      const idx = p.raci.indexOf(r);
+      const flags = [];
+      if (isTBD(r.A)) flags.push('<span class="badge-miss">Missing A</span>');
+      else if (/\/|,| or /i.test(r.A)) flags.push('<span class="badge-miss">Conflicting A</span>');
+      if (!(r.R || []).filter(x => !isTBD(x)).length) flags.push('<span class="badge-miss">No confirmed R</span>');
+      return '<tr class="row"><td><b>' + esc(r.item) + '</b></td><td>' + cell(r.R) + '</td><td>' + (r.A ? person(r.A) : '<span class="badge-miss">none</span>') + '</td><td class="mini">' + cell(r.C) + '</td><td class="mini">' + cell(r.I) + '</td><td>' + (flags.join(' ') || '<span class="pill green">OK</span>') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-raci" data-id="' + p.id + '" data-i="' + idx + '">Edit</button><button class="btn sm danger" data-act="del-raci" data-id="' + p.id + '" data-i="' + idx + '">Del</button></td></tr>';
+    }).join('') + '</tbody></table></div></div>';
   }
+
   function vRaci() {
     const f = UI.filters; const issues = raciIssues();
     const ppl = people();
-    const match = (p, r) => { if (f.rproject && p.id !== f.rproject) return false; if (f.rperson) { const all = [].concat(r.R || [], [r.A], r.C || [], r.I || []); if (!all.some(x => (x || '').includes(f.rperson))) return false; } if (f.rdesig) { const m = { R: r.R || [], A: [r.A], C: r.C || [], I: r.I || [] }[f.rdesig]; if (!f.rperson) { if (!m.filter(x => !isTBD(x)).length) return false; } else if (!m.some(x => (x || '').includes(f.rperson))) return false; } if (f.rissue === 'missingA' && !isTBD(r.A) && !/\/|,| or /i.test(r.A)) return false; if (f.rissue === 'noR' && (r.R || []).filter(x => !isTBD(x)).length) return false; return true; };
+    const match = (p, r) => {
+      if (f.rproject && p.id !== f.rproject) return false;
+      if (f.rperson) {
+        const all = [].concat(r.R || [], [r.A], r.C || [], r.I || []);
+        if (!all.some(x => (x || '').includes(f.rperson))) return false;
+      }
+      if (f.rdesig) {
+        const m = { R: r.R || [], A: [r.A], C: r.C || [], I: r.I || [] }[f.rdesig];
+        if (!f.rperson) {
+          if (!m.filter(x => !isTBD(x)).length) return false;
+        } else if (!m.some(x => (x || '').includes(f.rperson))) return false;
+      }
+      if (f.rissue === 'missingA' && !isTBD(r.A) && !/\/|,| or /i.test(r.A)) return false;
+      if (f.rissue === 'noR' && (r.R || []).filter(x => !isTBD(x)).length) return false;
+      return true;
+    };
     const projs = S.projects.filter(p => (p.raci || []).some(r => match(p, r)));
+
+    // People & Roles section
+    const rolesHtml = `
+    <div class="card section">
+      <div class="hd">
+        <h3>People & Roles Management</h3>
+        <button class="btn sm primary" data-act="add-role">+ Add person / role</button>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Name / Role</th><th class="nosort">Kind</th><th class="nosort">Responsibilities / Note</th><th class="nosort">References</th><th class="nosort"></th></tr></thead><tbody>
+        ${S.roles.map(r => {
+          const pOwned = S.projects.filter(p => p.owner === r.name || p.accountable === r.name).length;
+          const tOwned = S.tasks.filter(t => (t.owner || '').includes(r.name)).length;
+          const refText = (pOwned ? pOwned + ' proj' : '') + (pOwned && tOwned ? ', ' : '') + (tOwned ? tOwned + ' tasks' : '') || 'None';
+          return '<tr class="row"><td><b>' + esc(r.name) + '</b></td><td><span class="pill ' + (r.kind.startsWith('Proposed') ? 'amber' : r.kind === 'External' ? 'outline' : 'green') + '">' + esc(r.kind) + '</span></td><td class="mini">' + esc(r.note || '—') + '</td><td class="mini">' + refText + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-role" data-id="' + esc(r.name) + '">Edit</button><button class="btn sm danger" data-act="del-role" data-id="' + esc(r.name) + '">Delete</button></td></tr>';
+        }).join('')}
+      </tbody></table></div>
+    </div>`;
+
     return `<div class="note info section">Role-based placeholders ("TBD — proposed: …") are proposed roles, not confirmed employee assignments. ${issues.filter(i => i.sev === 'red').length} red flags (missing/conflicting Accountable or no RACI) and ${issues.filter(i => i.sev === 'amber').length} amber flags (no confirmed Responsible, unassigned tasks).</div>
+    ${rolesHtml}
+    <div class="sec-title"><h2>Project RACI Matrices</h2></div>
     <div class="filters"><select data-act="filter" data-k="rproject"><option value="">All projects</option>${S.projects.map(p => '<option value="' + p.id + '" ' + (f.rproject === p.id ? 'selected' : '') + '>' + esc(p.id + ' ' + p.name) + '</option>').join('')}</select><select data-act="filter" data-k="rperson"><option value="">Any person / role</option>${ppl.map(p => '<option ' + (f.rperson === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select><select data-act="filter" data-k="rdesig"><option value="">Any designation</option>${['R', 'A', 'C', 'I'].map(d => '<option ' + (f.rdesig === d ? 'selected' : '') + '>' + d + '</option>').join('')}</select><select data-act="filter" data-k="rissue"><option value="">All entries</option><option value="missingA" ${f.rissue === 'missingA' ? 'selected' : ''}>Missing / conflicting Accountable</option><option value="noR" ${f.rissue === 'noR' ? 'selected' : ''}>No confirmed Responsible</option></select><button class="btn sm" data-act="clear-filters">Clear</button></div>
     ${projs.length ? projs.map(p => '<details class="acc" open><summary><span>' + esc(p.id) + ' · ' + esc(p.name) + '</span><span class="btnrow"><span class="mini">' + (p.raci || []).length + ' entries</span><button class="btn sm" data-act="add-raci" data-id="' + p.id + '">+ Entry</button></span></summary><div class="acc-bd">' + raciTable(p, r => match(p, r)) + '</div></details>').join('') : '<div class="empty">No RACI entries match.</div>'}
     <div class="card section"><div class="hd"><h3>Unassigned task responsibilities</h3><span class="sub">${issues.filter(i => i.issue.startsWith('Task')).length}</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Project</th><th class="nosort">Task</th><th class="nosort">Issue</th></tr></thead><tbody>${issues.filter(i => i.issue.startsWith('Task')).map(i => '<tr class="row"><td><span class="link" data-act="open" data-id="' + i.projectId + '" data-tab="tasks">' + esc(pName(i.projectId)) + '</span></td><td>' + esc(i.item) + '</td><td class="mini">' + esc(i.issue) + '</td></tr>').join('') || '<tr><td colspan="3" class="empty">All open tasks have an owner.</td></tr>'}</tbody></table></div></div>`;
@@ -379,7 +835,6 @@
 
   // ---------- chart helpers (inline SVG, no dependencies) ----------
   function barChart(o) {
-    // o: {cats:[], series:[{name,color,values[]}], stacked, height, yLabel}
     const W = 640, H = o.height || 230, padL = 44, padR = 12, padT = 22, padB = 40;
     const n = o.cats.length; const cw = (W - padL - padR) / Math.max(1, n);
     const totals = o.cats.map((c, i) => o.stacked ? o.series.reduce((a, s) => a + (s.values[i] || 0), 0) : Math.max(...o.series.map(s => s.values[i] || 0)));
@@ -390,18 +845,45 @@
     let bars = '';
     o.cats.forEach((c, i) => {
       const x0 = padL + i * cw;
-      if (o.stacked) { let acc = 0; o.series.forEach(s => { const v = s.values[i] || 0; if (!v) return; const y1 = y(acc + v), y0 = y(acc); bars += '<rect x="' + (x0 + cw * .22) + '" y="' + y1 + '" width="' + (cw * .56) + '" height="' + Math.max(0, y0 - y1) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>'; acc += v; }); if (acc) bars += '<text x="' + (x0 + cw / 2) + '" y="' + (y(acc) - 5) + '" font-size="16" font-weight="600" fill="#14213d" text-anchor="middle">' + acc + '</text>'; }
-      else { const k = o.series.length; const bw = cw * .7 / k; o.series.forEach((s, j) => { const v = s.values[i] || 0; const x = x0 + cw * .15 + j * bw; bars += '<rect x="' + x + '" y="' + y(v) + '" width="' + (bw - 2) + '" height="' + Math.max(0, y(0) - y(v)) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>' + (v ? '<text x="' + (x + (bw - 2) / 2) + '" y="' + (y(v) - 4) + '" font-size="14" font-weight="600" fill="#14213d" text-anchor="middle">' + v + '</text>' : ''); }); }
+      if (o.stacked) {
+        let acc = 0;
+        o.series.forEach(s => {
+          const v = s.values[i] || 0; if (!v) return;
+          const y1 = y(acc + v), y0 = y(acc);
+          bars += '<rect x="' + (x0 + cw * .22) + '" y="' + y1 + '" width="' + (cw * .56) + '" height="' + Math.max(0, y0 - y1) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>';
+          acc += v;
+        });
+        if (acc) bars += '<text x="' + (x0 + cw / 2) + '" y="' + (y(acc) - 5) + '" font-size="16" font-weight="600" fill="#14213d" text-anchor="middle">' + acc + '</text>';
+      } else {
+        const k = o.series.length; const bw = cw * .7 / k;
+        o.series.forEach((s, j) => {
+          const v = s.values[i] || 0; const x = x0 + cw * .15 + j * bw;
+          bars += '<rect x="' + x + '" y="' + y(v) + '" width="' + (bw - 2) + '" height="' + Math.max(0, y(0) - y(v)) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>' + (v ? '<text x="' + (x + (bw - 2) / 2) + '" y="' + (y(v) - 4) + '" font-size="14" font-weight="600" fill="#14213d" text-anchor="middle">' + v + '</text>' : '');
+        });
+      }
       bars += '<text x="' + (x0 + cw / 2) + '" y="' + (H - padB + 22) + '" font-size="15" fill="#3f4b63" text-anchor="middle">' + esc(c) + '</text>';
     });
     const legend = '<div class="legend">' + o.series.map(s => '<span><i class="lg" style="background:' + s.color + '"></i>' + esc(s.name) + '</span>').join('') + '</div>';
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block" role="img">' + g + bars + '</svg>' + legend;
   }
+
   function donut(parts, label) {
     const total = parts.reduce((a, p) => a + p.value, 0) || 1; let acc = 0; const R = 54, r = 36, cx = 70, cy = 70;
-    const arc = (a0, a1, col, name, v) => { const p = a => [cx + R * Math.cos(a), cy + R * Math.sin(a)]; const q = a => [cx + r * Math.cos(a), cy + r * Math.sin(a)]; const [x0, y0] = p(a0), [x1, y1] = p(a1), [u0, v0] = q(a1), [u1, v1] = q(a0); const big = a1 - a0 > Math.PI ? 1 : 0; return '<path d="M' + x0 + ' ' + y0 + 'A' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1 + ' ' + y1 + 'L' + u0 + ' ' + v0 + 'A' + r + ' ' + r + ' 0 ' + big + ' 0 ' + u1 + ' ' + v1 + 'Z" fill="' + col + '"><title>' + esc(name + ': ' + v) + '</title></path>'; };
+    const arc = (a0, a1, col, name, v) => {
+      const p = a => [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+      const q = a => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+      const [x0, y0] = p(a0), [x1, y1] = p(a1), [u0, v0] = q(a1), [u1, v1] = q(a0);
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      return '<path d="M' + x0 + ' ' + y0 + 'A' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1 + ' ' + y1 + 'L' + u0 + ' ' + v0 + 'A' + r + ' ' + r + ' 0 ' + big + ' 0 ' + u1 + ' ' + v1 + 'Z" fill="' + col + '"><title>' + esc(name + ': ' + v) + '</title></path>';
+    };
     let s = '';
-    parts.forEach(p => { if (!p.value) return; const a0 = -Math.PI / 2 + acc / total * 2 * Math.PI; acc += p.value; const a1 = -Math.PI / 2 + acc / total * 2 * Math.PI - 0.01; s += arc(a0, a1, p.color, p.name, p.value); });
+    parts.forEach(p => {
+      if (!p.value) return;
+      const a0 = -Math.PI / 2 + acc / total * 2 * Math.PI;
+      acc += p.value;
+      const a1 = -Math.PI / 2 + acc / total * 2 * Math.PI - 0.01;
+      s += arc(a0, a1, p.color, p.name, p.value);
+    });
     return '<div style="display:flex;align-items:center;gap:16px"><svg viewBox="0 0 140 140" width="140" height="140">' + s + '<text x="70" y="66" text-anchor="middle" font-size="24" font-weight="700" fill="#14213d">' + total + '</text><text x="70" y="84" text-anchor="middle" font-size="10" fill="#6b7588">' + esc(label) + '</text></svg><div>' + parts.map(p => '<div class="kv" style="margin:3px 0"><i class="lg" style="background:' + p.color + ';margin-right:6px"></i>' + esc(p.name) + ' <b>' + p.value + '</b></div>').join('') + '</div></div>';
   }
 
@@ -412,10 +894,15 @@
     dates.push(todayStr()); dates.sort();
     const first = new Date(dates[0] + 'T00:00:00'), last = new Date(dates[dates.length - 1] + 'T00:00:00');
     const months = []; const cur = new Date(first.getFullYear(), first.getMonth(), 1); const end = new Date(last.getFullYear(), last.getMonth() + 1, 1);
-    while (cur < end) { const m0 = new Date(cur); const m1 = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); const key = m0.getFullYear() + '-' + String(m0.getMonth() + 1).padStart(2, '0'); months.push({ key, label: m0.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }), days: Math.round((m1 - m0) / 86400000), n0: dnum(key + '-01'), n1: dnum(key + '-01') + Math.round((m1 - m0) / 86400000) - 1 }); cur.setMonth(cur.getMonth() + 1); }
+    while (cur < end) {
+      const m0 = new Date(cur); const m1 = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      const key = m0.getFullYear() + '-' + String(m0.getMonth() + 1).padStart(2, '0');
+      months.push({ key, label: m0.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }), days: Math.round((m1 - m0) / 86400000), n0: dnum(key + '-01'), n1: dnum(key + '-01') + Math.round((m1 - m0) / 86400000) - 1 });
+      cur.setMonth(cur.getMonth() + 1);
+    }
     const mi = d => months.findIndex(m => d.slice(0, 7) === m.key);
     const cats = months.map(m => m.label);
-    // --- chart data ---
+
     const msDone = months.map(() => 0), msOpen = months.map(() => 0), msLate = months.map(() => 0);
     S.projects.forEach(p => (p.milestones || []).forEach(m => { if (!isDate(m.due)) return; const i = mi(m.due); if (i < 0) return; if (m.status === 'Completed') msDone[i]++; else if (daysFromToday(m.due) < 0) msLate[i]++; else msOpen[i]++; }));
     const tp = { P0: months.map(() => 0), P1: months.map(() => 0), P2: months.map(() => 0), P3: months.map(() => 0) };
@@ -423,26 +910,42 @@
     const active = months.map(m => S.projects.filter(p => p.status !== 'Completed' && isDate(p.start) && dnum(p.start) <= m.n1 && (!p.due || dnum(p.due) >= m.n0)).length);
     const starting = months.map(m => S.projects.filter(p => isDate(p.start) && mi(p.start) === months.indexOf(m)).length);
     const finishing = months.map(m => S.projects.filter(p => isDate(p.due) && mi(p.due) === months.indexOf(m)).length);
-    const hs = S.projects.map(p => health(p).rag); const rag = ['Green', 'Amber', 'Red', 'Grey'].map(k => ({ name: k === 'Green' ? 'On track' : k === 'Amber' ? 'At risk' : k === 'Red' ? 'Delayed' : 'Not started', value: hs.filter(h => h === k).length, color: { Green: '#16a34a', Amber: '#d97706', Red: '#dc2626', Grey: '#9aa3b2' }[k] }));
-    const prio = PRIOS.map(pr => ({ name: pr, value: S.projects.filter(p => p.priority === pr).length, color: { P0: '#0f1b33', P1: '#dc2626', P2: '#d97706', P3: '#9aa3b2' }[pr] }));
-    // --- swimlane ---
+    const hs = S.projects.map(p => health(p).rag);
+    const rag = ['Green', 'Amber', 'Red', 'Grey'].map(k => ({ name: k === 'Green' ? 'On track' : k === 'Amber' ? 'At risk' : k === 'Red' ? 'Delayed' : 'Not started', value: hs.filter(h => h === k).length, color: { Green: '#16a34a', Amber: '#d97706', Red: '#dc2626', Grey: '#9aa3b2' }[k] }));
+    const prio = opt('priorities').map(pr => ({ name: pr, value: S.projects.filter(p => p.priority === pr).length, color: { P0: '#0f1b33', P1: '#dc2626', P2: '#d97706', P3: '#9aa3b2' }[pr] || '#9aa3b2' }));
+
     const MW = 124; const n0 = months[0].n0; const total = months.reduce((a, m) => a + m.days, 0); const pxPerDay = MW / 30.4;
     const px = s => (dnum(s) - n0) * pxPerDay; const width = Math.round(total * pxPerDay); const tn = dnum(todayStr());
     const grid = months.map(m => '<div class="gm" style="left:' + Math.round((m.n0 - n0) * pxPerDay) + 'px;width:' + Math.round(m.days * pxPerDay) + 'px"></div>').join('');
     const todayLine = '<div class="gtoday" style="left:' + Math.round((tn - n0) * pxPerDay) + 'px"></div>';
     const f = UI.filters; let list = S.projects.slice(); if (f.gprio) list = list.filter(p => p.priority === f.gprio);
     const catColor = { 'Revenue Generation': '#2f5bea', 'Funnel Conversion & Sales Productivity': '#0e9f6e', 'B2B Business Development': '#7c3aed', 'Marketing & Demand Generation': '#db2777', 'Cross-functional Dependencies': '#64748b' };
-    const lanes = CATS.map(c => { const ps = list.filter(p => p.category === c).sort((a, b) => a.priority.localeCompare(b.priority) || (a.start || 'z').localeCompare(b.start || 'z')); if (!ps.length) return '';
-      const rows = ps.map(p => { const h = health(p); const open = UI.ganttOpen[p.id]; const mss = (p.milestones || []).filter(m => isDate(m.due)).sort(by('due')); const endDate = p.due || (mss.length ? mss[mss.length - 1].due : ''); const ongoing = !p.due; const s = isDate(p.start) ? px(p.start) : (isDate(endDate) ? px(endDate) - 30 : 0); const e = ongoing ? width : (isDate(endDate) ? px(endDate) : s + 30);
+    const lanes = opt('categories').map(c => {
+      const ps = list.filter(p => p.category === c).sort((a, b) => a.priority.localeCompare(b.priority) || (a.start || 'z').localeCompare(b.start || 'z'));
+      if (!ps.length) return '';
+      const rows = ps.map(p => {
+        const h = health(p); const open = UI.ganttOpen[p.id];
+        const mss = (p.milestones || []).filter(m => isDate(m.due)).sort(by('due'));
+        const endDate = p.due || (mss.length ? mss[mss.length - 1].due : '');
+        const ongoing = !p.due;
+        const s = isDate(p.start) ? px(p.start) : (isDate(endDate) ? px(endDate) - 30 : 0);
+        const e = ongoing ? width : (isDate(endDate) ? px(endDate) : s + 30);
         const bar = '<div class="gbar ' + h.rag.toLowerCase() + (ongoing ? ' ongoing' : '') + '" style="left:' + Math.round(s) + 'px;width:' + Math.max(40, Math.round(e - s)) + 'px" title="' + esc(p.name + ': ' + (p.start || 'TBD') + ' to ' + (p.due || 'ongoing')) + '"><span>' + esc(p.name) + '</span></div>';
         const dia = mss.map(m => '<div class="gms ' + (m.status === 'Completed' ? 'done' : daysFromToday(m.due) < 0 ? 'late' : '') + '" style="left:' + Math.round(px(m.due) - 5) + 'px" title="' + esc(m.name + ' (' + m.due + ')') + '"></div>').join('');
         let r = '<div class="grow proj"><div class="glabel" data-act="gantt-toggle" data-id="' + p.id + '"><span class="caret">' + (open ? '&#9662;' : '&#9656;') + '</span><div style="min-width:0"><div class="gname"><span class="link" data-act="open" data-id="' + p.id + '">' + esc(p.name) + '</span></div><div class="mini">' + pillPrio(p.priority) + ' ' + esc(isTBD(p.owner) ? 'Owner TBD' : p.owner) + '</div></div></div><div class="gtrack" style="min-width:' + width + 'px">' + grid + todayLine + bar + dia + '</div></div>';
-        if (open) r += mss.map(m => { const late = m.status !== 'Completed' && daysFromToday(m.due) < 0; return '<div class="grow ms"><div class="glabel sub"><div style="min-width:0"><div class="gname">' + esc(m.name) + '</div><div class="mini">' + fmt(m.due) + (late ? ' <span class="tbd">overdue</span>' : '') + '</div></div></div><div class="gtrack" style="min-width:' + width + 'px">' + grid + todayLine + '<div class="gms ' + (m.status === 'Completed' ? 'done' : late ? 'late' : '') + '" style="left:' + Math.round(px(m.due) - 5) + 'px"></div><div class="gmslabel" style="left:' + Math.round(px(m.due) + 10) + 'px">' + esc(m.name) + '</div></div></div>'; }).join('');
-        return r; }).join('');
-      return '<div class="grow lane" style="--lc:' + catColor[c] + '"><div class="glabel"><span class="lane-dot"></span><b>' + esc(c) + '</b><span class="mini">' + ps.length + '</span></div><div class="gtrack" style="min-width:' + width + 'px">' + grid + todayLine + '</div></div>' + rows; }).join('');
+        if (open) r += mss.map(m => {
+          const late = m.status !== 'Completed' && daysFromToday(m.due) < 0;
+          return '<div class="grow ms"><div class="glabel sub"><div style="min-width:0"><div class="gname">' + esc(m.name) + '</div><div class="mini">' + fmt(m.due) + (late ? ' <span class="tbd">overdue</span>' : '') + '</div></div></div><div class="gtrack" style="min-width:' + width + 'px">' + grid + todayLine + '<div class="gms ' + (m.status === 'Completed' ? 'done' : late ? 'late' : '') + '" style="left:' + Math.round(px(m.due) - 5) + 'px"></div><div class="gmslabel" style="left:' + Math.round(px(m.due) + 10) + 'px">' + esc(m.name) + '</div></div></div>';
+        }).join('');
+        return r;
+      }).join('');
+      return '<div class="grow lane" style="--lc:' + (catColor[c] || '#64748b') + '"><div class="glabel"><span class="lane-dot"></span><b>' + esc(c) + '</b><span class="mini">' + ps.length + '</span></div><div class="gtrack" style="min-width:' + width + 'px">' + grid + todayLine + '</div></div>' + rows;
+    }).join('');
+
     const head = '<div class="grow head"><div class="glabel"><b>Project</b></div><div class="gtrack" style="min-width:' + width + 'px">' + months.map(m => '<div class="gmh" style="left:' + Math.round((m.n0 - n0) * pxPerDay) + 'px;width:' + Math.round(m.days * pxPerDay) + 'px">' + m.label + '</div>').join('') + todayLine + '</div></div>';
     const soonM = []; S.projects.forEach(p => (p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) <= 30) soonM.push({ p, m }); })); soonM.sort((a, b) => a.m.due.localeCompare(b.m.due));
     const deps = S.dependencies.filter(d => d.status !== 'Closed' && d.status !== 'Resolved').sort(by('requiredBy'));
+
     return `<div class="grid g3 section charts">
       <div class="card"><div class="hd"><h3>Milestones due per month</h3><span class="sub">${msOpen.reduce((a, b) => a + b, 0) + msLate.reduce((a, b) => a + b, 0)} open</span></div><div class="bd">${barChart({ cats, stacked: true, series: [{ name: 'Completed', color: '#16a34a', values: msDone }, { name: 'Upcoming', color: '#2f5bea', values: msOpen }, { name: 'Overdue', color: '#dc2626', values: msLate }] })}</div></div>
       <div class="card"><div class="hd"><h3>Open tasks due per month</h3><span class="sub">by priority</span></div><div class="bd">${barChart({ cats, stacked: true, series: [{ name: 'P0', color: '#0f1b33', values: tp.P0 }, { name: 'P1', color: '#dc2626', values: tp.P1 }, { name: 'P2', color: '#d97706', values: tp.P2 }, { name: 'P3', color: '#9aa3b2', values: tp.P3 }] })}</div></div>
@@ -450,9 +953,9 @@
     </div>
     <div class="grid g2 section">
       <div class="card"><div class="hd"><h3>Portfolio health today</h3></div><div class="bd">${donut(rag, 'projects')}</div></div>
-      <div class="card"><div class="hd"><h3>Priority mix</h3><span class="sub">proposed</span></div><div class="bd">${donut(prio, 'projects')}</div></div>
+      <div class="card"><div class="hd"><h3>Priority mix</h3><span class="sub">configured</span></div><div class="bd">${donut(prio, 'projects')}</div></div>
     </div>
-    <div class="sec-title"><h2>Roadmap by category</h2><div class="filters" style="margin:0"><select data-act="filter" data-k="gprio"><option value="">All priorities</option>${PRIOS.map(p => '<option ' + (f.gprio === p ? 'selected' : '') + '>' + p + '</option>').join('')}</select><button class="btn sm" data-act="gantt-all" data-open="1">Show milestones</button><button class="btn sm" data-act="gantt-all" data-open="0">Hide milestones</button></div></div>
+    <div class="sec-title"><h2>Roadmap by category</h2><div class="filters" style="margin:0"><select data-act="filter" data-k="gprio"><option value="">All priorities</option>${opt('priorities').map(p => '<option ' + (f.gprio === p ? 'selected' : '') + '>' + p + '</option>').join('')}</select><button class="btn sm" data-act="gantt-all" data-open="1">Show milestones</button><button class="btn sm" data-act="gantt-all" data-open="0">Hide milestones</button><button class="btn sm primary" data-act="add-project">+ Add project</button></div></div>
     <div class="legend section" style="margin-top:-6px"><span><i class="lg green"></i>On track</span><span><i class="lg amber"></i>At risk</span><span><i class="lg red"></i>Delayed</span><span><i class="lg grey"></i>Not started</span><span><i class="lg" style="background:#9aa3b2;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.4) 0 3px,transparent 3px 6px)"></i>Ongoing, no end date</span><span><i class="lg dia"></i>Milestone</span><span><i class="lg today"></i>Today</span></div>
     <div class="card gantt2 section"><div class="gscroll">${head}${lanes || '<div class="empty">No projects match.</div>'}</div></div>
     <div class="grid g2">
@@ -460,8 +963,22 @@
       <div class="card"><div class="hd"><h3>Open dependencies by required date</h3><span class="sub">${deps.length}</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Required by</th><th class="nosort">Dependency</th><th class="nosort">Owner</th></tr></thead><tbody>${deps.length ? deps.map(d => '<tr class="row"><td class="' + (isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0 ? 'tbd' : '') + '">' + fmt(d.requiredBy) + '</td><td>' + esc(d.desc) + '<div class="mini">' + esc(pName(d.projectId)) + '</div></td><td>' + person(d.externalOwner) + '</td></tr>').join('') : '<tr><td colspan="3" class="empty">No open dependencies.</td></tr>'}</tbody></table></div></div>
     </div>`;
   }
-  function riskTable(rs) { const sev = r => { const s = { High: 3, Medium: 2, Low: 1 }; return (s[r.impact] || 1) * (s[r.probability] || 1); }; return rs.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Risk</th><th class="nosort">Project</th><th class="nosort">Impact</th><th class="nosort">Prob.</th><th class="nosort">Severity</th><th class="nosort">Mitigation</th><th class="nosort">Owner</th><th class="nosort">Deadline</th><th class="nosort">Status</th><th class="nosort"></th></tr></thead><tbody>' + rs.slice().sort((a, b) => sev(b) - sev(a)).map(r => { const s = sev(r); return '<tr class="row"><td class="mini">' + esc(r.id) + '</td><td>' + esc(r.desc) + (r.source ? '<div class="mini">' + esc(r.source) + '</div>' : '') + '</td><td><span class="link" data-act="open" data-id="' + r.projectId + '" data-tab="risks">' + esc(pName(r.projectId)) + '</span></td><td>' + esc(r.impact) + '</td><td>' + esc(r.probability) + '</td><td><span class="pill ' + (s >= 6 ? 'red' : s >= 3 ? 'amber' : 'grey') + '">' + (s >= 6 ? 'Critical' : s >= 3 ? 'Significant' : 'Low') + '</span></td><td class="mini">' + esc(r.mitigation) + '</td><td>' + person(r.owner) + '</td><td>' + fmt(r.deadline) + '</td><td>' + pillStatus(r.status) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-risk" data-id="' + r.id + '">Edit</button><button class="btn sm danger" data-act="del-risk" data-id="' + r.id + '">Del</button></td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="empty">No risks logged.</div>'; }
-  function depTable(ds) { return ds.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Dependency</th><th class="nosort">Dependent project</th><th class="nosort">Responsible (internal)</th><th class="nosort">External owner</th><th class="nosort">Status</th><th class="nosort">Required by</th><th class="nosort">Escalation</th><th class="nosort"></th></tr></thead><tbody>' + ds.slice().sort(by('requiredBy')).map(d => { const od = d.status !== 'Closed' && isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0; return '<tr class="row"><td class="mini">' + esc(d.id) + '</td><td>' + esc(d.desc) + '</td><td><span class="link" data-act="open" data-id="' + d.projectId + '" data-tab="risks">' + esc(pName(d.projectId)) + '</span></td><td>' + person(d.responsible) + '</td><td>' + person(d.externalOwner) + '</td><td>' + pillStatus(d.status) + '</td><td class="' + (od ? 'tbd' : '') + '">' + fmt(d.requiredBy) + (od ? '<div class="mini">overdue</div>' : '') + '</td><td class="mini">' + esc(d.escalation) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-dep" data-id="' + d.id + '">Edit</button><button class="btn sm danger" data-act="del-dep" data-id="' + d.id + '">Del</button></td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="empty">No dependencies logged.</div>'; }
+
+  function riskTable(rs) {
+    const sev = r => { const s = { High: 3, Medium: 2, Low: 1 }; return (s[r.impact] || 1) * (s[r.probability] || 1); };
+    return rs.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Risk</th><th class="nosort">Project</th><th class="nosort">Impact</th><th class="nosort">Prob.</th><th class="nosort">Severity</th><th class="nosort">Mitigation</th><th class="nosort">Owner</th><th class="nosort">Deadline</th><th class="nosort">Status</th><th class="nosort"></th></tr></thead><tbody>' + rs.slice().sort((a, b) => sev(b) - sev(a)).map(r => {
+      const s = sev(r);
+      return '<tr class="row"><td class="mini">' + esc(r.id) + '</td><td>' + esc(r.desc) + (r.source ? '<div class="mini">' + esc(r.source) + '</div>' : '') + '</td><td><span class="link" data-act="open" data-id="' + r.projectId + '" data-tab="risks">' + esc(pName(r.projectId)) + '</span></td><td>' + esc(r.impact) + '</td><td>' + esc(r.probability) + '</td><td><span class="pill ' + (s >= 6 ? 'red' : s >= 3 ? 'amber' : 'grey') + '">' + (s >= 6 ? 'Critical' : s >= 3 ? 'Significant' : 'Low') + '</span></td><td class="mini">' + esc(r.mitigation) + '</td><td>' + person(r.owner) + '</td><td>' + fmt(r.deadline) + '</td><td>' + pillStatus(r.status) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-risk" data-id="' + r.id + '">Edit</button><button class="btn sm danger" data-act="del-risk" data-id="' + r.id + '">Del</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="empty">No risks logged. <button class="btn sm primary" data-act="add-risk">+ Add risk</button></div>';
+  }
+
+  function depTable(ds) {
+    return ds.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Dependency</th><th class="nosort">Dependent project</th><th class="nosort">Responsible (internal)</th><th class="nosort">External owner</th><th class="nosort">Status</th><th class="nosort">Required by</th><th class="nosort">Escalation</th><th class="nosort"></th></tr></thead><tbody>' + ds.slice().sort(by('requiredBy')).map(d => {
+      const od = d.status !== 'Closed' && isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0;
+      return '<tr class="row"><td class="mini">' + esc(d.id) + '</td><td>' + esc(d.desc) + '</td><td><span class="link" data-act="open" data-id="' + d.projectId + '" data-tab="risks">' + esc(pName(d.projectId)) + '</span></td><td>' + person(d.responsible) + '</td><td>' + person(d.externalOwner) + '</td><td>' + pillStatus(d.status) + '</td><td class="' + (od ? 'tbd' : '') + '">' + fmt(d.requiredBy) + (od ? '<div class="mini">overdue</div>' : '') + '</td><td class="mini">' + esc(d.escalation) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-dep" data-id="' + d.id + '">Edit</button><button class="btn sm danger" data-act="del-dep" data-id="' + d.id + '">Del</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="empty">No dependencies logged. <button class="btn sm primary" data-act="add-dep">+ Add dependency</button></div>';
+  }
+
   function vRisks() {
     const t = UI.riskTab;
     return `<div class="tabs"><button data-act="rtab" data-tab="risks" class="${t === 'risks' ? 'active' : ''}">Risk register<span class="cnt">${S.risks.filter(r => r.status === 'Open').length} open</span></button><button data-act="rtab" data-tab="deps" class="${t === 'deps' ? 'active' : ''}">Dependency register<span class="cnt">${S.dependencies.filter(d => d.status !== 'Closed').length} open</span></button></div>
@@ -469,16 +986,32 @@
   }
 
   function vDecisions() {
-    const f = UI.filters; let ds = S.decisions.slice(); if (f.dstatus) ds = ds.filter(d => d.status === f.dstatus); if (f.downer) ds = ds.filter(d => (d.owner || '').includes(f.downer));
+    const f = UI.filters; let ds = S.decisions.slice();
+    if (f.dstatus) ds = ds.filter(d => d.status === f.dstatus);
+    if (f.downer) ds = ds.filter(d => (d.owner || '').includes(f.downer));
     ds.sort((a, b) => (a.status === 'Open' ? 0 : 1) - (b.status === 'Open' ? 0 : 1) || (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
-    return `<div class="filters"><select data-act="filter" data-k="dstatus"><option value="">All statuses</option>${['Open', 'Decided', 'Deferred', 'Escalated'].map(s => '<option ' + (f.dstatus === s ? 'selected' : '') + '>' + s + '</option>').join('')}</select><select data-act="filter" data-k="downer"><option value="">Any decision owner</option>${people().map(p => '<option ' + (f.downer === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select><button class="btn sm" data-act="clear-filters">Clear</button><span style="flex:1"></span><button class="btn primary" data-act="add-decision">+ Log decision required</button></div>
-    <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Decision required</th><th class="nosort">Project</th><th class="nosort">Decision owner</th><th class="nosort">Raised</th><th class="nosort">Required by</th><th class="nosort">Impact of delay</th><th class="nosort">Status</th><th class="nosort">Final decision</th><th class="nosort"></th></tr></thead><tbody>${ds.map(d => { const od = d.status === 'Open' && isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0; return '<tr class="row"><td class="mini">' + esc(d.id) + '</td><td><b>' + esc(d.decision) + '</b>' + (d.source ? '<div class="mini">' + esc(d.source) + '</div>' : '') + '</td><td>' + (d.projectId ? '<span class="link" data-act="open" data-id="' + d.projectId + '">' + esc(pName(d.projectId)) + '</span>' : '<span class="mini">Portfolio</span>') + '</td><td>' + person(d.owner) + '</td><td>' + fmt(d.raised) + '</td><td class="' + (od ? 'tbd' : '') + '">' + fmt(d.requiredBy) + (od ? '<div class="mini">overdue</div>' : '') + '</td><td class="mini">' + esc(d.impact) + '</td><td>' + pillStatus(d.status) + '</td><td class="mini">' + (esc(d.final) || '—') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-decision" data-id="' + d.id + '">Edit / decide</button><button class="btn sm danger" data-act="del-decision" data-id="' + d.id + '">Del</button></td></tr>'; }).join('') || '<tr><td colspan="10" class="empty">No decisions logged.</td></tr>'}</tbody></table></div></div>`;
+
+    return `<div class="filters"><select data-act="filter" data-k="dstatus"><option value="">All statuses</option>${opt('decisionStatuses').map(s => '<option ' + (f.dstatus === s ? 'selected' : '') + '>' + s + '</option>').join('')}</select><select data-act="filter" data-k="downer"><option value="">Any decision owner</option>${people().map(p => '<option ' + (f.downer === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('')}</select><button class="btn sm" data-act="clear-filters">Clear</button><span style="flex:1"></span><button class="btn primary" data-act="add-decision">+ Log decision required</button></div>
+    <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">ID</th><th class="nosort">Decision required</th><th class="nosort">Project</th><th class="nosort">Decision owner</th><th class="nosort">Raised</th><th class="nosort">Required by</th><th class="nosort">Impact of delay</th><th class="nosort">Status</th><th class="nosort">Final decision</th><th class="nosort"></th></tr></thead><tbody>${ds.map(d => {
+      const od = d.status === 'Open' && isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0;
+      return '<tr class="row"><td class="mini">' + esc(d.id) + '</td><td><b>' + esc(d.decision) + '</b>' + (d.source ? '<div class="mini">' + esc(d.source) + '</div>' : '') + '</td><td>' + (d.projectId ? '<span class="link" data-act="open" data-id="' + d.projectId + '">' + esc(pName(d.projectId)) + '</span>' : '<span class="mini">Portfolio</span>') + '</td><td>' + person(d.owner) + '</td><td>' + fmt(d.raised) + '</td><td class="' + (od ? 'tbd' : '') + '">' + fmt(d.requiredBy) + (od ? '<div class="mini">overdue</div>' : '') + '</td><td class="mini">' + esc(d.impact) + '</td><td>' + pillStatus(d.status) + '</td><td class="mini">' + (esc(d.final) || '—') + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-decision" data-id="' + d.id + '">Edit / decide</button><button class="btn sm danger" data-act="del-decision" data-id="' + d.id + '">Del</button></td></tr>';
+    }).join('') || '<tr><td colspan="10" class="empty">No decisions logged. <button class="btn sm primary" data-act="add-decision">+ Log decision</button></td></tr>'}</tbody></table></div></div>`;
   }
 
   function vWeekly() {
     const wkStart = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
-    const rows = S.projects.filter(p => p.status !== 'Completed').map(p => { const u = lastUpdate(p.id); const h = health(p); const stale = !u || (Date.now() - new Date(u.ts).getTime()) / 86400000 > 7; const ts = pTasks(p.id); const doneWk = ts.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt >= wkStart); const missed = ts.filter(taskOverdue); const nextWk = ts.filter(t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 7); const decs = S.decisions.filter(d => d.status === 'Open' && d.projectId === p.id); return { p, u, h, stale, doneWk, missed, nextWk, decs }; });
+    const rows = S.projects.filter(p => p.status !== 'Completed').map(p => {
+      const u = lastUpdate(p.id); const h = health(p);
+      const stale = !u || (Date.now() - new Date(u.ts).getTime()) / 86400000 > 7;
+      const ts = pTasks(p.id);
+      const doneWk = ts.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt >= wkStart);
+      const missed = ts.filter(taskOverdue);
+      const nextWk = ts.filter(t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 7);
+      const decs = S.decisions.filter(d => d.status === 'Open' && d.projectId === p.id);
+      return { p, u, h, stale, doneWk, missed, nextWk, decs };
+    });
     const stale = rows.filter(r => r.stale && r.p.status === 'In Progress').length;
+
     return `<div class="note info section">Week commencing <b>${fmt(wkStart)}</b>. ${stale ? '<b>' + stale + ' active project' + (stale > 1 ? 's have' : ' has') + ' no owner update this week.</b> ' : ''}Each row combines the owner's submitted update (left columns) with what the data shows (completed this week, overdue, due next week, open decisions). Submit updates with the button on each row.</div>
     <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Project</th><th class="nosort">Health</th><th class="nosort">Last week's progress</th><th class="nosort">Deliverables completed</th><th class="nosort">Current blockers</th><th class="nosort">Missed commitments</th><th class="nosort">Next week's commitments</th><th class="nosort">Decisions required</th><th class="nosort"></th></tr></thead><tbody>
       ${rows.map(r => '<tr class="row"><td><span class="link" data-act="open" data-id="' + r.p.id + '" data-tab="updates">' + esc(r.p.name) + '</span><div class="mini">' + esc(r.p.owner) + '</div>' + (r.u ? '<div class="mini">Updated ' + new Date(r.u.ts).toLocaleDateString() + '</div>' : '<div class="mini tbd">No update submitted</div>') + '</td><td>' + pillRag(r.h.rag) + (r.u && r.u.rag && r.u.rag !== r.h.rag ? '<div class="mini">owner says ' + esc(r.u.rag) + '</div>' : '') + '</td><td class="mini">' + (r.u ? esc(r.u.progress) : '—') + '</td><td class="mini">' + (r.u ? esc(r.u.completed) + '<br>' : '') + (r.doneWk.length ? '<b>Data:</b> ' + r.doneWk.map(t => esc(t.id)).join(', ') : '') + '</td><td class="mini">' + (r.u ? esc(r.u.blockers) : '—') + '</td><td class="mini">' + (r.u ? esc(r.u.missed) + '<br>' : '') + (r.missed.length ? '<span class="tbd">Data: ' + r.missed.length + ' overdue task' + (r.missed.length > 1 ? 's' : '') + '</span>' : '') + '</td><td class="mini">' + (r.u ? esc(r.u.next) + '<br>' : '') + (r.nextWk.length ? '<b>Due:</b> ' + r.nextWk.map(t => esc(t.id)).join(', ') : '') + '</td><td class="mini">' + (r.u && r.u.decisions ? esc(r.u.decisions) + '<br>' : '') + (r.decs.length ? r.decs.map(d => '<span class="pill amber">' + esc(d.id) + '</span>').join(' ') : '') + '</td><td class="no-print"><button class="btn sm primary" data-act="add-update" data-pid="' + r.p.id + '">Submit update</button></td></tr>').join('')}
@@ -487,93 +1020,695 @@
 
   function vGovernance() {
     const g = S.governance;
-    return `<div class="grid g3 section">${Object.entries(g.cadence).map(([k, v]) => '<div class="card"><div class="hd"><h3>' + k + '</h3></div><div class="bd"><ul class="list">' + v.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div></div>').join('')}</div>
-    <div class="card section"><div class="hd"><h3>RAG health framework (applied automatically)</h3></div><div class="bd"><div class="rag-box">${Object.entries(g.rag).map(([k, v]) => '<div class="b"><b>' + pillRag(k) + '</b><span class="mini">' + esc(v) + '</span></div>').join('')}</div><div class="mini" style="margin-top:10px">Health is never equated to task completion %. Progress % is shown separately and is computed from tasks (Completed = 100%, otherwise the recorded progress).</div></div></div>
-    <div class="card section"><div class="hd"><h3>Prioritisation framework (proposed for Head of Sales approval — DEC-08)</h3></div><div class="bd"><div class="two"><div><ul class="list"><li><b>P0 — Critical / immediate intervention:</b> blocked on a leadership decision or blocking multiple revenue initiatives; resolution is days, not weeks.</li><li><b>P1 — High business impact:</b> direct revenue or conversion effect, in motion or quick to start, moderate effort.</li><li><b>P2 — Important capability development:</b> builds a channel or process; needs definition and cross-functional input before impact.</li><li><b>P3 — Strategic / longer-term:</b> high strategic value, long horizon or dependency outside Sales' control.</li></ul></div><div><div class="kv"><b>Criteria weighed:</b> revenue impact, funnel-conversion impact, strategic importance, urgency, implementation effort, dependencies, business risk.</div><div class="kv" style="margin-top:8px"><b>Value classes:</b> ${VALUECLASS.map(v => '<span class="pill outline">' + v + '</span>').join(' ')}</div><div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th class="nosort">Prio</th><th class="nosort">Projects</th></tr></thead><tbody>${PRIOS.map(pr => '<tr><td>' + pillPrio(pr) + '</td><td class="mini">' + S.projects.filter(p => p.priority === pr).map(p => '<span class="link" data-act="open" data-id="' + p.id + '">' + esc(p.name) + '</span>').join(' · ') + '</td></tr>').join('')}</tbody></table></div></div></div></div></div>
-    <div class="card section"><div class="hd"><h3>Portfolio architecture — how the 19 initiatives were classified</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Initiative (brief)</th><th class="nosort">Mapped to</th><th class="nosort">Note</th></tr></thead><tbody>${g.classification.map(c => '<tr><td>' + esc(c.initiative) + '</td><td>' + esc(c.mapped) + '</td><td class="mini">' + esc(c.note) + '</td></tr>').join('')}</tbody></table></div></div>
-    <div class="card section"><div class="hd"><h3>Programs (proposed parent groupings)</h3></div><div class="bd">${S.programs.map(pg => '<div class="kv" style="margin-bottom:10px"><b>' + esc(pg.id) + ' · ' + esc(pg.name) + '</b> — ' + esc(pg.objective) + '<div class="mini">' + esc(pg.note) + '</div><div class="chips" style="margin-top:4px">' + pg.children.map(c => '<span class="pill blue link" data-act="open" data-id="' + c + '">' + esc(c + ' ' + pName(c)) + '</span>').join('') + '</div></div>').join('')}</div></div>
-    <div class="card"><div class="hd"><h3>Roles & stakeholders</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Name / role</th><th class="nosort">Kind</th><th class="nosort">Context</th></tr></thead><tbody>${S.roles.map(r => '<tr><td><b>' + esc(r.name) + '</b></td><td><span class="pill ' + (r.kind.startsWith('Proposed') ? 'amber' : r.kind === 'External' ? 'outline' : 'green') + '">' + esc(r.kind) + '</span></td><td class="mini">' + esc(r.note) + '</td></tr>').join('')}</tbody></table></div></div>`;
+    const cadences = g.cadence || {};
+    const rags = g.rag || {};
+    const classifications = g.classification || [];
+
+    return `
+    <div class="sec-title" style="margin-bottom:12px">
+      <h2>Governance Cadence</h2>
+    </div>
+    <div class="grid g3 section">${Object.entries(cadences).map(([k, v]) => '<div class="card"><div class="hd"><h3>' + k + ' Cadence</h3><button class="btn sm" data-act="edit-cadence" data-cadence="' + k + '">Edit</button></div><div class="bd"><ul class="list">' + (v || []).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div></div>').join('')}</div>
+    
+    <div class="card section">
+      <div class="hd">
+        <h3>RAG health framework (applied automatically)</h3>
+        <button class="btn sm" data-act="edit-rag">Edit definitions</button>
+      </div>
+      <div class="bd">
+        <div class="rag-box">${Object.entries(rags).map(([k, v]) => '<div class="b"><b>' + pillRag(k) + '</b><span class="mini">' + esc(v) + '</span></div>').join('')}</div>
+        <div class="mini" style="margin-top:10px">Health is never equated to task completion %. Progress % is shown separately and is computed from tasks (Completed = 100%, otherwise the recorded progress).</div>
+      </div>
+    </div>
+
+    <div class="card section"><div class="hd"><h3>Prioritisation framework (proposed for Head of Sales approval — DEC-08)</h3></div><div class="bd"><div class="two"><div><ul class="list"><li><b>P0 — Critical / immediate intervention:</b> blocked on a leadership decision or blocking multiple revenue initiatives; resolution is days, not weeks.</li><li><b>P1 — High business impact:</b> direct revenue or conversion effect, in motion or quick to start, moderate effort.</li><li><b>P2 — Important capability development:</b> builds a channel or process; needs definition and cross-functional input before impact.</li><li><b>P3 — Strategic / longer-term:</b> high strategic value, long horizon or dependency outside Sales' control.</li></ul></div><div><div class="kv"><b>Criteria weighed:</b> revenue impact, funnel-conversion impact, strategic importance, urgency, implementation effort, dependencies, business risk.</div><div class="kv" style="margin-top:8px"><b>Value classes:</b> ${opt('valueClasses').map(v => '<span class="pill outline">' + v + '</span>').join(' ')}</div><div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th class="nosort">Prio</th><th class="nosort">Projects</th></tr></thead><tbody>${opt('priorities').map(pr => '<tr><td>' + pillPrio(pr) + '</td><td class="mini">' + S.projects.filter(p => p.priority === pr).map(p => '<span class="link" data-act="open" data-id="' + p.id + '">' + esc(p.name) + '</span>').join(' · ') + '</td></tr>').join('')}</tbody></table></div></div></div></div></div>
+
+    <div class="card section">
+      <div class="hd">
+        <h3>Portfolio architecture — classification table</h3>
+        <button class="btn sm primary" data-act="add-classification">+ Add row</button>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Initiative (brief)</th><th class="nosort">Mapped to</th><th class="nosort">Note</th><th class="nosort"></th></tr></thead><tbody>
+        ${classifications.map((c, i) => '<tr><td><b>' + esc(c.initiative) + '</b></td><td>' + esc(c.mapped) + '</td><td class="mini">' + esc(c.note) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-classification" data-i="' + i + '">Edit</button><button class="btn sm danger" data-act="del-classification" data-i="' + i + '">Del</button></td></tr>').join('')}
+      </tbody></table></div>
+    </div>
+
+    <div class="card section">
+      <div class="hd">
+        <h3>Programs (proposed parent groupings)</h3>
+        <button class="btn sm primary" data-act="add-program">+ Add program</button>
+      </div>
+      <div class="bd">${(S.programs || []).map(pg => '<div class="kv" style="margin-bottom:10px"><b>' + esc(pg.id) + ' · ' + esc(pg.name) + '</b> — ' + esc(pg.objective) + '<div class="mini">' + esc(pg.note) + '</div><div class="chips" style="margin-top:4px">' + (pg.children || []).map(c => '<span class="pill blue link" data-act="open" data-id="' + c + '">' + esc(c + ' ' + pName(c)) + '</span>').join('') + '</div></div>').join('')}</div>
+    </div>
+
+    <div class="card">
+      <div class="hd">
+        <h3>Roles & stakeholders</h3>
+        <button class="btn sm primary" data-act="add-role">+ Add person / role</button>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Name / role</th><th class="nosort">Kind</th><th class="nosort">Context</th><th class="nosort"></th></tr></thead><tbody>${S.roles.map(r => '<tr><td><b>' + esc(r.name) + '</b></td><td><span class="pill ' + (r.kind.startsWith('Proposed') ? 'amber' : r.kind === 'External' ? 'outline' : 'green') + '">' + esc(r.kind) + '</span></td><td class="mini">' + esc(r.note) + '</td><td class="btnrow no-print"><button class="btn sm" data-act="edit-role" data-id="' + esc(r.name) + '">Edit</button><button class="btn sm danger" data-act="del-role" data-id="' + esc(r.name) + '">Delete</button></td></tr>').join('')}</tbody></table></div>
+    </div>`;
   }
 
   function vData() {
     const sz = (() => { try { return Math.round((localStorage.getItem(KEY) || '').length / 1024); } catch (e) { return '?'; } })();
-    return `<div class="note warn section"><b>Storage notice.</b> This version stores all changes in this browser's <code>localStorage</code> (${sz} KB used). It is browser-specific and device-specific: it is <b>not</b> a shared multi-user database, there is no real-time collaboration and no centralised cloud storage. To share state, export JSON and have the other person import it; to move to shared storage, a backend/database is needed in a later version.</div>
+    const sync = (S.meta && S.meta.sync) || { url: '', enabled: false, autoSync: true, status: 'idle' };
+
+    // Option lists summary
+    const optCards = Object.keys(FALLBACKS).map(k => {
+      const items = opt(k);
+      const labelMap = {
+        priorities: 'Priorities', projectStatuses: 'Project Statuses', taskStatuses: 'Task Statuses',
+        taskKinds: 'Task Kinds', milestoneStatuses: 'Milestone Statuses', categories: 'Portfolio Categories',
+        projectTypes: 'Project Types', valueClasses: 'Value Classes', riskLevels: 'Risk Levels',
+        riskStatuses: 'Risk Statuses', dependencyStatuses: 'Dependency Statuses', decisionStatuses: 'Decision Statuses',
+        actionKinds: 'Action Kinds', actionBuckets: 'Action Buckets', updateRag: 'Update RAG Statuses'
+      };
+      return `
+        <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--card);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+            <b>${esc(labelMap[k] || k)}</b>
+            <span class="btnrow"><span class="mini">${items.length} items</span><button class="btn sm" data-act="edit-option-list" data-opt="${k}">Edit</button></span>
+          </div>
+          <div class="chips">${items.map(v => '<span class="pill outline" style="font-size:11px">' + esc(v) + '</span>').join('')}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+    <div class="card section" id="sync-card" style="border-color:var(--accent);">
+      <div class="hd" style="background:var(--accent-soft);">
+        <h3 style="color:var(--accent-text)">Google Sheet Two-Way Sync</h3>
+        <div class="btnrow">
+          <span class="pill ${sync.status === 'connected' ? 'green' : sync.status === 'syncing' ? 'blue' : sync.status === 'error' ? 'red' : 'outline'}">
+            <span class="dot ${sync.status === 'connected' ? 'green' : sync.status === 'syncing' ? 'amber' : sync.status === 'error' ? 'red' : 'grey'}"></span>
+            ${sync.status === 'connected' ? 'Connected & Synced' : sync.status === 'syncing' ? 'Syncing...' : sync.status === 'error' ? 'Sync Error' : 'Local Only'}
+          </span>
+        </div>
+      </div>
+      <div class="bd">
+        <div class="note info section" style="margin-bottom:14px">
+          Keep this website in live, two-way sync with your Google Sheet. Adding/editing on the web pushes to the Sheet; rows added in the Sheet are pulled into the web app automatically. See <b>SETUP_GOOGLE_SHEET.md</b> for the 2-minute Apps Script setup.
+        </div>
+        <div class="form" style="grid-template-columns:1fr; gap:12px; margin-bottom:14px">
+          <div class="f">
+            <label>Google Apps Script Web App URL</label>
+            <div style="display:flex; gap:8px">
+              <input id="sync-url-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(sync.url || '')}" style="flex:1">
+              <button class="btn primary" data-act="save-sync-config">Save URL</button>
+            </div>
+            <div class="hint">Deploy your Google Apps Script as a Web App (access: "Anyone") and paste its URL here.</div>
+          </div>
+          <div class="f">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="sync-auto-input" ${sync.autoSync !== false ? 'checked' : ''} style="width:auto">
+              <span>Automatically push changes to Google Sheet when saved</span>
+            </label>
+          </div>
+        </div>
+        <div class="btnrow">
+          <button class="btn primary" data-act="sync-pull">Pull from Sheet (Download)</button>
+          <button class="btn" data-act="sync-push">Push to Sheet (Upload all)</button>
+          <button class="btn" data-act="sync-test">Test Connection</button>
+          <span style="flex:1"></span>
+          <span class="mini">Last synced: ${sync.lastSync ? new Date(sync.lastSync).toLocaleString() : 'Never'} · Version: ${sync.baseVersion || 1}</span>
+        </div>
+        ${sync.error ? '<div class="note warn section" style="margin-top:12px">Last error: ' + esc(sync.error) + '</div>' : ''}
+      </div>
+    </div>
+
+    <div class="card section">
+      <div class="hd">
+        <h3>Configurable Option Lists</h3>
+        <span class="sub">15 lists defined — editable without code changes</span>
+      </div>
+      <div class="bd">
+        <div class="grid g2">${optCards}</div>
+      </div>
+    </div>
+
     <div class="grid g2 section">
       <div class="card"><div class="hd"><h3>Export</h3></div><div class="bd btnrow"><button class="btn primary" data-act="export-json">Download full JSON</button><button class="btn" data-act="export-csv" data-what="projects">Projects CSV</button><button class="btn" data-act="export-csv" data-what="tasks">Tasks CSV</button><button class="btn" data-act="export-csv" data-what="risks">Risks CSV</button><button class="btn" data-act="export-csv" data-what="dependencies">Dependencies CSV</button><button class="btn" data-act="export-csv" data-what="decisions">Decisions CSV</button><button class="btn" data-act="print-portfolio">Print portfolio report</button></div></div>
       <div class="card"><div class="hd"><h3>Import</h3></div><div class="bd"><input type="file" id="importFile" accept="application/json,.json"><div class="mini" style="margin-top:8px">Import a JSON file previously exported from this tool. It replaces the current data after confirmation.</div></div></div>
     </div>
     <div class="card section"><div class="hd"><h3>Reset</h3></div><div class="bd btnrow"><button class="btn danger" data-act="reset">Reset to initial seed data</button><span class="mini">Deletes all local changes and reloads the seed built from the 30 Oct 2026 brief. Asks for confirmation.</span></div></div>
-    <div class="card section"><div class="hd"><h3>Data summary</h3></div><div class="bd kv">Projects: <b>${S.projects.length}</b> · Tasks: <b>${S.tasks.length}</b> · Milestones: <b>${S.projects.reduce((a, p) => a + (p.milestones || []).length, 0)}</b> · RACI entries: <b>${S.projects.reduce((a, p) => a + (p.raci || []).length, 0)}</b> · Risks: <b>${S.risks.length}</b> · Dependencies: <b>${S.dependencies.length}</b> · Decisions: <b>${S.decisions.length}</b> · Weekly updates: <b>${S.updates.length}</b> · Seeded: ${new Date(S.meta.seeded).toLocaleString()} · Last saved: ${S.meta.savedAt ? new Date(S.meta.savedAt).toLocaleString() : '—'}</div></div>
+    <div class="card section"><div class="hd"><h3>Data summary</h3></div><div class="bd kv">Projects: <b>${S.projects.length}</b> · Tasks: <b>${S.tasks.length}</b> · Milestones: <b>${S.projects.reduce((a, p) => a + (p.milestones || []).length, 0)}</b> · RACI entries: <b>${S.projects.reduce((a, p) => a + (p.raci || []).length, 0)}</b> · Risks: <b>${S.risks.length}</b> · Dependencies: <b>${S.dependencies.length}</b> · Decisions: <b>${S.decisions.length}</b> · Weekly updates: <b>${S.updates.length}</b> · Programs: <b>${(S.programs || []).length}</b> · Roles: <b>${(S.roles || []).length}</b> · Storage: <b>${sz} KB</b> · Seeded: ${new Date(S.meta.seeded).toLocaleString()} · Last saved: ${S.meta.savedAt ? new Date(S.meta.savedAt).toLocaleString() : '—'}</div></div>
     <div class="card"><div class="hd"><h3>Activity history</h3><span class="sub">${S.activity.length} entries</span></div><div class="bd">${S.activity.slice(0, 60).map(a => '<div class="comment"><div>' + esc(a.text) + '</div><div class="m">' + new Date(a.ts).toLocaleString() + '</div></div>').join('')}</div></div>`;
   }
 
   // ---------- forms ----------
   function openForm(title, fields, vals, onSave, extraBtn) {
-    const h = '<div class="modal-bg" id="modal"><div class="modal"><div class="mh"><h2>' + esc(title) + '</h2><button class="btn sm" data-act="close-modal">✕</button></div><div class="mb"><form id="mform" class="form">' + fields.map(f => { const v = vals[f.k] == null ? '' : vals[f.k]; const w = f.full ? ' full' : ''; let inp; if (f.type === 'textarea') inp = '<textarea name="' + f.k + '">' + esc(v) + '</textarea>'; else if (f.type === 'select') inp = '<select name="' + f.k + '">' + (f.allowBlank ? '<option value="">—</option>' : '') + f.options.map(o => { const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o; return '<option value="' + esc(ov) + '" ' + (String(v) === String(ov) ? 'selected' : '') + '>' + esc(ol) + '</option>'; }).join('') + '</select>'; else if (f.type === 'datalist') inp = '<input name="' + f.k + '" list="dl-' + f.k + '" value="' + esc(v) + '"><datalist id="dl-' + f.k + '">' + f.options.map(o => '<option value="' + esc(o) + '">').join('') + '</datalist>'; else inp = '<input name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>'; return '<div class="f' + w + '"><label>' + esc(f.label) + (f.req ? ' *' : '') + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>'; }).join('') + '<div class="ferr" id="ferr"></div></form></div><div class="mf">' + (extraBtn || '') + '<button class="btn" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-modal">Save</button></div></div></div>';
+    const h = '<div class="modal-bg" id="modal"><div class="modal"><div class="mh"><h2>' + esc(title) + '</h2><button class="btn sm" data-act="close-modal">✕</button></div><div class="mb"><form id="mform" class="form">' + fields.map(f => {
+      const v = vals[f.k] == null ? '' : vals[f.k];
+      const w = f.full ? ' full' : '';
+      let inp;
+      if (f.type === 'textarea') inp = '<textarea name="' + f.k + '">' + esc(v) + '</textarea>';
+      else if (f.type === 'select') inp = '<select name="' + f.k + '">' + (f.allowBlank ? '<option value="">—</option>' : '') + f.options.map(o => {
+        const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o;
+        return '<option value="' + esc(ov) + '" ' + (String(v) === String(ov) ? 'selected' : '') + '>' + esc(ol) + '</option>';
+      }).join('') + '</select>';
+      else if (f.type === 'datalist') inp = '<input name="' + f.k + '" list="dl-' + f.k + '" value="' + esc(v) + '"><datalist id="dl-' + f.k + '">' + f.options.map(o => '<option value="' + esc(o) + '">').join('') + '</datalist>';
+      else inp = '<input name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>';
+      return '<div class="f' + w + '"><label>' + esc(f.label) + (f.req ? ' *' : '') + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
+    }).join('') + '<div class="ferr" id="ferr"></div></form></div><div class="mf">' + (extraBtn || '') + '<button class="btn" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-modal">Save</button></div></div></div>';
     $('#modal-root').innerHTML = h;
-    $('#modal-root')._onSave = () => { const fd = new FormData($('#mform')); const o = {}; fields.forEach(f => { let v = fd.get(f.k); if (v == null) v = ''; v = String(v).trim(); if (f.type === 'number') v = v === '' ? 0 : +v; o[f.k] = v; }); const errs = []; fields.forEach(f => { if (f.req && (o[f.k] === '' || o[f.k] == null)) errs.push(f.label + ' is required.'); if (f.type === 'date' && o[f.k] && !isDate(o[f.k])) errs.push(f.label + ' must be a valid date.'); }); if (o.start && o.due && isDate(o.start) && isDate(o.due) && o.due < o.start) errs.push('Due date cannot be before start date.'); if (errs.length) { $('#ferr').textContent = errs.join(' '); return; } const r = onSave(o); if (r !== false) closeModal(); };
+    $('#modal-root')._onSave = () => {
+      const fd = new FormData($('#mform'));
+      const o = {};
+      fields.forEach(f => {
+        let v = fd.get(f.k);
+        if (v == null) v = '';
+        v = String(v).trim();
+        if (f.type === 'number') v = v === '' ? 0 : +v;
+        o[f.k] = v;
+      });
+      const errs = [];
+      fields.forEach(f => {
+        if (f.req && (o[f.k] === '' || o[f.k] == null)) errs.push(f.label + ' is required.');
+        if (f.type === 'date' && o[f.k] && !isDate(o[f.k])) errs.push(f.label + ' must be a valid date.');
+      });
+      if (o.start && o.due && isDate(o.start) && isDate(o.due) && o.due < o.start) errs.push('Due date cannot be before start date.');
+      if (errs.length) { $('#ferr').textContent = errs.join(' '); return; }
+      const r = onSave(o);
+      if (r !== false) closeModal();
+    };
     setTimeout(() => { const first = $('#mform input, #mform select, #mform textarea'); if (first) first.focus(); }, 30);
   }
+
   function closeModal() { $('#modal-root').innerHTML = ''; }
   const listToStr = a => (a || []).join(', ');
   const strToList = s => String(s || '').split(/\s*[;,]\s*/).map(x => x.trim()).filter(Boolean);
   const lineList = s => String(s || '').split(/\n/).map(x => x.trim()).filter(Boolean);
 
+  function nextId(prefix) {
+    let n = 1;
+    const ids = new Set([].concat(
+      S.projects.map(p => p.id),
+      S.tasks.map(t => t.id),
+      S.risks.map(r => r.id),
+      S.dependencies.map(d => d.id),
+      S.decisions.map(d => d.id),
+      S.actions.map(a => a.id),
+      (S.programs || []).map(pg => pg.id)
+    ));
+    while (ids.has(prefix + '-' + String(n).padStart(prefix === 'SI' ? 2 : 3, '0'))) n++;
+    return prefix + '-' + String(n).padStart(prefix === 'SI' ? 2 : 3, '0');
+  }
+
   function projectForm(p) {
-    const isNew = !p; p = p || { id: nextId('PRJ'), status: 'Not Started', priority: 'P2', priorityProposed: true, category: CATS[0], type: 'Project', owner: 'TBD', accountable: 'TBD', sponsor: 'Head of Sales', metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [], milestones: [], raci: [], comments: [], flags: [], datesProposed: true };
+    const isNew = !p;
+    p = p || {
+      id: nextId('PRJ'), status: 'Not Started', priority: 'P2', priorityProposed: true,
+      category: opt('categories')[0] || 'Revenue Generation', type: 'Project',
+      owner: 'TBD', accountable: 'TBD', sponsor: 'Head of Sales',
+      metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [],
+      milestones: [], raci: [], comments: [], flags: [], datesProposed: true
+    };
     const f = [
-      { k: 'id', label: 'Project ID', req: true }, { k: 'name', label: 'Project name', req: true }, { k: 'category', label: 'Category', type: 'select', options: CATS }, { k: 'type', label: 'Type', type: 'select', options: PTYPES },
-      { k: 'program', label: 'Program (parent)', type: 'select', allowBlank: true, options: S.programs.map(x => [x.id, x.id + ' ' + x.name]) }, { k: 'valueClass', label: 'Value class', type: 'select', allowBlank: true, options: VALUECLASS },
-      { k: 'objective', label: 'Business objective', type: 'textarea', full: true, req: true }, { k: 'problem', label: 'Problem statement', type: 'textarea', full: true }, { k: 'outcome', label: 'Expected outcome', type: 'textarea', full: true, req: true }, { k: 'impact', label: 'Business impact', type: 'textarea', full: true },
+      { k: 'id', label: 'Project ID', req: true },
+      { k: 'name', label: 'Project name', req: true },
+      { k: 'category', label: 'Category', type: 'select', options: opt('categories') },
+      { k: 'type', label: 'Type', type: 'select', options: opt('projectTypes') },
+      { k: 'program', label: 'Program (parent)', type: 'select', allowBlank: true, options: (S.programs || []).map(x => [x.id, x.id + ' ' + x.name]) },
+      { k: 'valueClass', label: 'Value class', type: 'select', allowBlank: true, options: opt('valueClasses') },
+      { k: 'objective', label: 'Business objective', type: 'textarea', full: true, req: true },
+      { k: 'problem', label: 'Problem statement', type: 'textarea', full: true },
+      { k: 'outcome', label: 'Expected outcome', type: 'textarea', full: true, req: true },
+      { k: 'impact', label: 'Business impact', type: 'textarea', full: true },
       { k: 'metrics', label: 'Success metrics (one per line)', type: 'textarea', full: true },
-      { k: 'owner', label: 'Project owner', type: 'datalist', options: people(), hint: 'Use "TBD — proposed: Role" if unknown' }, { k: 'accountable', label: 'Accountable person', type: 'datalist', options: people() }, { k: 'sponsor', label: 'Executive sponsor', type: 'datalist', options: people() }, { k: 'priority', label: 'Priority', type: 'select', options: PRIOS },
-      { k: 'start', label: 'Start date', type: 'date' }, { k: 'due', label: 'Target completion', type: 'date', hint: 'Leave blank for ongoing operations' }, { k: 'status', label: 'Status', type: 'select', options: PSTATUS }, { k: 'priorityProposed', label: 'Priority is', type: 'select', options: [['true', 'Proposed (pending approval)'], ['false', 'Approved by Head of Sales']] },
-      { k: 'datesProposed', label: 'Dates are', type: 'select', options: [['true', 'Proposed'], ['false', 'Confirmed']] }, { k: 'nextAction', label: 'Next action', full: true },
-      { k: 'priorityRationale', label: 'Priority rationale', type: 'textarea', full: true }, { k: 'dependencies', label: 'Dependencies (charter, one per line)', type: 'textarea' }, { k: 'risks', label: 'Risks (charter, one per line)', type: 'textarea' }, { k: 'assumptions', label: 'Assumptions (one per line)', type: 'textarea', full: true },
-      { k: 'hypothesis', label: 'Hypothesis (experiments)', type: 'textarea' }, { k: 'successCriteria', label: 'Success criteria (experiments)', type: 'textarea' }, { k: 'testPeriod', label: 'Test period (experiments)' }, { k: 'baseline', label: 'Baseline' }, { k: 'cadence', label: 'Cadence (recurring ops)' }, { k: 'flags', label: 'Flags (comma separated)' }
+      { k: 'owner', label: 'Project owner', type: 'datalist', options: people(), hint: 'Use "TBD — proposed: Role" if unknown' },
+      { k: 'accountable', label: 'Accountable person', type: 'datalist', options: people() },
+      { k: 'sponsor', label: 'Executive sponsor', type: 'datalist', options: people() },
+      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'start', label: 'Start date', type: 'date' },
+      { k: 'due', label: 'Target completion', type: 'date', hint: 'Leave blank for ongoing operations' },
+      { k: 'status', label: 'Status', type: 'select', options: opt('projectStatuses') },
+      { k: 'priorityProposed', label: 'Priority is', type: 'select', options: [['true', 'Proposed (pending approval)'], ['false', 'Approved by Head of Sales']] },
+      { k: 'datesProposed', label: 'Dates are', type: 'select', options: [['true', 'Proposed'], ['false', 'Confirmed']] },
+      { k: 'nextAction', label: 'Next action', full: true },
+      { k: 'priorityRationale', label: 'Priority rationale', type: 'textarea', full: true },
+      { k: 'dependencies', label: 'Dependencies (charter, one per line)', type: 'textarea' },
+      { k: 'risks', label: 'Risks (charter, one per line)', type: 'textarea' },
+      { k: 'assumptions', label: 'Assumptions (one per line)', type: 'textarea', full: true },
+      { k: 'hypothesis', label: 'Hypothesis (experiments)', type: 'textarea' },
+      { k: 'successCriteria', label: 'Success criteria (experiments)', type: 'textarea' },
+      { k: 'testPeriod', label: 'Test period (experiments)' },
+      { k: 'baseline', label: 'Baseline' },
+      { k: 'cadence', label: 'Cadence (recurring ops)' },
+      { k: 'flags', label: 'Flags (comma separated)' }
     ];
-    const vals = Object.assign({}, p, { metrics: (p.metrics || []).join('\n'), dependencies: (p.dependencies || []).join('\n'), risks: (p.risks || []).join('\n'), assumptions: (p.assumptions || []).join('\n'), flags: listToStr(p.flags), priorityProposed: String(p.priorityProposed !== false), datesProposed: String(p.datesProposed !== false) });
+    const vals = Object.assign({}, p, {
+      metrics: (p.metrics || []).join('\n'),
+      dependencies: (p.dependencies || []).join('\n'),
+      risks: (p.risks || []).join('\n'),
+      assumptions: (p.assumptions || []).join('\n'),
+      flags: listToStr(p.flags),
+      priorityProposed: String(p.priorityProposed !== false),
+      datesProposed: String(p.datesProposed !== false)
+    });
     openForm(isNew ? 'New project' : 'Edit project — ' + p.id, f, vals, o => {
       if (isNew && P(o.id)) { $('#ferr').textContent = 'Project ID already exists.'; return false; }
-      const np = Object.assign({}, p, o, { metrics: lineList(o.metrics), dependencies: lineList(o.dependencies), risks: lineList(o.risks), assumptions: lineList(o.assumptions), flags: strToList(o.flags), priorityProposed: o.priorityProposed === 'true', datesProposed: o.datesProposed === 'true', program: o.program || null });
-      if (isNew) { S.projects.push(np); commit('Created project ' + np.id + ' ' + np.name); UI.projectId = np.id; go('project'); }
-      else { if (p.id !== np.id) { S.tasks.forEach(t => { if (t.projectId === p.id) t.projectId = np.id; }); S.risks.forEach(r => { if (r.projectId === p.id) r.projectId = np.id; }); S.dependencies.forEach(d => { if (d.projectId === p.id) d.projectId = np.id; }); S.decisions.forEach(d => { if (d.projectId === p.id) d.projectId = np.id; }); S.updates.forEach(u => { if (u.projectId === p.id) u.projectId = np.id; }); UI.projectId = np.id; } const changes = ['status', 'priority', 'owner', 'accountable', 'due'].filter(k => p[k] !== np[k]).map(k => k + ': ' + (p[k] || '—') + ' → ' + (np[k] || '—')); Object.assign(p, np); if (np.status === 'Completed' && !p.completedAt) p.completedAt = todayStr(); commit('Updated project ' + np.id + (changes.length ? ' (' + changes.join('; ') + ')' : '')); }
+      const np = Object.assign({}, p, o, {
+        metrics: lineList(o.metrics),
+        dependencies: lineList(o.dependencies),
+        risks: lineList(o.risks),
+        assumptions: lineList(o.assumptions),
+        flags: strToList(o.flags),
+        priorityProposed: o.priorityProposed === 'true',
+        datesProposed: o.datesProposed === 'true',
+        program: o.program || null
+      });
+      if (isNew) {
+        S.projects.push(np);
+        commit('Created project ' + np.id + ' ' + np.name);
+        UI.projectId = np.id;
+        go('project');
+      } else {
+        if (p.id !== np.id) {
+          S.tasks.forEach(t => { if (t.projectId === p.id) t.projectId = np.id; });
+          S.risks.forEach(r => { if (r.projectId === p.id) r.projectId = np.id; });
+          S.dependencies.forEach(d => { if (d.projectId === p.id) d.projectId = np.id; });
+          S.decisions.forEach(d => { if (d.projectId === p.id) d.projectId = np.id; });
+          S.updates.forEach(u => { if (u.projectId === p.id) u.projectId = np.id; });
+          UI.projectId = np.id;
+        }
+        const changes = ['status', 'priority', 'owner', 'accountable', 'due'].filter(k => p[k] !== np[k]).map(k => k + ': ' + (p[k] || '—') + ' → ' + (np[k] || '—'));
+        Object.assign(p, np);
+        if (np.status === 'Completed' && !p.completedAt) p.completedAt = todayStr();
+        commit('Updated project ' + np.id + (changes.length ? ' (' + changes.join('; ') + ')' : ''));
+      }
     });
   }
-  function nextId(prefix) { let n = 1; const ids = new Set([].concat(S.projects.map(p => p.id), S.tasks.map(t => t.id), S.risks.map(r => r.id), S.dependencies.map(d => d.id), S.decisions.map(d => d.id), S.actions.map(a => a.id))); while (ids.has(prefix + '-' + String(n).padStart(3, '0'))) n++; return prefix + '-' + String(n).padStart(3, '0'); }
+
+  function programForm(pg) {
+    const isNew = !pg;
+    pg = pg || { id: nextId('SI'), name: '', objective: '', children: [], note: '' };
+    const f = [
+      { k: 'id', label: 'Program ID', req: true },
+      { k: 'name', label: 'Program Name', req: true },
+      { k: 'objective', label: 'Program Objective', type: 'textarea', full: true, req: true },
+      { k: 'children', label: 'Child Project IDs (comma-separated)', full: true, hint: 'e.g. PRJ-06, PRJ-12, OPS-03' },
+      { k: 'note', label: 'Strategic Note', type: 'textarea', full: true }
+    ];
+    const vals = Object.assign({}, pg, { children: (pg.children || []).join(', ') });
+
+    openForm(isNew ? 'New Program' : 'Edit Program — ' + pg.id, f, vals, o => {
+      if (isNew && S.programs.some(x => x.id === o.id)) {
+        $('#ferr').textContent = 'Program ID already exists.';
+        return false;
+      }
+      const children = strToList(o.children);
+      const updated = Object.assign(pg, o, { children });
+
+      if (isNew) {
+        S.programs.push(updated);
+      }
+      // Sync children with projects
+      S.projects.forEach(p => {
+        if (children.includes(p.id)) {
+          p.program = updated.id;
+        } else if (p.program === updated.id) {
+          p.program = null;
+        }
+      });
+      commit((isNew ? 'Added program ' : 'Updated program ') + updated.id);
+    });
+  }
+
+  function roleForm(r) {
+    const isNew = !r;
+    r = r || { name: '', kind: 'Confirmed', note: '' };
+    const kinds = ['Confirmed', 'Confirmed (team)', 'External', 'Proposed role'];
+    const f = [
+      { k: 'name', label: 'Person / Role Name', req: true },
+      { k: 'kind', label: 'Kind', type: 'select', options: kinds, req: true },
+      { k: 'note', label: 'Context / Responsibilities', type: 'textarea', full: true }
+    ];
+    openForm(isNew ? 'New Person / Role' : 'Edit Person / Role', f, r, o => {
+      const trimmed = o.name.trim();
+      if (!trimmed) { $('#ferr').textContent = 'Name is required.'; return false; }
+      if (isNew) {
+        if (S.roles.some(x => x.name.toLowerCase() === trimmed.toLowerCase())) {
+          $('#ferr').textContent = 'A person or role with this name already exists.';
+          return false;
+        }
+        S.roles.push({ name: trimmed, kind: o.kind, note: o.note || '' });
+        commit('Added person / role: ' + trimmed);
+      } else {
+        const oldName = r.name;
+        r.kind = o.kind;
+        r.note = o.note || '';
+        if (oldName !== trimmed) {
+          renamePerson(oldName, trimmed);
+          commit('Renamed person / role from ' + oldName + ' to ' + trimmed);
+        } else {
+          commit('Updated person / role: ' + trimmed);
+        }
+      }
+    });
+  }
+
+  function editCadence(cadenceKey) {
+    const items = (S.governance && S.governance.cadence && S.governance.cadence[cadenceKey]) || [];
+    openForm('Edit ' + cadenceKey + ' Cadence', [
+      { k: 'items', label: 'Items (one per line)', type: 'textarea', full: true, req: true, hint: 'Each line will be displayed as a cadence bullet point.' }
+    ], { items: items.join('\n') }, o => {
+      S.governance = S.governance || {};
+      S.governance.cadence = S.governance.cadence || {};
+      S.governance.cadence[cadenceKey] = lineList(o.items);
+      commit('Updated ' + cadenceKey + ' cadence');
+    });
+  }
+
+  function editRag() {
+    const rags = (S.governance && S.governance.rag) || {};
+    openForm('Edit RAG Health Framework Definitions', [
+      { k: 'Green', label: 'Green (On track)', type: 'textarea', full: true, req: true },
+      { k: 'Amber', label: 'Amber (At risk)', type: 'textarea', full: true, req: true },
+      { k: 'Red', label: 'Red (Delayed / blocked)', type: 'textarea', full: true, req: true },
+      { k: 'Grey', label: 'Grey (Not started)', type: 'textarea', full: true, req: true }
+    ], rags, o => {
+      S.governance = S.governance || {};
+      S.governance.rag = o;
+      commit('Updated RAG health framework definitions');
+    });
+  }
+
+  function classificationForm(c, idx) {
+    const isNew = idx == null;
+    c = c || { initiative: '', mapped: '', note: '' };
+    openForm(isNew ? 'Add Classification Row' : 'Edit Classification Row', [
+      { k: 'initiative', label: 'Initiative (Brief / Name)', req: true },
+      { k: 'mapped', label: 'Mapped Project / Structure', req: true },
+      { k: 'note', label: 'Architectural Note', type: 'textarea', full: true }
+    ], c, o => {
+      S.governance = S.governance || {};
+      S.governance.classification = S.governance.classification || [];
+      if (isNew) {
+        S.governance.classification.push(o);
+        commit('Added initiative classification: ' + o.initiative);
+      } else {
+        S.governance.classification[idx] = o;
+        commit('Updated initiative classification: ' + o.initiative);
+      }
+    });
+  }
+
+  function editOptionList(optKey) {
+    const currentList = opt(optKey);
+    const labelMap = {
+      priorities: 'Priorities', projectStatuses: 'Project Statuses', taskStatuses: 'Task Statuses',
+      taskKinds: 'Task Kinds', milestoneStatuses: 'Milestone Statuses', categories: 'Portfolio Categories',
+      projectTypes: 'Project Types', valueClasses: 'Value Classes', riskLevels: 'Risk Levels',
+      riskStatuses: 'Risk Statuses', dependencyStatuses: 'Dependency Statuses', decisionStatuses: 'Decision Statuses',
+      actionKinds: 'Action Kinds', actionBuckets: 'Action Buckets', updateRag: 'Update RAG Statuses'
+    };
+
+    openForm('Edit Option List — ' + (labelMap[optKey] || optKey), [
+      { k: 'values', label: 'Dropdown values (one per line)', type: 'textarea', full: true, req: true, hint: 'Removing values currently used by projects, tasks or risks will be prevented.' }
+    ], { values: currentList.join('\n') }, o => {
+      const newItems = lineList(o.values);
+      if (!newItems.length) { $('#ferr').textContent = 'The list cannot be empty.'; return false; }
+
+      // Check if any removed value is still in use
+      const removed = currentList.filter(v => !newItems.includes(v));
+      if (removed.length > 0) {
+        const usageErrors = [];
+        removed.forEach(val => {
+          const usages = checkOptionUsage(optKey, val);
+          if (usages.length > 0) {
+            usageErrors.push('"' + val + '" is in use by ' + usages.join(', '));
+          }
+        });
+        if (usageErrors.length > 0) {
+          $('#ferr').textContent = 'Cannot delete options in active use: ' + usageErrors.join('; ');
+          return false;
+        }
+      }
+
+      S.options = S.options || {};
+      S.options[optKey] = newItems;
+      commit('Updated option list: ' + optKey);
+    });
+  }
 
   function taskForm(t, pid, parent) {
-    const isNew = !t; const base = { id: nextId('T'), projectId: pid || (UI.view === 'project' ? UI.projectId : (S.projects[0] || {}).id), ws: '', ms: '', owner: 'TBD', accountable: 'TBD', priority: 'P2', status: 'Not Started', progress: 0, kind: parent ? 'Subtask' : 'Task', parent: parent || '', datesProposed: true };
+    const isNew = !t;
+    const base = {
+      id: nextId('T'), projectId: pid || (UI.view === 'project' ? UI.projectId : (S.projects[0] || {}).id),
+      ws: '', ms: '', owner: 'TBD', accountable: 'TBD', priority: 'P2', status: 'Not Started',
+      progress: 0, kind: parent ? 'Subtask' : 'Task', parent: parent || '', datesProposed: true
+    };
     t = t || base; const proj = P(t.projectId) || {};
     const f = [
-      { k: 'id', label: 'Task ID', req: true }, { k: 'projectId', label: 'Project', type: 'select', req: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
-      { k: 'name', label: 'Task name', req: true, full: true, hint: 'Specific and actionable — not "work on project"' }, { k: 'desc', label: 'Detailed description', type: 'textarea', full: true },
-      { k: 'ws', label: 'Workstream', type: 'datalist', options: (proj.workstreams || []).map(w => w.id), hint: (proj.workstreams || []).map(w => w.id + '=' + w.name).join(' · ') || 'No workstreams in project' }, { k: 'ms', label: 'Milestone', type: 'datalist', options: (proj.milestones || []).map(m => m.id), hint: (proj.milestones || []).map(m => m.id + '=' + m.name).join(' · ') || 'No milestones in project' },
-      { k: 'owner', label: 'Assigned owner (R)', type: 'datalist', options: people(), req: true, hint: 'Use TBD if unassigned' }, { k: 'accountable', label: 'Accountable person (A)', type: 'datalist', options: people(), req: true },
-      { k: 'start', label: 'Start date', type: 'date' }, { k: 'due', label: 'Due date', type: 'date' }, { k: 'priority', label: 'Priority', type: 'select', options: PRIOS }, { k: 'status', label: 'Status', type: 'select', options: TSTATUS },
-      { k: 'dependency', label: 'Dependency', hint: 'Task IDs, decisions or external items' }, { k: 'deliverable', label: 'Deliverable', req: true }, { k: 'criteria', label: 'Completion criteria', full: true }, { k: 'progress', label: 'Progress %', type: 'number', min: 0, max: 100 }, { k: 'kind', label: 'Kind', type: 'select', options: TKINDS }, { k: 'parent', label: 'Parent task (for subtasks)', type: 'datalist', options: S.tasks.map(x => x.id) }
+      { k: 'id', label: 'Task ID', req: true },
+      { k: 'projectId', label: 'Project', type: 'select', req: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'name', label: 'Task name', req: true, full: true, hint: 'Specific and actionable — not "work on project"' },
+      { k: 'desc', label: 'Detailed description', type: 'textarea', full: true },
+      { k: 'ws', label: 'Workstream', type: 'datalist', options: (proj.workstreams || []).map(w => w.id), hint: (proj.workstreams || []).map(w => w.id + '=' + w.name).join(' · ') || 'No workstreams in project' },
+      { k: 'ms', label: 'Milestone', type: 'datalist', options: (proj.milestones || []).map(m => m.id), hint: (proj.milestones || []).map(m => m.id + '=' + m.name).join(' · ') || 'No milestones in project' },
+      { k: 'owner', label: 'Assigned owner (R)', type: 'datalist', options: people(), req: true, hint: 'Use TBD if unassigned' },
+      { k: 'accountable', label: 'Accountable person (A)', type: 'datalist', options: people(), req: true },
+      { k: 'start', label: 'Start date', type: 'date' },
+      { k: 'due', label: 'Due date', type: 'date' },
+      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'status', label: 'Status', type: 'select', options: opt('taskStatuses') },
+      { k: 'dependency', label: 'Dependency', hint: 'Task IDs, decisions or external items' },
+      { k: 'deliverable', label: 'Deliverable', req: true },
+      { k: 'criteria', label: 'Completion criteria', full: true },
+      { k: 'progress', label: 'Progress %', type: 'number', min: 0, max: 100 },
+      { k: 'kind', label: 'Kind', type: 'select', options: opt('taskKinds') },
+      { k: 'parent', label: 'Parent task (for subtasks)', type: 'datalist', options: S.tasks.map(x => x.id) }
     ];
     openForm(isNew ? (parent ? 'New subtask of ' + parent : 'New task') : 'Edit task — ' + t.id, f, t, o => {
       if (isNew && S.tasks.some(x => x.id === o.id)) { $('#ferr').textContent = 'Task ID already exists.'; return false; }
       if (o.parent && o.parent === o.id) { $('#ferr').textContent = 'A task cannot be its own parent.'; return false; }
       if (o.progress < 0 || o.progress > 100) { $('#ferr').textContent = 'Progress must be 0–100.'; return false; }
       if (o.status === 'Completed') o.progress = 100;
-      if (isNew) { const nt = Object.assign({}, base, o); if (nt.status === 'Completed') nt.completedAt = todayStr(); S.tasks.push(nt); commit('Added task ' + nt.id + ' "' + nt.name + '" to ' + nt.projectId); }
-      else { const ch = ['status', 'owner', 'due', 'priority', 'progress'].filter(k => String(t[k]) !== String(o[k])).map(k => k + ': ' + (t[k] || '—') + ' → ' + (o[k] || '—')); if (o.status === 'Completed' && t.status !== 'Completed') o.completedAt = todayStr(); if (o.id !== t.id) S.tasks.forEach(x => { if (x.parent === t.id) x.parent = o.id; }); Object.assign(t, o); commit('Updated task ' + t.id + (ch.length ? ' (' + ch.join('; ') + ')' : '')); }
+      if (isNew) {
+        const nt = Object.assign({}, base, o);
+        if (nt.status === 'Completed') nt.completedAt = todayStr();
+        S.tasks.push(nt);
+        commit('Added task ' + nt.id + ' "' + nt.name + '" to ' + nt.projectId);
+      } else {
+        const ch = ['status', 'owner', 'due', 'priority', 'progress'].filter(k => String(t[k]) !== String(o[k])).map(k => k + ': ' + (t[k] || '—') + ' → ' + (o[k] || '—'));
+        if (o.status === 'Completed' && t.status !== 'Completed') o.completedAt = todayStr();
+        if (o.id !== t.id) S.tasks.forEach(x => { if (x.parent === t.id) x.parent = o.id; });
+        Object.assign(t, o);
+        commit('Updated task ' + t.id + (ch.length ? ' (' + ch.join('; ') + ')' : ''));
+      }
     });
   }
-  function msForm(p, m) { const isNew = !m; m = m || { id: 'MS-' + p.id.replace(/^[A-Z]+-/, '') + '-' + ((p.milestones || []).length + 1), status: 'Pending', ws: (p.workstreams[0] || {}).id || '' }; openForm(isNew ? 'New milestone — ' + p.id : 'Edit milestone', [{ k: 'id', label: 'Milestone ID', req: true }, { k: 'name', label: 'Milestone', req: true }, { k: 'due', label: 'Date (every milestone must have a date)', type: 'date', req: true }, { k: 'status', label: 'Status', type: 'select', options: MSTATUS }, { k: 'ws', label: 'Workstream', type: 'select', allowBlank: true, options: (p.workstreams || []).map(w => [w.id, w.id + ' ' + w.name]) }], m, o => { if (isNew) { if (ms(p, o.id)) { $('#ferr').textContent = 'Milestone ID exists.'; return false; } p.milestones.push(o); commit('Added milestone "' + o.name + '" to ' + p.id); } else { Object.assign(m, o); commit('Updated milestone ' + m.id + ' in ' + p.id); } }); }
-  function wsForm(p, w) { const isNew = !w; w = w || { id: 'WS-' + p.id.replace(/^[A-Z]+-/, '') + String.fromCharCode(65 + (p.workstreams || []).length) }; openForm(isNew ? 'New workstream — ' + p.id : 'Edit workstream', [{ k: 'id', label: 'Workstream ID', req: true }, { k: 'name', label: 'Workstream name', req: true }], w, o => { if (isNew) { if (ws(p, o.id)) { $('#ferr').textContent = 'Workstream ID exists.'; return false; } p.workstreams.push(o); commit('Added workstream "' + o.name + '" to ' + p.id); } else { Object.assign(w, o); commit('Updated workstream ' + w.id); } }); }
-  function raciForm(p, i) { const r = i != null ? p.raci[i] : { item: '', R: [], A: 'TBD', C: [], I: [] }; openForm((i != null ? 'Edit' : 'Add') + ' RACI entry — ' + p.id, [{ k: 'item', label: 'Item / deliverable / workstream', req: true, full: true }, { k: 'R', label: 'Responsible (comma separated)', type: 'datalist', options: people() }, { k: 'A', label: 'Accountable (exactly one)', type: 'datalist', options: people(), req: true }, { k: 'C', label: 'Consulted (comma separated)', type: 'datalist', options: people() }, { k: 'I', label: 'Informed (comma separated)', type: 'datalist', options: people() }], { item: r.item, R: listToStr(r.R), A: r.A, C: listToStr(r.C), I: listToStr(r.I) }, o => { if (/,/.test(o.A) && !/^tbd/i.test(o.A)) { $('#ferr').textContent = 'Only one Accountable person is allowed.'; return false; } const n = { item: o.item, R: strToList(o.R), A: o.A, C: strToList(o.C), I: strToList(o.I) }; if (i != null) p.raci[i] = n; else p.raci.push(n); commit('RACI updated for ' + p.id + ' — ' + n.item); }); }
-  function riskForm(r, pid) { const isNew = !r; r = r || { id: nextId('R'), projectId: pid || UI.projectId || S.projects[0].id, impact: 'Medium', probability: 'Medium', status: 'Open', owner: 'TBD', source: 'Logged by user' }; openForm(isNew ? 'New risk' : 'Edit risk — ' + r.id, [{ k: 'id', label: 'Risk ID', req: true }, { k: 'projectId', label: 'Project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) }, { k: 'desc', label: 'Risk description', type: 'textarea', full: true, req: true }, { k: 'impact', label: 'Impact', type: 'select', options: ['High', 'Medium', 'Low'] }, { k: 'probability', label: 'Probability', type: 'select', options: ['High', 'Medium', 'Low'] }, { k: 'mitigation', label: 'Mitigation plan', type: 'textarea', full: true, req: true }, { k: 'owner', label: 'Risk owner', type: 'datalist', options: people(), req: true }, { k: 'deadline', label: 'Resolution deadline', type: 'date' }, { k: 'status', label: 'Status', type: 'select', options: ['Open', 'Mitigated', 'Resolved', 'Escalated', 'Closed'] }], r, o => { if (isNew) { S.risks.push(Object.assign(r, o)); commit('Logged risk ' + r.id + ' on ' + r.projectId); } else { Object.assign(r, o); commit('Updated risk ' + r.id); } }); }
-  function depForm(d, pid) { const isNew = !d; d = d || { id: nextId('DP'), projectId: pid || UI.projectId || S.projects[0].id, status: 'Open', responsible: 'TBD', externalOwner: 'TBD', escalation: 'No' }; openForm(isNew ? 'New dependency' : 'Edit dependency — ' + d.id, [{ k: 'id', label: 'Dependency ID', req: true }, { k: 'projectId', label: 'Dependent project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) }, { k: 'desc', label: 'Dependency', type: 'textarea', full: true, req: true }, { k: 'responsible', label: 'Responsible person (internal)', type: 'datalist', options: people(), req: true }, { k: 'externalOwner', label: 'External owner', type: 'datalist', options: people(), req: true }, { k: 'status', label: 'Status', type: 'select', options: ['Open', 'Escalated', 'Resolved', 'Closed'] }, { k: 'requiredBy', label: 'Required-by date', type: 'date' }, { k: 'escalation', label: 'Escalation requirement', full: true }], d, o => { if (isNew) { S.dependencies.push(Object.assign(d, o)); commit('Logged dependency ' + d.id + ' for ' + d.projectId); } else { Object.assign(d, o); commit('Updated dependency ' + d.id); } }); }
-  function decisionForm(d) { const isNew = !d; d = d || { id: nextId('DEC'), projectId: UI.projectId || '', owner: 'Head of Sales', raised: todayStr(), status: 'Open', source: 'Logged by user' }; openForm(isNew ? 'Log decision required' : 'Decision — ' + d.id, [{ k: 'id', label: 'Decision ID', req: true }, { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) }, { k: 'decision', label: 'Decision required', type: 'textarea', full: true, req: true }, { k: 'owner', label: 'Decision owner', type: 'datalist', options: people(), req: true }, { k: 'raised', label: 'Date raised', type: 'date', req: true }, { k: 'requiredBy', label: 'Required-by date', type: 'date' }, { k: 'impact', label: 'Impact of delay', type: 'textarea', full: true }, { k: 'status', label: 'Status', type: 'select', options: ['Open', 'Decided', 'Deferred', 'Escalated'] }, { k: 'final', label: 'Final decision', type: 'textarea', full: true }], d, o => { if (o.status === 'Decided' && !o.final) { $('#ferr').textContent = 'Record the final decision before marking as Decided.'; return false; } if (isNew) { S.decisions.push(Object.assign(d, o)); commit('Logged decision ' + d.id); } else { const was = d.status; Object.assign(d, o); if (was !== 'Decided' && o.status === 'Decided') d.decidedAt = todayStr(); commit('Decision ' + d.id + ' → ' + d.status); } }); }
-  function updateForm(u, pid) { const isNew = !u; const wk = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })(); u = u || { id: uid('U'), projectId: pid, week: wk, rag: 'Green', author: UI.me || '' }; openForm(isNew ? 'Weekly update — ' + pName(u.projectId) : 'Edit weekly update', [{ k: 'projectId', label: 'Project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) }, { k: 'week', label: 'Week commencing', type: 'date', req: true }, { k: 'author', label: 'Submitted by', type: 'datalist', options: people(), req: true }, { k: 'rag', label: 'Owner RAG assessment', type: 'select', options: ['Green', 'Amber', 'Red', 'Grey'] }, { k: 'progress', label: "Last week's progress", type: 'textarea', full: true, req: true }, { k: 'completed', label: 'Deliverables completed', type: 'textarea', full: true }, { k: 'blockers', label: 'Current blockers', type: 'textarea', full: true }, { k: 'missed', label: 'Missed commitments', type: 'textarea', full: true }, { k: 'next', label: "Next week's commitments", type: 'textarea', full: true, req: true }, { k: 'decisions', label: 'Decisions required from leadership', type: 'textarea', full: true }], u, o => { if (isNew) { S.updates.push(Object.assign(u, o, { ts: nowIso() })); commit('Weekly update submitted for ' + u.projectId + ' by ' + u.author); } else { Object.assign(u, o); commit('Weekly update edited for ' + u.projectId); } }); }
-  function actionForm(a) { const isNew = !a; a = a || { id: nextId('A'), kind: 'Recommendation', priority: 'P1', bucket: 'Implement immediately' }; openForm(isNew ? 'New action' : 'Edit action — ' + a.id, [{ k: 'id', label: 'ID', req: true }, { k: 'kind', label: 'Kind', type: 'select', options: ['Pending action', 'Recommendation'] }, { k: 'action', label: 'Action', full: true, req: true }, { k: 'why', label: 'Why it is required', type: 'textarea', full: true, req: true }, { k: 'ownerRole', label: 'Suggested owner role', req: true }, { k: 'priority', label: 'Priority', type: 'select', options: PRIOS }, { k: 'output', label: 'Expected output', req: true }, { k: 'dependency', label: 'Dependency' }, { k: 'timeline', label: 'Suggested completion timeline' }, { k: 'bucket', label: 'Implementability', type: 'select', options: ['Implement immediately', 'Requires a decision', 'Requires technology / CRM support', 'Requires another department', 'Requires a pilot / experiment', 'Requires a complete project plan'] }, { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) }, { k: 'taskId', label: 'Task ref' }], a, o => { if (isNew) { S.actions.push(Object.assign(a, o)); commit('Added action ' + a.id); } else { Object.assign(a, o); commit('Updated action ' + a.id); } }); }
+
+  function msForm(p, m) {
+    const isNew = !m;
+    m = m || { id: 'MS-' + p.id.replace(/^[A-Z]+-/, '') + '-' + ((p.milestones || []).length + 1), status: 'Pending', ws: (p.workstreams[0] || {}).id || '' };
+    openForm(isNew ? 'New milestone — ' + p.id : 'Edit milestone', [
+      { k: 'id', label: 'Milestone ID', req: true },
+      { k: 'name', label: 'Milestone', req: true },
+      { k: 'due', label: 'Date (every milestone must have a date)', type: 'date', req: true },
+      { k: 'status', label: 'Status', type: 'select', options: opt('milestoneStatuses') },
+      { k: 'ws', label: 'Workstream', type: 'select', allowBlank: true, options: (p.workstreams || []).map(w => [w.id, w.id + ' ' + w.name]) }
+    ], m, o => {
+      if (isNew) {
+        if (ms(p, o.id)) { $('#ferr').textContent = 'Milestone ID exists.'; return false; }
+        p.milestones.push(o);
+        commit('Added milestone "' + o.name + '" to ' + p.id);
+      } else {
+        Object.assign(m, o);
+        commit('Updated milestone ' + m.id + ' in ' + p.id);
+      }
+    });
+  }
+
+  function wsForm(p, w) {
+    const isNew = !w;
+    w = w || { id: 'WS-' + p.id.replace(/^[A-Z]+-/, '') + String.fromCharCode(65 + (p.workstreams || []).length) };
+    openForm(isNew ? 'New workstream — ' + p.id : 'Edit workstream', [
+      { k: 'id', label: 'Workstream ID', req: true },
+      { k: 'name', label: 'Workstream name', req: true }
+    ], w, o => {
+      if (isNew) {
+        if (ws(p, o.id)) { $('#ferr').textContent = 'Workstream ID exists.'; return false; }
+        p.workstreams.push(o);
+        commit('Added workstream "' + o.name + '" to ' + p.id);
+      } else {
+        Object.assign(w, o);
+        commit('Updated workstream ' + w.id);
+      }
+    });
+  }
+
+  function raciForm(p, i) {
+    const r = i != null ? p.raci[i] : { item: '', R: [], A: 'TBD', C: [], I: [] };
+    openForm((i != null ? 'Edit' : 'Add') + ' RACI entry — ' + p.id, [
+      { k: 'item', label: 'Item / deliverable / workstream', req: true, full: true },
+      { k: 'R', label: 'Responsible (comma separated)', type: 'datalist', options: people() },
+      { k: 'A', label: 'Accountable (exactly one)', type: 'datalist', options: people(), req: true },
+      { k: 'C', label: 'Consulted (comma separated)', type: 'datalist', options: people() },
+      { k: 'I', label: 'Informed (comma separated)', type: 'datalist', options: people() }
+    ], { item: r.item, R: listToStr(r.R), A: r.A, C: listToStr(r.C), I: listToStr(r.I) }, o => {
+      if (/,/.test(o.A) && !/^tbd/i.test(o.A)) {
+        $('#ferr').textContent = 'Only one Accountable person is allowed.';
+        return false;
+      }
+      const n = { item: o.item, R: strToList(o.R), A: o.A, C: strToList(o.C), I: strToList(o.I) };
+      if (i != null) p.raci[i] = n; else p.raci.push(n);
+      commit('RACI updated for ' + p.id + ' — ' + n.item);
+    });
+  }
+
+  function riskForm(r, pid) {
+    const isNew = !r;
+    r = r || { id: nextId('R'), projectId: pid || UI.projectId || S.projects[0].id, impact: 'Medium', probability: 'Medium', status: 'Open', owner: 'TBD', source: 'Logged by user' };
+    openForm(isNew ? 'New risk' : 'Edit risk — ' + r.id, [
+      { k: 'id', label: 'Risk ID', req: true },
+      { k: 'projectId', label: 'Project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'desc', label: 'Risk description', type: 'textarea', full: true, req: true },
+      { k: 'impact', label: 'Impact', type: 'select', options: opt('riskLevels') },
+      { k: 'probability', label: 'Probability', type: 'select', options: opt('riskLevels') },
+      { k: 'mitigation', label: 'Mitigation plan', type: 'textarea', full: true, req: true },
+      { k: 'owner', label: 'Risk owner', type: 'datalist', options: people(), req: true },
+      { k: 'deadline', label: 'Resolution deadline', type: 'date' },
+      { k: 'status', label: 'Status', type: 'select', options: opt('riskStatuses') }
+    ], r, o => {
+      if (isNew) {
+        S.risks.push(Object.assign(r, o));
+        commit('Logged risk ' + r.id + ' on ' + r.projectId);
+      } else {
+        Object.assign(r, o);
+        commit('Updated risk ' + r.id);
+      }
+    });
+  }
+
+  function depForm(d, pid) {
+    const isNew = !d;
+    d = d || { id: nextId('DP'), projectId: pid || UI.projectId || S.projects[0].id, status: 'Open', responsible: 'TBD', externalOwner: 'TBD', escalation: 'No' };
+    openForm(isNew ? 'New dependency' : 'Edit dependency — ' + d.id, [
+      { k: 'id', label: 'Dependency ID', req: true },
+      { k: 'projectId', label: 'Dependent project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'desc', label: 'Dependency', type: 'textarea', full: true, req: true },
+      { k: 'responsible', label: 'Responsible person (internal)', type: 'datalist', options: people(), req: true },
+      { k: 'externalOwner', label: 'External owner', type: 'datalist', options: people(), req: true },
+      { k: 'status', label: 'Status', type: 'select', options: opt('dependencyStatuses') },
+      { k: 'requiredBy', label: 'Required-by date', type: 'date' },
+      { k: 'escalation', label: 'Escalation requirement', full: true }
+    ], d, o => {
+      if (isNew) {
+        S.dependencies.push(Object.assign(d, o));
+        commit('Logged dependency ' + d.id + ' for ' + d.projectId);
+      } else {
+        Object.assign(d, o);
+        commit('Updated dependency ' + d.id);
+      }
+    });
+  }
+
+  function decisionForm(d) {
+    const isNew = !d;
+    d = d || { id: nextId('DEC'), projectId: UI.projectId || '', owner: 'Head of Sales', raised: todayStr(), status: 'Open', source: 'Logged by user' };
+    openForm(isNew ? 'Log decision required' : 'Decision — ' + d.id, [
+      { k: 'id', label: 'Decision ID', req: true },
+      { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'decision', label: 'Decision required', type: 'textarea', full: true, req: true },
+      { k: 'owner', label: 'Decision owner', type: 'datalist', options: people(), req: true },
+      { k: 'raised', label: 'Date raised', type: 'date', req: true },
+      { k: 'requiredBy', label: 'Required-by date', type: 'date' },
+      { k: 'impact', label: 'Impact of delay', type: 'textarea', full: true },
+      { k: 'status', label: 'Status', type: 'select', options: opt('decisionStatuses') },
+      { k: 'final', label: 'Final decision', type: 'textarea', full: true }
+    ], d, o => {
+      if (o.status === 'Decided' && !o.final) {
+        $('#ferr').textContent = 'Record the final decision before marking as Decided.';
+        return false;
+      }
+      if (isNew) {
+        S.decisions.push(Object.assign(d, o));
+        commit('Logged decision ' + d.id);
+      } else {
+        const was = d.status;
+        Object.assign(d, o);
+        if (was !== 'Decided' && o.status === 'Decided') d.decidedAt = todayStr();
+        commit('Decision ' + d.id + ' → ' + d.status);
+      }
+    });
+  }
+
+  function updateForm(u, pid) {
+    const isNew = !u;
+    const wk = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+    u = u || { id: uid('U'), projectId: pid, week: wk, rag: 'Green', author: UI.me || '' };
+    openForm(isNew ? 'Weekly update — ' + pName(u.projectId) : 'Edit weekly update', [
+      { k: 'projectId', label: 'Project', type: 'select', options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'week', label: 'Week commencing', type: 'date', req: true },
+      { k: 'author', label: 'Submitted by', type: 'datalist', options: people(), req: true },
+      { k: 'rag', label: 'Owner RAG assessment', type: 'select', options: opt('updateRag') },
+      { k: 'progress', label: "Last week's progress", type: 'textarea', full: true, req: true },
+      { k: 'completed', label: 'Deliverables completed', type: 'textarea', full: true },
+      { k: 'blockers', label: 'Current blockers', type: 'textarea', full: true },
+      { k: 'missed', label: 'Missed commitments', type: 'textarea', full: true },
+      { k: 'next', label: "Next week's commitments", type: 'textarea', full: true, req: true },
+      { k: 'decisions', label: 'Decisions required from leadership', type: 'textarea', full: true }
+    ], u, o => {
+      if (isNew) {
+        S.updates.push(Object.assign(u, o, { ts: nowIso() }));
+        commit('Weekly update submitted for ' + u.projectId + ' by ' + u.author);
+      } else {
+        Object.assign(u, o);
+        commit('Weekly update edited for ' + u.projectId);
+      }
+    });
+  }
+
+  function actionForm(a) {
+    const isNew = !a;
+    a = a || { id: nextId('A'), kind: 'Recommendation', priority: 'P1', bucket: opt('actionBuckets')[0] || 'Implement immediately' };
+    openForm(isNew ? 'New action' : 'Edit action — ' + a.id, [
+      { k: 'id', label: 'ID', req: true },
+      { k: 'kind', label: 'Kind', type: 'select', options: opt('actionKinds') },
+      { k: 'action', label: 'Action', full: true, req: true },
+      { k: 'why', label: 'Why it is required', type: 'textarea', full: true, req: true },
+      { k: 'ownerRole', label: 'Suggested owner role', req: true },
+      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'output', label: 'Expected output', req: true },
+      { k: 'dependency', label: 'Dependency' },
+      { k: 'timeline', label: 'Suggested completion timeline' },
+      { k: 'bucket', label: 'Implementability', type: 'select', options: opt('actionBuckets') },
+      { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, options: S.projects.map(p => [p.id, p.id + ' ' + p.name]) },
+      { k: 'taskId', label: 'Task ref' }
+    ], a, o => {
+      if (isNew) {
+        S.actions.push(Object.assign(a, o));
+        commit('Added action ' + a.id);
+      } else {
+        Object.assign(a, o);
+        commit('Updated action ' + a.id);
+      }
+    });
+  }
 
   // ---------- export / import / print ----------
-  function download(name, content, type) { const b = new Blob([content], { type: type || 'text/plain' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1000); }
-  function csv(rows, cols) { const q = v => { v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }; return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n'); }
+  function download(name, content, type) {
+    const b = new Blob([content], { type: type || 'text/plain' });
+    const u = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = u;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+  }
+
+  function csv(rows, cols) {
+    const q = v => {
+      v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    };
+    return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n');
+  }
+
   function exportCsv(what) {
     const stamp = todayStr();
     if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags']), 'text/csv');
@@ -583,63 +1718,484 @@
     if (what === 'decisions') download('decisions_' + stamp + '.csv', csv(S.decisions, ['id', 'projectId', 'decision', 'owner', 'raised', 'requiredBy', 'impact', 'status', 'final', 'source']), 'text/csv');
     toast('CSV exported');
   }
-  function importJson(file) { const rd = new FileReader(); rd.onload = () => { try { const d = JSON.parse(rd.result); if (!d || !Array.isArray(d.projects) || !Array.isArray(d.tasks) || !d.meta) throw new Error('File is not a Control Tower export (missing projects/tasks/meta).'); ['risks', 'dependencies', 'decisions', 'updates', 'actions', 'activity', 'roles', 'programs'].forEach(k => { if (!Array.isArray(d[k])) d[k] = []; }); if (!d.governance) d.governance = buildSeed().governance; if (!confirm('Replace current data with "' + file.name + '" (' + d.projects.length + ' projects, ' + d.tasks.length + ' tasks)? Current local data will be overwritten.')) return; S = d; log('Imported data from ' + file.name); save(); render(); toast('Import complete'); } catch (e) { toast('Import failed: ' + e.message, true); } }; rd.readAsText(file); }
-  function printProject(p) { const h = health(p); const ts = pTasks(p.id); const w = window.open('', '_blank'); if (!w) { toast('Pop-up blocked — allow pop-ups to print.', true); return; } w.document.write('<html><head><title>' + esc(p.id + ' ' + p.name) + '</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:12px;color:#14213d;padding:24px}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px}table{border-collapse:collapse;width:100%;margin-top:6px}th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f3f4f6}dl{display:grid;grid-template-columns:160px 1fr;gap:3px 10px}dt{color:#666}dd{margin:0}.m{color:#666;font-size:11px}</style></head><body>' +
-    '<h1>' + esc(p.name) + '</h1><div class="m">' + esc(p.id) + ' · ' + esc(p.category) + ' · ' + esc(p.type) + ' · Printed ' + new Date().toLocaleString() + '</div>' +
-    '<h2>Charter</h2><dl><dt>Objective</dt><dd>' + esc(p.objective) + '</dd><dt>Problem</dt><dd>' + esc(p.problem) + '</dd><dt>Expected outcome</dt><dd>' + esc(p.outcome) + '</dd><dt>Impact</dt><dd>' + esc(p.impact) + '</dd><dt>Success metrics</dt><dd>' + (p.metrics || []).map(esc).join('; ') + '</dd><dt>Owner / Accountable / Sponsor</dt><dd>' + esc(p.owner) + ' / ' + esc(p.accountable) + ' / ' + esc(p.sponsor) + '</dd><dt>Dates</dt><dd>' + esc(p.start || 'TBD') + ' → ' + esc(p.due || 'ongoing') + (p.datesProposed ? ' (proposed)' : '') + '</dd><dt>Status / Health / Priority</dt><dd>' + esc(p.status) + ' / ' + h.rag + ' (' + esc(h.reasons.join('; ')) + ') / ' + esc(p.priority) + (p.priorityProposed ? ' (proposed)' : '') + '</dd><dt>Progress</dt><dd>' + projectProgress(p.id) + '%</dd><dt>Next action</dt><dd>' + esc(p.nextAction) + '</dd><dt>Dependencies</dt><dd>' + (p.dependencies || []).map(esc).join('; ') + '</dd><dt>Risks / assumptions</dt><dd>' + (p.risks || []).map(esc).join('; ') + ' | ' + (p.assumptions || []).map(esc).join('; ') + '</dd></dl>' +
-    '<h2>RACI</h2><table><tr><th>Item</th><th>R</th><th>A</th><th>C</th><th>I</th></tr>' + (p.raci || []).map(r => '<tr><td>' + esc(r.item) + '</td><td>' + esc(listToStr(r.R)) + '</td><td>' + esc(r.A) + '</td><td>' + esc(listToStr(r.C)) + '</td><td>' + esc(listToStr(r.I)) + '</td></tr>').join('') + '</table>' +
-    '<h2>Workstreams & milestones</h2><table><tr><th>Workstream</th><th>Milestone</th><th>Date</th><th>Status</th></tr>' + (p.milestones || []).map(m => '<tr><td>' + esc((ws(p, m.ws) || {}).name || '') + '</td><td>' + esc(m.name) + '</td><td>' + esc(m.due) + '</td><td>' + esc(m.status) + '</td></tr>').join('') + '</table>' +
-    '<h2>Tasks (' + ts.length + ')</h2><table><tr><th>ID</th><th>Task</th><th>Owner</th><th>A</th><th>Due</th><th>Prio</th><th>Status</th><th>%</th><th>Deliverable</th></tr>' + ts.map(t => '<tr><td>' + esc(t.id) + '</td><td>' + (t.parent ? '↳ ' : '') + esc(t.name) + '</td><td>' + esc(t.owner) + '</td><td>' + esc(t.accountable) + '</td><td>' + esc(t.due || 'TBD') + '</td><td>' + esc(t.priority) + '</td><td>' + esc(t.status) + '</td><td>' + (t.status === 'Completed' ? 100 : +t.progress || 0) + '</td><td>' + esc(t.deliverable) + '</td></tr>').join('') + '</table>' +
-    '<h2>Risks</h2><table><tr><th>ID</th><th>Risk</th><th>Impact</th><th>Prob.</th><th>Mitigation</th><th>Owner</th><th>Status</th></tr>' + S.risks.filter(r => r.projectId === p.id).map(r => '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.desc) + '</td><td>' + esc(r.impact) + '</td><td>' + esc(r.probability) + '</td><td>' + esc(r.mitigation) + '</td><td>' + esc(r.owner) + '</td><td>' + esc(r.status) + '</td></tr>').join('') + '</table>' +
-    '<h2>Dependencies</h2><table><tr><th>ID</th><th>Dependency</th><th>External owner</th><th>Required by</th><th>Status</th></tr>' + S.dependencies.filter(d => d.projectId === p.id).map(d => '<tr><td>' + esc(d.id) + '</td><td>' + esc(d.desc) + '</td><td>' + esc(d.externalOwner) + '</td><td>' + esc(d.requiredBy) + '</td><td>' + esc(d.status) + '</td></tr>').join('') + '</table>' +
-    '<h2>Latest weekly update</h2>' + (lastUpdate(p.id) ? (u => '<dl><dt>Week</dt><dd>' + esc(u.week) + '</dd><dt>Progress</dt><dd>' + esc(u.progress) + '</dd><dt>Completed</dt><dd>' + esc(u.completed) + '</dd><dt>Blockers</dt><dd>' + esc(u.blockers) + '</dd><dt>Missed</dt><dd>' + esc(u.missed) + '</dd><dt>Next week</dt><dd>' + esc(u.next) + '</dd><dt>Decisions</dt><dd>' + esc(u.decisions) + '</dd></dl>')(lastUpdate(p.id)) : '<div class="m">None submitted.</div>') +
-    '<script>window.onload=function(){window.print()}<\/script></body></html>'); w.document.close(); }
+
+  function importJson(file) {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const d = JSON.parse(rd.result);
+        if (!d || !Array.isArray(d.projects) || !Array.isArray(d.tasks) || !d.meta) throw new Error('File is not a Control Tower export (missing projects/tasks/meta).');
+        ['risks', 'dependencies', 'decisions', 'updates', 'actions', 'activity', 'roles', 'programs'].forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
+        if (!d.governance) d.governance = buildSeed().governance;
+        if (!d.options) d.options = buildSeed().options;
+        if (!confirm('Replace current data with "' + file.name + '" (' + d.projects.length + ' projects, ' + d.tasks.length + ' tasks)? Current local data will be overwritten.')) return;
+        S = d;
+        log('Imported data from ' + file.name);
+        save(true);
+        render();
+        toast('Import complete');
+      } catch (e) { toast('Import failed: ' + e.message, true); }
+    };
+    rd.readAsText(file);
+  }
+
+  function printProject(p) {
+    const h = health(p);
+    const ts = pTasks(p.id);
+    const w = window.open('', '_blank');
+    if (!w) { toast('Pop-up blocked — allow pop-ups to print.', true); return; }
+    w.document.write('<html><head><title>' + esc(p.id + ' ' + p.name) + '</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:12px;color:#14213d;padding:24px}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px}table{border-collapse:collapse;width:100%;margin-top:6px}th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f3f4f6}dl{display:grid;grid-template-columns:160px 1fr;gap:3px 10px}dt{color:#666}dd{margin:0}.m{color:#666;font-size:11px}</style></head><body>' +
+      '<h1>' + esc(p.name) + '</h1><div class="m">' + esc(p.id) + ' · ' + esc(p.category) + ' · ' + esc(p.type) + ' · Printed ' + new Date().toLocaleString() + '</div>' +
+      '<h2>Charter</h2><dl><dt>Objective</dt><dd>' + esc(p.objective) + '</dd><dt>Problem</dt><dd>' + esc(p.problem) + '</dd><dt>Expected outcome</dt><dd>' + esc(p.outcome) + '</dd><dt>Impact</dt><dd>' + esc(p.impact) + '</dd><dt>Success metrics</dt><dd>' + (p.metrics || []).map(esc).join('; ') + '</dd><dt>Owner / Accountable / Sponsor</dt><dd>' + esc(p.owner) + ' / ' + esc(p.accountable) + ' / ' + esc(p.sponsor) + '</dd><dt>Dates</dt><dd>' + esc(p.start || 'TBD') + ' → ' + esc(p.due || 'ongoing') + (p.datesProposed ? ' (proposed)' : '') + '</dd><dt>Status / Health / Priority</dt><dd>' + esc(p.status) + ' / ' + h.rag + ' (' + esc(h.reasons.join('; ')) + ') / ' + esc(p.priority) + (p.priorityProposed ? ' (proposed)' : '') + '</dd><dt>Progress</dt><dd>' + projectProgress(p.id) + '%</dd><dt>Next action</dt><dd>' + esc(p.nextAction) + '</dd><dt>Dependencies</dt><dd>' + (p.dependencies || []).map(esc).join('; ') + '</dd><dt>Risks / assumptions</dt><dd>' + (p.risks || []).map(esc).join('; ') + ' | ' + (p.assumptions || []).map(esc).join('; ') + '</dd></dl>' +
+      '<h2>RACI</h2><table><tr><th>Item</th><th>R</th><th>A</th><th>C</th><th>I</th></tr>' + (p.raci || []).map(r => '<tr><td>' + esc(r.item) + '</td><td>' + esc(listToStr(r.R)) + '</td><td>' + esc(r.A) + '</td><td>' + esc(listToStr(r.C)) + '</td><td>' + esc(listToStr(r.I)) + '</td></tr>').join('') + '</table>' +
+      '<h2>Workstreams & milestones</h2><table><tr><th>Workstream</th><th>Milestone</th><th>Date</th><th>Status</th></tr>' + (p.milestones || []).map(m => '<tr><td>' + esc((ws(p, m.ws) || {}).name || '') + '</td><td>' + esc(m.name) + '</td><td>' + esc(m.due) + '</td><td>' + esc(m.status) + '</td></tr>').join('') + '</table>' +
+      '<h2>Tasks (' + ts.length + ')</h2><table><tr><th>ID</th><th>Task</th><th>Owner</th><th>A</th><th>Due</th><th>Prio</th><th>Status</th><th>%</th><th>Deliverable</th></tr>' + ts.map(t => '<tr><td>' + esc(t.id) + '</td><td>' + (t.parent ? '↳ ' : '') + esc(t.name) + '</td><td>' + esc(t.owner) + '</td><td>' + esc(t.accountable) + '</td><td>' + esc(t.due || 'TBD') + '</td><td>' + esc(t.priority) + '</td><td>' + esc(t.status) + '</td><td>' + (t.status === 'Completed' ? 100 : +t.progress || 0) + '</td><td>' + esc(t.deliverable) + '</td></tr>').join('') + '</table>' +
+      '<h2>Risks</h2><table><tr><th>ID</th><th>Risk</th><th>Impact</th><th>Prob.</th><th>Mitigation</th><th>Owner</th><th>Status</th></tr>' + S.risks.filter(r => r.projectId === p.id).map(r => '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.desc) + '</td><td>' + esc(r.impact) + '</td><td>' + esc(r.probability) + '</td><td>' + esc(r.mitigation) + '</td><td>' + esc(r.owner) + '</td><td>' + esc(r.status) + '</td></tr>').join('') + '</table>' +
+      '<h2>Dependencies</h2><table><tr><th>ID</th><th>Dependency</th><th>External owner</th><th>Required by</th><th>Status</th></tr>' + S.dependencies.filter(d => d.projectId === p.id).map(d => '<tr><td>' + esc(d.id) + '</td><td>' + esc(d.desc) + '</td><td>' + esc(d.externalOwner) + '</td><td>' + esc(d.requiredBy) + '</td><td>' + esc(d.status) + '</td></tr>').join('') + '</table>' +
+      '<h2>Latest weekly update</h2>' + (lastUpdate(p.id) ? (u => '<dl><dt>Week</dt><dd>' + esc(u.week) + '</dd><dt>Progress</dt><dd>' + esc(u.progress) + '</dd><dt>Completed</dt><dd>' + esc(u.completed) + '</dd><dt>Blockers</dt><dd>' + esc(u.blockers) + '</dd><dt>Missed</dt><dd>' + esc(u.missed) + '</dd><dt>Next week</dt><dd>' + esc(u.next) + '</dd><dt>Decisions</dt><dd>' + esc(u.decisions) + '</dd></dl>')(lastUpdate(p.id)) : '<div class="m">None submitted.</div>') +
+      '<script>window.onload=function(){window.print()}<\/script></body></html>'); w.document.close();
+  }
+
+  // ---------- TWO-WAY GOOGLE SHEETS SYNC MODULE ----------
+  const SYNC = {
+    _timer: null,
+    _pollTimer: null,
+
+    get config() {
+      if (!S.meta.sync) {
+        S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+      }
+      return S.meta.sync;
+    },
+
+    init() {
+      // Poll every 60 seconds
+      if (this._pollTimer) clearInterval(this._pollTimer);
+      this._pollTimer = setInterval(() => {
+        if (this.config.enabled && this.config.url && this.config.status !== 'syncing') {
+          this.checkRemoteVersion();
+        }
+      }, 60000);
+
+      // Check when window gains focus
+      window.addEventListener('focus', () => {
+        if (this.config.enabled && this.config.url && this.config.status !== 'syncing') {
+          this.checkRemoteVersion();
+        }
+      });
+    },
+
+    onLocalChange() {
+      if (!this.config.enabled || !this.config.url) return;
+      if (!this.config.autoSync) return;
+
+      this.config.status = 'syncing';
+      this.updateUI();
+
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => {
+        this.push();
+      }, 1500);
+    },
+
+    async push() {
+      if (!this.config.url) {
+        toast('Google Sheet sync URL is not configured.', true);
+        this.config.status = 'idle';
+        this.updateUI();
+        return;
+      }
+      this.config.status = 'syncing';
+      this.updateUI();
+
+      try {
+        const payload = { action: 'push', state: S };
+        const res = await fetch(this.config.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        this.config.status = 'connected';
+        this.config.error = null;
+        this.config.lastSync = nowIso();
+        this.config.baseVersion = data.version || ((this.config.baseVersion || 1) + 1);
+        save(false);
+        this.updateUI();
+        toast('Synced with Google Sheet (v' + (data.version || '') + ')');
+      } catch (err) {
+        console.error('Sheet push error:', err);
+        this.config.status = 'error';
+        this.config.error = err.message;
+        this.updateUI();
+        toast('Sheet sync error: ' + err.message, true);
+      }
+    },
+
+    async pull() {
+      if (!this.config.url) {
+        toast('Google Sheet sync URL is not configured.', true);
+        return;
+      }
+      this.config.status = 'syncing';
+      this.updateUI();
+
+      try {
+        const sep = this.config.url.includes('?') ? '&' : '?';
+        const res = await fetch(this.config.url + sep + 'action=pull&_=' + Date.now());
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        if (!data.projects || !data.tasks) throw new Error('Invalid state received from Sheet.');
+
+        const currentSync = Object.assign({}, this.config, {
+          status: 'connected',
+          error: null,
+          lastSync: nowIso(),
+          baseVersion: (data.meta && data.meta.version) || 1
+        });
+
+        S = data;
+        S.meta.sync = currentSync;
+        save(false);
+        render();
+        toast('Pulled latest data from Google Sheet!');
+      } catch (err) {
+        console.error('Sheet pull error:', err);
+        this.config.status = 'error';
+        this.config.error = err.message;
+        this.updateUI();
+        toast('Could not pull from Google Sheet: ' + err.message, true);
+      }
+    },
+
+    async checkRemoteVersion() {
+      if (!this.config.url) return;
+      try {
+        const sep = this.config.url.includes('?') ? '&' : '?';
+        const res = await fetch(this.config.url + sep + 'action=status&_=' + Date.now());
+        const data = await res.json();
+        if (data && data.version && data.version > (this.config.baseVersion || 1)) {
+          console.log('Remote Sheet version is newer (' + data.version + ' > ' + this.config.baseVersion + '). Pulling updates...');
+          this.pull();
+        }
+      } catch (e) {
+        // Background poll error ignored
+      }
+    },
+
+    updateUI() {
+      const el = $('#sync-indicator');
+      if (!el) return;
+      const c = this.config;
+      let badgeHtml = '';
+      if (!c.url || !c.enabled) {
+        badgeHtml = '<span class="pill outline" style="font-size:11px; cursor:pointer;" data-act="open-sync" title="Google Sheet Sync: Local only (click to setup)"><span class="dot grey"></span>Local only</span>';
+      } else if (c.status === 'syncing') {
+        badgeHtml = '<span class="pill blue" style="font-size:11px; cursor:pointer;" data-act="open-sync" title="Syncing with Google Sheet..."><span class="dot amber"></span>Syncing...</span>';
+      } else if (c.status === 'error') {
+        badgeHtml = '<span class="pill red" style="font-size:11px; cursor:pointer;" data-act="open-sync" title="Google Sheet Sync Error: ' + esc(c.error || '') + '"><span class="dot red"></span>Sync error</span>';
+      } else {
+        badgeHtml = '<span class="pill green" style="font-size:11px; cursor:pointer;" data-act="open-sync" title="Synced with Google Sheet"><span class="dot green"></span>Sheet synced</span>';
+      }
+      el.innerHTML = badgeHtml;
+    }
+  };
+  window.SYNC = SYNC;
 
   // ---------- events ----------
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act; const id = el.dataset.id;
     const D = {
-      nav: () => go(el.dataset.v), open: () => go('project', { id, tab: el.dataset.tab || 'charter' }), go: () => { const g = JSON.parse(el.dataset.go); go(g.v, g); },
-      'go-portfolio': () => go('portfolio'), 'go-decisions': () => go('decisions'), 'go-deps': () => go('risks', { tab: 'deps' }), 'go-overdue': () => go('tasks', { tab: 'overdue' }),
-      ptab: () => { UI.ptab = el.dataset.tab; render(); }, tfilter: () => { UI.taskFilter = el.dataset.f; render(); }, rtab: () => { UI.riskTab = el.dataset.tab; render(); },
+      nav: () => go(el.dataset.v),
+      open: () => go('project', { id, tab: el.dataset.tab || 'charter' }),
+      go: () => { const g = JSON.parse(el.dataset.go); go(g.v, g); },
+      'go-portfolio': () => go('portfolio'),
+      'go-decisions': () => go('decisions'),
+      'go-deps': () => go('risks', { tab: 'deps' }),
+      'go-overdue': () => go('tasks', { tab: 'overdue' }),
+      ptab: () => { UI.ptab = el.dataset.tab; render(); },
+      tfilter: () => { UI.taskFilter = el.dataset.f; render(); },
+      rtab: () => { UI.riskTab = el.dataset.tab; render(); },
       'clear-filters': () => { UI.filters = {}; UI.q = ''; $('#q').value = ''; render(); },
       sort: () => { const t = el.dataset.t, k = el.dataset.k; const s = UI.sort[t] || {}; UI.sort[t] = { k, d: s.k === k && s.d === 'asc' ? 'desc' : 'asc' }; render(); },
-      'gantt-toggle': () => { UI.ganttOpen[id] = !UI.ganttOpen[id]; render(); }, 'gantt-all': () => { S.projects.forEach(p => UI.ganttOpen[p.id] = el.dataset.open === '1'); render(); },
-      'close-modal': closeModal, 'save-modal': () => $('#modal-root')._onSave(),
-      'add-project': () => projectForm(null), 'edit-project': () => projectForm(P(id)),
-      'del-project': () => { const p = P(id); const n = pTasks(id).length; if (!confirm('Delete project ' + p.id + ' "' + p.name + '" and its ' + n + ' tasks, risks, dependencies, decisions and updates? This cannot be undone.')) return; S.projects = S.projects.filter(x => x.id !== id); S.tasks = S.tasks.filter(t => t.projectId !== id); S.risks = S.risks.filter(r => r.projectId !== id); S.dependencies = S.dependencies.filter(d => d.projectId !== id); S.decisions = S.decisions.filter(d => d.projectId !== id); S.updates = S.updates.filter(u => u.projectId !== id); S.programs.forEach(pg => pg.children = pg.children.filter(c => c !== id)); log('Deleted project ' + p.id + ' ' + p.name); save(); go('portfolio'); toast('Project deleted'); },
-      'add-task': () => taskForm(null, el.dataset.pid), 'edit-task': () => taskForm(S.tasks.find(t => t.id === id)), 'add-subtask': () => { const t = S.tasks.find(x => x.id === id); taskForm(null, t.projectId, t.id); },
-      'del-task': () => { const t = S.tasks.find(x => x.id === id); const subs = S.tasks.filter(x => x.parent === id).length; if (!confirm('Delete task ' + t.id + ' "' + t.name + '"' + (subs ? ' and its ' + subs + ' subtask(s)' : '') + '?')) return; S.tasks = S.tasks.filter(x => x.id !== id && x.parent !== id); commit('Deleted task ' + t.id + ' from ' + t.projectId); },
-      'add-ms': () => msForm(P(id)), 'edit-ms': () => msForm(P(id), ms(P(id), el.dataset.ms)), 'del-ms': () => { const p = P(id); const m = ms(p, el.dataset.ms); if (!confirm('Delete milestone "' + m.name + '"?')) return; p.milestones = p.milestones.filter(x => x !== m); pTasks(p.id).forEach(t => { if (t.ms === m.id) t.ms = ''; }); commit('Deleted milestone ' + m.id + ' from ' + p.id); },
-      'add-ws': () => wsForm(P(id)), 'edit-ws': () => wsForm(P(id), ws(P(id), el.dataset.ws)), 'del-ws': () => { const p = P(id); const w = ws(p, el.dataset.ws); if (!confirm('Delete workstream "' + w.name + '"? Its milestones and tasks are kept but unlinked.')) return; p.workstreams = p.workstreams.filter(x => x !== w); p.milestones.forEach(m => { if (m.ws === w.id) m.ws = ''; }); pTasks(p.id).forEach(t => { if (t.ws === w.id) t.ws = ''; }); commit('Deleted workstream ' + w.id + ' from ' + p.id); },
-      'add-raci': () => raciForm(P(id)), 'edit-raci': () => raciForm(P(id), +el.dataset.i), 'del-raci': () => { const p = P(id); const r = p.raci[+el.dataset.i]; if (!confirm('Delete RACI entry "' + r.item + '"?')) return; p.raci.splice(+el.dataset.i, 1); commit('Deleted RACI entry from ' + p.id); },
-      'add-risk': () => riskForm(null, el.dataset.pid), 'edit-risk': () => riskForm(S.risks.find(r => r.id === id)), 'del-risk': () => { if (!confirm('Delete risk ' + id + '?')) return; S.risks = S.risks.filter(r => r.id !== id); commit('Deleted risk ' + id); },
-      'add-dep': () => depForm(null, el.dataset.pid), 'edit-dep': () => depForm(S.dependencies.find(d => d.id === id)), 'del-dep': () => { if (!confirm('Delete dependency ' + id + '?')) return; S.dependencies = S.dependencies.filter(d => d.id !== id); commit('Deleted dependency ' + id); },
-      'add-decision': () => decisionForm(null), 'edit-decision': () => decisionForm(S.decisions.find(d => d.id === id)), 'del-decision': () => { if (!confirm('Delete decision ' + id + '?')) return; S.decisions = S.decisions.filter(d => d.id !== id); commit('Deleted decision ' + id); },
-      'add-update': () => updateForm(null, el.dataset.pid), 'edit-update': () => updateForm(S.updates.find(u => u.id === id)), 'del-update': () => { if (!confirm('Delete this weekly update?')) return; S.updates = S.updates.filter(u => u.id !== id); commit('Deleted a weekly update'); },
-      'add-action': () => actionForm(null), 'edit-action': () => actionForm(S.actions.find(a => a.id === id)), 'del-action': () => { if (!confirm('Delete action ' + id + '?')) return; S.actions = S.actions.filter(a => a.id !== id); commit('Deleted action ' + id); },
-      'export-json': () => { download('suraasa_control_tower_' + todayStr() + '.json', JSON.stringify(S, null, 2), 'application/json'); toast('JSON exported'); }, 'export-csv': () => exportCsv(el.dataset.what),
-      'print-project': () => printProject(P(id)), 'print-portfolio': () => { go('portfolio'); setTimeout(() => window.print(), 200); },
-      reset: () => { if (!confirm('Reset ALL data to the initial seed? Every local change (tasks, updates, decisions, RACI edits) will be lost.')) return; if (!confirm('Are you sure? This cannot be undone unless you exported a JSON first.')) return; S = buildSeed(); save(); UI.filters = {}; go('overview'); toast('Reset to seed data'); }
+      'gantt-toggle': () => { UI.ganttOpen[id] = !UI.ganttOpen[id]; render(); },
+      'gantt-all': () => { S.projects.forEach(p => UI.ganttOpen[p.id] = el.dataset.open === '1'); render(); },
+      'close-modal': closeModal,
+      'save-modal': () => $('#modal-root')._onSave(),
+
+      // Projects
+      'add-project': () => projectForm(null),
+      'edit-project': () => projectForm(P(id)),
+      'del-project': () => {
+        const p = P(id); const n = pTasks(id).length;
+        if (!confirm('Delete project ' + p.id + ' "' + p.name + '" and its ' + n + ' tasks, risks, dependencies, decisions and updates? This cannot be undone.')) return;
+        S.projects = S.projects.filter(x => x.id !== id);
+        S.tasks = S.tasks.filter(t => t.projectId !== id);
+        S.risks = S.risks.filter(r => r.projectId !== id);
+        S.dependencies = S.dependencies.filter(d => d.projectId !== id);
+        S.decisions = S.decisions.filter(d => d.projectId !== id);
+        S.updates = S.updates.filter(u => u.projectId !== id);
+        (S.programs || []).forEach(pg => pg.children = (pg.children || []).filter(c => c !== id));
+        log('Deleted project ' + p.id + ' ' + p.name);
+        save(true);
+        go('portfolio');
+        toast('Project deleted');
+      },
+
+      // Programs
+      'add-program': () => programForm(null),
+      'edit-program': () => programForm(S.programs.find(x => x.id === id)),
+      'del-program': () => {
+        const pg = S.programs.find(x => x.id === id);
+        if (!pg) return;
+        if (!confirm('Delete program ' + pg.id + ' "' + pg.name + '"? Child projects will be unlinked.')) return;
+        S.programs = S.programs.filter(x => x.id !== id);
+        S.projects.forEach(p => { if (p.program === id) p.program = null; });
+        commit('Deleted program ' + id);
+      },
+
+      // People & Roles
+      'add-role': () => roleForm(null),
+      'edit-role': () => roleForm(S.roles.find(r => r.name === id)),
+      'del-role': () => deletePerson(id),
+
+      // Tasks
+      'add-task': () => taskForm(null, el.dataset.pid),
+      'edit-task': () => taskForm(S.tasks.find(t => t.id === id)),
+      'add-subtask': () => { const t = S.tasks.find(x => x.id === id); taskForm(null, t.projectId, t.id); },
+      'del-task': () => {
+        const t = S.tasks.find(x => x.id === id); const subs = S.tasks.filter(x => x.parent === id).length;
+        if (!confirm('Delete task ' + t.id + ' "' + t.name + '"' + (subs ? ' and its ' + subs + ' subtask(s)' : '') + '?')) return;
+        S.tasks = S.tasks.filter(x => x.id !== id && x.parent !== id);
+        commit('Deleted task ' + t.id + ' from ' + t.projectId);
+      },
+
+      // Milestones & Workstreams
+      'add-ms': () => msForm(P(id)),
+      'edit-ms': () => msForm(P(id), ms(P(id), el.dataset.ms)),
+      'del-ms': () => {
+        const p = P(id); const m = ms(p, el.dataset.ms);
+        if (!confirm('Delete milestone "' + m.name + '"?')) return;
+        p.milestones = p.milestones.filter(x => x !== m);
+        pTasks(p.id).forEach(t => { if (t.ms === m.id) t.ms = ''; });
+        commit('Deleted milestone ' + m.id + ' from ' + p.id);
+      },
+      'add-ws': () => wsForm(P(id)),
+      'edit-ws': () => wsForm(P(id), ws(P(id), el.dataset.ws)),
+      'del-ws': () => {
+        const p = P(id); const w = ws(p, el.dataset.ws);
+        if (!confirm('Delete workstream "' + w.name + '"? Its milestones and tasks are kept but unlinked.')) return;
+        p.workstreams = p.workstreams.filter(x => x !== w);
+        p.milestones.forEach(m => { if (m.ws === w.id) m.ws = ''; });
+        pTasks(p.id).forEach(t => { if (t.ws === w.id) t.ws = ''; });
+        commit('Deleted workstream ' + w.id + ' from ' + p.id);
+      },
+
+      // RACI
+      'add-raci': () => raciForm(P(id)),
+      'edit-raci': () => raciForm(P(id), +el.dataset.i),
+      'del-raci': () => {
+        const p = P(id); const r = p.raci[+el.dataset.i];
+        if (!confirm('Delete RACI entry "' + r.item + '"?')) return;
+        p.raci.splice(+el.dataset.i, 1);
+        commit('Deleted RACI entry from ' + p.id);
+      },
+
+      // Risks & Dependencies
+      'add-risk': () => riskForm(null, el.dataset.pid),
+      'edit-risk': () => riskForm(S.risks.find(r => r.id === id)),
+      'del-risk': () => {
+        if (!confirm('Delete risk ' + id + '?')) return;
+        S.risks = S.risks.filter(r => r.id !== id);
+        commit('Deleted risk ' + id);
+      },
+      'add-dep': () => depForm(null, el.dataset.pid),
+      'edit-dep': () => depForm(S.dependencies.find(d => d.id === id)),
+      'del-dep': () => {
+        if (!confirm('Delete dependency ' + id + '?')) return;
+        S.dependencies = S.dependencies.filter(d => d.id !== id);
+        commit('Deleted dependency ' + id);
+      },
+
+      // Decisions
+      'add-decision': () => decisionForm(null),
+      'edit-decision': () => decisionForm(S.decisions.find(d => d.id === id)),
+      'del-decision': () => {
+        if (!confirm('Delete decision ' + id + '?')) return;
+        S.decisions = S.decisions.filter(d => d.id !== id);
+        commit('Deleted decision ' + id);
+      },
+
+      // Updates
+      'add-update': () => updateForm(null, el.dataset.pid),
+      'edit-update': () => updateForm(S.updates.find(u => u.id === id)),
+      'del-update': () => {
+        if (!confirm('Delete this weekly update?')) return;
+        S.updates = S.updates.filter(u => u.id !== id);
+        commit('Deleted a weekly update');
+      },
+
+      // Actions
+      'add-action': () => actionForm(null),
+      'edit-action': () => actionForm(S.actions.find(a => a.id === id)),
+      'del-action': () => {
+        if (!confirm('Delete action ' + id + '?')) return;
+        S.actions = S.actions.filter(a => a.id !== id);
+        commit('Deleted action ' + id);
+      },
+
+      // Governance
+      'edit-cadence': () => editCadence(el.dataset.cadence),
+      'edit-rag': () => editRag(),
+      'add-classification': () => classificationForm(null, null),
+      'edit-classification': () => classificationForm(S.governance.classification[+el.dataset.i], +el.dataset.i),
+      'del-classification': () => {
+        if (!confirm('Delete classification row?')) return;
+        S.governance.classification.splice(+el.dataset.i, 1);
+        commit('Deleted classification row');
+      },
+
+      // Option lists
+      'edit-option-list': () => editOptionList(el.dataset.opt),
+
+      // Comments
+      'edit-comment': () => {
+        const p = P(el.dataset.pid);
+        const idx = +el.dataset.i;
+        const c = p.comments[idx];
+        openForm('Edit Comment', [
+          { k: 'text', label: 'Comment text', type: 'textarea', full: true, req: true }
+        ], { text: c.text }, o => {
+          c.text = o.text;
+          c.editedAt = nowIso();
+          commit('Comment updated on ' + p.id);
+        });
+      },
+      'del-comment': () => {
+        const p = P(el.dataset.pid);
+        const idx = +el.dataset.i;
+        if (!confirm('Delete this comment?')) return;
+        p.comments.splice(idx, 1);
+        commit('Comment deleted from ' + p.id);
+      },
+
+      // Google Sheet Sync Actions
+      'open-sync': () => {
+        go('data');
+        setTimeout(() => {
+          const card = $('#sync-card');
+          if (card) card.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      },
+      'save-sync-config': () => {
+        const urlInput = $('#sync-url-input');
+        const autoInput = $('#sync-auto-input');
+        const url = (urlInput ? urlInput.value.trim() : '');
+        const auto = autoInput ? autoInput.checked : true;
+        S.meta.sync = S.meta.sync || {};
+        S.meta.sync.url = url;
+        S.meta.sync.enabled = !!url;
+        S.meta.sync.autoSync = auto;
+        S.meta.sync.status = url ? 'connected' : 'idle';
+        S.meta.sync.error = null;
+        save(false);
+        render();
+        toast('Sync configuration saved!');
+      },
+      'sync-pull': () => SYNC.pull(),
+      'sync-push': () => SYNC.push(),
+      'sync-test': async () => {
+        const url = ($('#sync-url-input') ? $('#sync-url-input').value.trim() : (S.meta.sync && S.meta.sync.url)) || '';
+        if (!url) { toast('Please enter a Web App URL first.', true); return; }
+        toast('Testing connection to Google Sheet...');
+        try {
+          const sep = url.includes('?') ? '&' : '?';
+          const res = await fetch(url + sep + 'action=status&_=' + Date.now());
+          const d = await res.json();
+          if (d.error) throw new Error(d.error);
+          toast('Connection successful! Google Sheet Web App version: ' + (d.version || 1));
+        } catch (err) {
+          toast('Connection failed: ' + err.message, true);
+        }
+      },
+
+      // General
+      'export-json': () => { download('suraasa_control_tower_' + todayStr() + '.json', JSON.stringify(S, null, 2), 'application/json'); toast('JSON exported'); },
+      'export-csv': () => exportCsv(el.dataset.what),
+      'print-project': () => printProject(P(id)),
+      'print-portfolio': () => { go('portfolio'); setTimeout(() => window.print(), 200); },
+      reset: () => {
+        if (!confirm('Reset ALL data to the initial seed? Every local change (tasks, updates, decisions, RACI edits) will be lost.')) return;
+        if (!confirm('Are you sure? This cannot be undone unless you exported a JSON first.')) return;
+        S = buildSeed();
+        save(false);
+        UI.filters = {};
+        go('overview');
+        toast('Reset to seed data');
+      }
     };
     if (D[act]) { e.preventDefault(); D[act](); }
   });
+
   document.addEventListener('change', e => {
     const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act; const id = el.dataset.id;
     if (act === 'filter') { UI.filters[el.dataset.k] = el.value; render(); }
     else if (act === 'sort-sel') { const [k, d] = el.value.split(':'); UI.sort[el.dataset.t] = { k, d }; render(); }
-    else if (act === 'task-status') { const t = S.tasks.find(x => x.id === id); const was = t.status; t.status = el.value; if (t.status === 'Completed') { t.progress = 100; t.completedAt = todayStr(); } commit('Task ' + t.id + ' status: ' + was + ' → ' + t.status); }
-    else if (act === 'task-progress') { const t = S.tasks.find(x => x.id === id); let v = Math.max(0, Math.min(100, +el.value || 0)); t.progress = v; if (v === 100 && t.status !== 'Completed') { t.status = 'Completed'; t.completedAt = todayStr(); } commit('Task ' + t.id + ' progress → ' + v + '%'); }
+    else if (act === 'task-status') {
+      const t = S.tasks.find(x => x.id === id);
+      const was = t.status;
+      t.status = el.value;
+      if (t.status === 'Completed') { t.progress = 100; t.completedAt = todayStr(); }
+      commit('Task ' + t.id + ' status: ' + was + ' → ' + t.status);
+    }
+    else if (act === 'task-progress') {
+      const t = S.tasks.find(x => x.id === id);
+      let v = Math.max(0, Math.min(100, +el.value || 0));
+      t.progress = v;
+      if (v === 100 && t.status !== 'Completed') { t.status = 'Completed'; t.completedAt = todayStr(); }
+      commit('Task ' + t.id + ' progress → ' + v + '%');
+    }
   });
-  document.addEventListener('submit', e => { const f = e.target.closest('form[data-act="add-comment"]'); if (!f) return; e.preventDefault(); const p = P(f.dataset.pid); const c = f.c.value.trim(); if (!c) return; p.comments = p.comments || []; p.comments.push({ text: c, who: f.who.value.trim() || UI.me || 'Anonymous', ts: nowIso() }); commit('Comment added on ' + p.id); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && $('#modal')) $('#modal-root')._onSave(); });
+
+  document.addEventListener('submit', e => {
+    const f = e.target.closest('form[data-act="add-comment"]');
+    if (!f) return;
+    e.preventDefault();
+    const p = P(f.dataset.pid);
+    const c = f.c.value.trim();
+    if (!c) return;
+    p.comments = p.comments || [];
+    p.comments.push({ text: c, who: f.who.value.trim() || UI.me || 'Anonymous', ts: nowIso() });
+    commit('Comment added on ' + p.id);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && $('#modal')) $('#modal-root')._onSave();
+  });
+
   document.addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
-  document.addEventListener('change', e => { if (e.target.id === 'importFile' && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ''; } if (e.target.id === 'me') { UI.me = e.target.value; render(); } });
-  document.addEventListener('input', e => { if (e.target.id === 'q') { UI.q = e.target.value; if (UI.view !== 'portfolio' && UI.view !== 'tasks') UI.view = 'portfolio'; render(); $('#q').focus(); const v = $('#q').value; $('#q').setSelectionRange(v.length, v.length); } });
+  document.addEventListener('change', e => {
+    if (e.target.id === 'importFile' && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ''; }
+    if (e.target.id === 'me') { UI.me = e.target.value; render(); }
+  });
+  document.addEventListener('input', e => {
+    if (e.target.id === 'q') {
+      UI.q = e.target.value;
+      if (UI.view !== 'portfolio' && UI.view !== 'tasks') UI.view = 'portfolio';
+      render();
+      $('#q').focus();
+      const v = $('#q').value;
+      $('#q').setSelectionRange(v.length, v.length);
+    }
+  });
 
   // ---------- boot ----------
   load();
+  SYNC.init();
   $('#today').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   render();
-  window.SCT = { get state() { return S; }, health, stats, actionQueue, raciIssues };
+  window.SCT = { get state() { return S; }, health, stats, actionQueue, raciIssues, renamePerson, deletePerson };
 })();
