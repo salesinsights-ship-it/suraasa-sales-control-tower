@@ -1,7 +1,8 @@
 {
   "outputDirectory": "dist",
+  "cleanUrls": true,
   "routes": [
-    { "src": "/", "dest": "/Suraasa_Sales_Control_Tower.html" }
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
 
