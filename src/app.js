@@ -580,11 +580,11 @@
     ${brief}
     <div class="grid g3 section">
       <div class="card"><div class="hd"><h3>Project health (RAG)</h3><span class="sub">computed live</span></div><div class="bd">
-        ${bar('Green — on track', dist.Green, st.total, '#22c55e')}${bar('Amber — at risk', dist.Amber, st.total, '#f59e0b')}${bar('Red — delayed/blocked', dist.Red, st.total, '#ef4444')}${bar('Grey — not started', dist.Grey, st.total, '#9ca3af')}
+        ${bar('Green — on track', dist.Green, st.total, 'var(--green)')}${bar('Amber — at risk', dist.Amber, st.total, 'var(--amber)')}${bar('Red — delayed/blocked', dist.Red, st.total, 'var(--red)')}${bar('Grey — not started', dist.Grey, st.total, 'var(--grey)')}
         <div class="mini" style="margin-top:8px">Health is derived from dates, milestones, dependencies and owner updates — not from task completion %.</div></div></div>
       <div class="card"><div class="hd"><h3>Priority distribution</h3><span class="sub">configured</span></div><div class="bd">
-        ${opt('priorities').map(pr => bar(pr, prio[pr] || 0, st.total, pr === 'P0' ? '#0f1b33' : pr === 'P1' ? '#b91c1c' : pr === 'P2' ? '#d97706' : '#9ca3af')).join('')}</div></div>
-      <div class="card"><div class="hd"><h3>Projects by category</h3></div><div class="bd">${opt('categories').map(k => bar(k, cat[k] || 0, st.total, '#2f5bea')).join('')}</div></div>
+        ${opt('priorities').map(pr => bar(pr, prio[pr] || 0, st.total, pr === 'P0' ? 'var(--text)' : pr === 'P1' ? 'var(--red)' : pr === 'P2' ? 'var(--amber)' : 'var(--grey)')).join('')}</div></div>
+      <div class="card"><div class="hd"><h3>Projects by category</h3></div><div class="bd">${opt('categories').map(k => bar(k, cat[k] || 0, st.total, 'var(--accent)')).join('')}</div></div>
     </div>
     <div class="grid g2 section">
       <div class="card"><div class="hd"><h3>Projects requiring leadership intervention</h3><span class="sub">${intervene.length}</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="nosort">Project</th><th class="nosort">Prio</th><th class="nosort">Health</th><th class="nosort">Why</th></tr></thead><tbody>
@@ -848,7 +848,7 @@
     const max = Math.max(1, ...totals); const step = max <= 5 ? 1 : max <= 10 ? 2 : max <= 25 ? 5 : 10; const top = Math.ceil(max / step) * step;
     const y = v => padT + (H - padT - padB) * (1 - v / top);
     let g = '';
-    for (let v = 0; v <= top; v += step) g += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#edf0f4"/><text x="' + (padL - 6) + '" y="' + (y(v) + 4) + '" font-size="15" fill="#98a2b3" text-anchor="end">' + v + '</text>';
+    for (let v = 0; v <= top; v += step) g += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--border)"/><text x="' + (padL - 6) + '" y="' + (y(v) + 4) + '" font-size="12" fill="var(--muted)" text-anchor="end">' + v + '</text>';
     let bars = '';
     o.cats.forEach((c, i) => {
       const x0 = padL + i * cw;
@@ -860,15 +860,15 @@
           bars += '<rect x="' + (x0 + cw * .22) + '" y="' + y1 + '" width="' + (cw * .56) + '" height="' + Math.max(0, y0 - y1) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>';
           acc += v;
         });
-        if (acc) bars += '<text x="' + (x0 + cw / 2) + '" y="' + (y(acc) - 5) + '" font-size="16" font-weight="600" fill="#14213d" text-anchor="middle">' + acc + '</text>';
+        if (acc) bars += '<text x="' + (x0 + cw / 2) + '" y="' + (y(acc) - 5) + '" font-size="13" font-weight="600" fill="var(--text)" text-anchor="middle">' + acc + '</text>';
       } else {
         const k = o.series.length; const bw = cw * .7 / k;
         o.series.forEach((s, j) => {
           const v = s.values[i] || 0; const x = x0 + cw * .15 + j * bw;
-          bars += '<rect x="' + x + '" y="' + y(v) + '" width="' + (bw - 2) + '" height="' + Math.max(0, y(0) - y(v)) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>' + (v ? '<text x="' + (x + (bw - 2) / 2) + '" y="' + (y(v) - 4) + '" font-size="14" font-weight="600" fill="#14213d" text-anchor="middle">' + v + '</text>' : '');
+          bars += '<rect x="' + x + '" y="' + y(v) + '" width="' + (bw - 2) + '" height="' + Math.max(0, y(0) - y(v)) + '" fill="' + s.color + '" rx="2"><title>' + esc(c + ' · ' + s.name + ': ' + v) + '</title></rect>' + (v ? '<text x="' + (x + (bw - 2) / 2) + '" y="' + (y(v) - 4) + '" font-size="12" font-weight="600" fill="var(--text)" text-anchor="middle">' + v + '</text>' : '');
         });
       }
-      bars += '<text x="' + (x0 + cw / 2) + '" y="' + (H - padB + 22) + '" font-size="15" fill="#3f4b63" text-anchor="middle">' + esc(c) + '</text>';
+      bars += '<text x="' + (x0 + cw / 2) + '" y="' + (H - padB + 22) + '" font-size="12" fill="var(--text-2)" text-anchor="middle">' + esc(c) + '</text>';
     });
     const legend = '<div class="legend">' + o.series.map(s => '<span><i class="lg" style="background:' + s.color + '"></i>' + esc(s.name) + '</span>').join('') + '</div>';
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block" role="img">' + g + bars + '</svg>' + legend;
@@ -891,7 +891,7 @@
       const a1 = -Math.PI / 2 + acc / total * 2 * Math.PI - 0.01;
       s += arc(a0, a1, p.color, p.name, p.value);
     });
-    return '<div style="display:flex;align-items:center;gap:16px"><svg viewBox="0 0 140 140" width="140" height="140">' + s + '<text x="70" y="66" text-anchor="middle" font-size="24" font-weight="700" fill="#14213d">' + total + '</text><text x="70" y="84" text-anchor="middle" font-size="10" fill="#6b7588">' + esc(label) + '</text></svg><div>' + parts.map(p => '<div class="kv" style="margin:3px 0"><i class="lg" style="background:' + p.color + ';margin-right:6px"></i>' + esc(p.name) + ' <b>' + p.value + '</b></div>').join('') + '</div></div>';
+    return '<div style="display:flex;align-items:center;gap:16px"><svg viewBox="0 0 140 140" width="140" height="140">' + s + '<text x="70" y="66" text-anchor="middle" font-size="24" font-weight="700" fill="var(--text)">' + total + '</text><text x="70" y="84" text-anchor="middle" font-size="11" fill="var(--muted)">' + esc(label) + '</text></svg><div>' + parts.map(p => '<div class="kv" style="margin:3px 0"><i class="lg" style="background:' + p.color + ';margin-right:6px"></i>' + esc(p.name) + ' <b>' + p.value + '</b></div>').join('') + '</div></div>';
   }
 
   function vTimeline() {
@@ -919,7 +919,7 @@
     const finishing = months.map(m => S.projects.filter(p => isDate(p.due) && mi(p.due) === months.indexOf(m)).length);
     const hs = S.projects.map(p => health(p).rag);
     const rag = ['Green', 'Amber', 'Red', 'Grey'].map(k => ({ name: k === 'Green' ? 'On track' : k === 'Amber' ? 'At risk' : k === 'Red' ? 'Delayed' : 'Not started', value: hs.filter(h => h === k).length, color: { Green: '#16a34a', Amber: '#d97706', Red: '#dc2626', Grey: '#9aa3b2' }[k] }));
-    const prio = opt('priorities').map(pr => ({ name: pr, value: S.projects.filter(p => p.priority === pr).length, color: { P0: '#0f1b33', P1: '#dc2626', P2: '#d97706', P3: '#9aa3b2' }[pr] || '#9aa3b2' }));
+    const prio = opt('priorities').map(pr => ({ name: pr, value: S.projects.filter(p => p.priority === pr).length, color: { P0: 'var(--text)', P1: '#ef4444', P2: '#f59e0b', P3: '#64748b' }[pr] || '#64748b' }));
 
     const MW = 124; const n0 = months[0].n0; const total = months.reduce((a, m) => a + m.days, 0); const pxPerDay = MW / 30.4;
     const px = s => (dnum(s) - n0) * pxPerDay; const width = Math.round(total * pxPerDay); const tn = dnum(todayStr());
