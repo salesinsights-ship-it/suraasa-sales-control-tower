@@ -2192,9 +2192,30 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeModal();
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && $('#modal')) $('#modal-root')._onSave();
+    if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) && !$('#modal')) {
+      e.preventDefault();
+      const q = $('#q');
+      if (q) { q.focus(); q.select(); }
+    }
   });
 
-  document.addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+  document.addEventListener('click', e => {
+    if (e.target.id === 'modal') closeModal();
+    if (e.target.closest('#theme-toggle')) toggleTheme();
+  });
+
+  // ---------- theme ----------
+  function initTheme() {
+    const saved = localStorage.getItem('sct_theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', saved);
+  }
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('sct_theme', next);
+    if (typeof toast === 'function') toast(next === 'dark' ? 'Dark theme enabled' : 'Light theme enabled');
+  }
   document.addEventListener('change', e => {
     if (e.target.id === 'importFile' && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ''; }
     if (e.target.id === 'me') { UI.me = e.target.value; render(); }
@@ -2211,6 +2232,7 @@
   });
 
   // ---------- boot ----------
+  initTheme();
   load();
   SYNC.init();
   $('#today').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
