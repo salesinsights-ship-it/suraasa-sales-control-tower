@@ -3,16 +3,47 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><div class="t">Suraasa Sales Control Tower</div><div class="s">Project management for the Head of Sales</div></div>
+    <div class="brand">
+      <div class="brand-badge">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <div class="t">Suraasa Sales</div>
+          <div class="s">Executive Control Tower</div>
+        </div>
+      </div>
+      <div class="live-status">
+        <span class="live-dot"></span>
+        <span>Portfolio Active</span>
+      </div>
+    </div>
     <nav class="nav" id="nav"></nav>
-    <div class="side-foot">Data lives in this browser's localStorage only — not shared, not cloud-synced. Export JSON to share or back up.</div>
+    <div class="side-foot">
+      <div class="sf-title">Cloud Synchronized</div>
+      <div class="sf-desc">Two-way Google Sheet integration active. Local changes auto-save and push.</div>
+    </div>
   </aside>
   <div class="main">
     <div class="topbar">
       <div class="title" id="vtitle"></div>
-      <input class="search" id="q" placeholder="Search projects & tasks…" autocomplete="off">
+      <div class="search-box">
+        <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input class="search" id="q" placeholder="Search projects, tasks, owners…" autocomplete="off">
+      </div>
       <div id="sync-indicator"></div>
-      <select id="me" class="inline-sel" title="Used for 'My tasks' and as default author of updates"></select>
+      <div class="user-select-wrap">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="user-icon">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        <select id="me" class="inline-sel" title="Used for 'My tasks' and as default author of updates"></select>
+      </div>
       <div class="date" id="today"></div>
     </div>
     <div class="content" id="main"></div>
