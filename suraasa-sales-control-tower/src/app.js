@@ -38,7 +38,28 @@
 
   // ---------- persistence ----------
   function load() {
-    try { const raw = localStorage.getItem(KEY); if (raw) { const d = JSON.parse(raw); if (d && Array.isArray(d.projects) && Array.isArray(d.tasks)) { S = d; return; } } } catch (e) { console.warn('localStorage read failed', e); }
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d && Array.isArray(d.projects) && Array.isArray(d.tasks)) {
+          S = d;
+          if (!Array.isArray(S.roles)) S.roles = [];
+          const seedRoles = buildSeed().roles;
+          const roleNames = new Set(S.roles.map(r => r.name));
+          let changed = false;
+          seedRoles.forEach(sr => {
+            if (!roleNames.has(sr.name)) {
+              S.roles.push(sr);
+              roleNames.add(sr.name);
+              changed = true;
+            }
+          });
+          if (changed) save(false);
+          return;
+        }
+      }
+    } catch (e) { console.warn('localStorage read failed', e); }
     S = buildSeed();
     save(false);
   }
@@ -52,7 +73,14 @@
   const pName = id => { const p = P(id); return p ? p.name : (id || '—'); };
   const ws = (p, id) => (p.workstreams || []).find(w => w.id === id);
   const ms = (p, id) => (p.milestones || []).find(m => m.id === id);
-  function people() { const set = new Set(); S.roles.forEach(r => set.add(r.name)); S.projects.forEach(p => { [p.owner, p.accountable, p.sponsor].forEach(v => { if (!isTBD(v)) set.add(v); }); (p.raci || []).forEach(r => { [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => { if (!isTBD(v)) set.add(v); }); }); }); S.tasks.forEach(t => { [t.owner, t.accountable].forEach(v => { if (!isTBD(v)) String(v).split(',').forEach(x => set.add(x.trim())); }); }); return [...set].filter(Boolean).sort(); }
+  function people() {
+    const set = new Set();
+    (S.roles || []).forEach(r => set.add(r.name));
+    try { (buildSeed().roles || []).forEach(r => set.add(r.name)); } catch (e) {}
+    S.projects.forEach(p => { [p.owner, p.accountable, p.sponsor].forEach(v => { if (!isTBD(v)) set.add(v); }); (p.raci || []).forEach(r => { [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => { if (!isTBD(v)) set.add(v); }); }); });
+    S.tasks.forEach(t => { [t.owner, t.accountable].forEach(v => { if (!isTBD(v)) String(v).split(',').forEach(x => set.add(x.trim())); }); });
+    return [...set].filter(Boolean).sort();
+  }
 
   // ---------- computed ----------
   function taskOverdue(t) { return t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) < 0; }

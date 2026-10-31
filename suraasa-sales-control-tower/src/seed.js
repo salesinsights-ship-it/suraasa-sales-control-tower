@@ -9,7 +9,7 @@
 function buildSeed() {
   const HOS = 'Head of Sales';
   const AK = 'AK';
-  const ANKIT = 'Ankit Karnana';
+  const ANKIT = 'Ankit Khanna';
   const PM = 'TBD — proposed: Project Manager';
   const SOPS = 'TBD — proposed: Sales Operations';
   const CRM = 'TBD — proposed: CRM/Tech';
@@ -23,7 +23,8 @@ function buildSeed() {
   const roles = [
     { name: 'Head of Sales', kind: 'Confirmed', note: 'Overall portfolio oversight and strategic decisions.' },
     { name: 'AK', kind: 'Confirmed', note: 'Vouchers, approvals, incentives; contributed to messaging revision.' },
-    { name: 'Ankit Karnana', kind: 'Confirmed', note: 'Vouchers, approvals, incentives.' },
+    { name: 'Ankit Khanna', kind: 'Confirmed', note: 'Vouchers, approvals, incentives.' },
+    { name: 'Shrayansh Sood', kind: 'Confirmed', note: 'CRM/Tech lead.' },
     { name: 'Divya', kind: 'Confirmed', note: 'Contributed to messaging revision.' },
     { name: 'Atishay', kind: 'Confirmed', note: 'Contributed to messaging revision.' },
     { name: 'Setters', kind: 'Confirmed (team)', note: 'Lead engagement, qualification, chat and setter SLA execution.' },
@@ -34,9 +35,12 @@ function buildSeed() {
     { name: 'Project Manager', kind: 'Proposed role', note: 'Proposed PMO role to run the control tower. Not a confirmed employee.' },
     { name: 'Sales Operations', kind: 'Proposed role', note: 'Trackers, CRM views, reporting, SLA compliance.' },
     { name: 'CRM/Tech', kind: 'Proposed role', note: 'CRM triggers, fields, integrations, logging.' },
+    { name: 'Shrayansh SoodCRM/Tech', kind: 'Confirmed', note: 'CRM/Tech lead.' },
     { name: 'Marketing', kind: 'Proposed role', note: 'Campaigns, promotion, registration journeys.' },
     { name: 'B2B Sales', kind: 'Proposed role', note: 'School/principal/HR outreach and institutional selling.' },
-    { name: 'Product', kind: 'Proposed role', note: 'Observe journey, job platform integration.' }
+    { name: 'Product', kind: 'Proposed role', note: 'Observe journey, job platform integration.' },
+    { name: 'PRJ-06 owner (TBD)', kind: 'Proposed role', note: 'Owner of PRJ-06 (Career Launchpad).' },
+    { name: 'PRJ-13 owner (TBD)', kind: 'Proposed role', note: 'Owner of PRJ-13 (Suraasa Share).' }
   ];
 
   const programs = [
@@ -646,7 +650,7 @@ function buildSeed() {
     },
     {
       id: 'DEP-01', name: 'Vouchers, Approvals & Incentives (Dependency Cluster)', category: 'Cross-functional Dependencies', type: 'Dependency Cluster', program: null,
-      objective: 'Close all pending voucher requirements, approvals and incentive decisions involving AK and Ankit Karnana, with named approval owners and turnaround times.',
+      objective: 'Close all pending voucher requirements, approvals and incentive decisions involving AK and Ankit Khanna, with named approval owners and turnaround times.',
       problem: 'Several projects (EXP-01, PRJ-01, PRJ-02, PRJ-14) are gated on decisions that have no enumerated list, owner-per-item or turnaround time.',
       outcome: 'A complete list of pending items, an approval owner and turnaround time for each, decisions closed or escalated.',
       impact: 'Unblocks offer, ambassador, referral and pricing work.',
@@ -656,9 +660,9 @@ function buildSeed() {
       status: 'In Progress', priority: 'P0', priorityProposed: true,
       priorityRationale: 'Blocks four revenue initiatives; resolution is a decision exercise, not a build. Proposed P0.',
       valueClass: 'Dependency',
-      dependencies: ['AK availability', 'Ankit Karnana availability'],
+      dependencies: ['AK availability', 'Ankit Khanna availability'],
       risks: ['Approval owner per item unclear between AK and Ankit'],
-      assumptions: ['Only AK and Ankit Karnana are involved, per brief; no other approvers assumed.'],
+      assumptions: ['Only AK and Ankit Khanna are involved, per brief; no other approvers assumed.'],
       workstreams: [{ id: 'WS-D1A', name: 'Enumerate pending items' }, { id: 'WS-D1B', name: 'Owners & turnaround' }, { id: 'WS-D1C', name: 'Close decisions' }],
       milestones: [
         { id: 'MS-D1-1', name: 'All pending vouchers, approvals and incentive items enumerated', due: '2026-11-04', status: 'Pending', ws: 'WS-D1A' },
@@ -667,8 +671,8 @@ function buildSeed() {
       ],
       raci: [
         { item: 'Pending-items register', R: [SOPS], A: HOS, C: [AK, ANKIT], I: [] },
-        { item: 'Voucher decisions', R: [AK, ANKIT], A: TBD + ' — AK or Ankit Karnana (confirm)', C: [HOS], I: [SOPS] },
-        { item: 'Incentive decisions', R: [AK, ANKIT], A: TBD + ' — AK or Ankit Karnana (confirm)', C: [HOS], I: [SOPS] }
+        { item: 'Voucher decisions', R: [AK, ANKIT], A: TBD + ' — AK or Ankit Khanna (confirm)', C: [HOS], I: [SOPS] },
+        { item: 'Incentive decisions', R: [AK, ANKIT], A: TBD + ' — AK or Ankit Khanna (confirm)', C: [HOS], I: [SOPS] }
       ],
       nextAction: 'Enumerate every pending voucher / approval / incentive item and name an owner for each.',
       flags: ['Approval owner per item unconfirmed (AK vs Ankit)'],
@@ -819,9 +823,9 @@ function buildSeed() {
     ['T-116','PRJ-14','WS-14D','MS-14-4','Post-webinar report: registrations, attendance, revenue, SQLs','Within 7 days of the webinar.',SOPS,TBD,'','','P2','Not Started','Post-webinar report','Presented in Weekly Review','T-114', 0,'Task'],
     // DEP-01
     ['T-117','DEP-01','WS-D1A','MS-D1-1','Enumerate pending voucher requirements','List each voucher need: project, type, quantity, value, requested by, needed by.',SOPS,HOS,'2026-10-30','2026-11-04','P0','Not Started','Voucher requirements list','Reviewed with AK','', 0,'Task'],
-    ['T-118','DEP-01','WS-D1A','MS-D1-1','Enumerate pending approvals','List every approval currently pending (offers, pricing, incentives, other).',SOPS,HOS,'2026-10-30','2026-11-04','P0','Not Started','Pending approvals list','Reviewed with AK and Ankit Karnana','', 0,'Task'],
-    ['T-119','DEP-01','WS-D1B','MS-D1-2','Name approval owner and turnaround time per item','Confirm AK vs Ankit Karnana per item; agree TAT (proposed: 3 working days).',HOS,HOS,'2026-11-04','2026-11-06','P0','Not Started','Owner + TAT per item','Decision Register updated','T-117, T-118', 0,'Decision'],
-    ['T-120','DEP-01','WS-D1C','MS-D1-3','Finalise incentive-related decisions','Ambassador, referral and any sales incentives pending.','AK, Ankit Karnana',TBD + ' — AK or Ankit Karnana (confirm)','2026-11-06','2026-11-13','P0','Not Started','Recorded decisions','Decision Register items closed','T-119', 0,'Decision'],
+    ['T-118','DEP-01','WS-D1A','MS-D1-1','Enumerate pending approvals','List every approval currently pending (offers, pricing, incentives, other).',SOPS,HOS,'2026-10-30','2026-11-04','P0','Not Started','Pending approvals list','Reviewed with AK and Ankit Khanna','', 0,'Task'],
+    ['T-119','DEP-01','WS-D1B','MS-D1-2','Name approval owner and turnaround time per item','Confirm AK vs Ankit Khanna per item; agree TAT (proposed: 3 working days).',HOS,HOS,'2026-11-04','2026-11-06','P0','Not Started','Owner + TAT per item','Decision Register updated','T-117, T-118', 0,'Decision'],
+    ['T-120','DEP-01','WS-D1C','MS-D1-3','Finalise incentive-related decisions','Ambassador, referral and any sales incentives pending.','AK, Ankit Khanna',TBD + ' — AK or Ankit Khanna (confirm)','2026-11-06','2026-11-13','P0','Not Started','Recorded decisions','Decision Register items closed','T-119', 0,'Decision'],
     ['T-121','DEP-01','WS-D1C','MS-D1-3','Track pending decisions and escalate overdue items','Weekly check of Decision Register; escalate to Head of Sales when TAT breached.',SOPS,HOS,'2026-11-06','2026-11-13','P1','Not Started','Weekly escalation note','Reviewed in Weekly Review','T-119', 0,'Recurring']
   ];
   const tasks = T.map(r => ({
@@ -843,13 +847,13 @@ function buildSeed() {
     { id: 'R-09', projectId: 'PRJ-14', desc: 'Webinar date not set; promotion and follow-up journeys cannot be scheduled.', impact: 'High', probability: 'Medium', mitigation: 'Set date alongside pricing decision (T-110, T-114).', owner: HOS, deadline: '2026-11-21', status: 'Open', source: 'Identified during structuring (proposed)' },
     { id: 'R-10', projectId: 'PRJ-06', desc: 'Job platform integration effort unknown; may exceed Sales\' control.', impact: 'Medium', probability: 'Medium', mitigation: 'Scope with Product early (T-046).', owner: TBD + ' — proposed: Product', deadline: '2027-01-16', status: 'Open', source: 'Identified during structuring (proposed)' },
     { id: 'R-11', projectId: 'PRJ-08', desc: 'Observe product readiness/timeline unknown.', impact: 'Medium', probability: 'Medium', mitigation: 'Confirm status (T-065) before committing dates.', owner: HOS, deadline: '2026-12-05', status: 'Open', source: 'Identified during structuring (proposed)' },
-    { id: 'R-12', projectId: 'DEP-01', desc: 'Unclear whether AK or Ankit Karnana owns each approval; items bounce.', impact: 'High', probability: 'Medium', mitigation: 'Name owner per item (T-119).', owner: HOS, deadline: '2026-11-06', status: 'Open', source: 'Identified during structuring (proposed)' }
+    { id: 'R-12', projectId: 'DEP-01', desc: 'Unclear whether AK or Ankit Khanna owns each approval; items bounce.', impact: 'High', probability: 'Medium', mitigation: 'Name owner per item (T-119).', owner: HOS, deadline: '2026-11-06', status: 'Open', source: 'Identified during structuring (proposed)' }
   ];
 
   // ---------- DEPENDENCIES ----------
   const dependencies = [
-    { id: 'DP-01', desc: 'Offer / voucher approval for application-based offers', projectId: 'EXP-01', responsible: SOPS, externalOwner: 'AK / Ankit Karnana (confirm)', status: 'Open', requiredBy: '2026-11-13', escalation: 'Yes — to Head of Sales if not closed by 6 Nov' },
-    { id: 'DP-02', desc: 'Ambassador and referral incentive decisions', projectId: 'PRJ-01', responsible: PM, externalOwner: 'AK / Ankit Karnana (confirm)', status: 'Open', requiredBy: '2026-11-18', escalation: 'Yes — blocks PRJ-01 and PRJ-02 milestone 1' },
+    { id: 'DP-01', desc: 'Offer / voucher approval for application-based offers', projectId: 'EXP-01', responsible: SOPS, externalOwner: 'AK / Ankit Khanna (confirm)', status: 'Open', requiredBy: '2026-11-13', escalation: 'Yes — to Head of Sales if not closed by 6 Nov' },
+    { id: 'DP-02', desc: 'Ambassador and referral incentive decisions', projectId: 'PRJ-01', responsible: PM, externalOwner: 'AK / Ankit Khanna (confirm)', status: 'Open', requiredBy: '2026-11-18', escalation: 'Yes — blocks PRJ-01 and PRJ-02 milestone 1' },
     { id: 'DP-03', desc: 'CRM triggers for lost-deal reactivation', projectId: 'PRJ-07', responsible: SOPS, externalOwner: 'CRM/Tech (TBD)', status: 'Open', requiredBy: '2026-11-28', escalation: 'If CRM capacity is unavailable' },
     { id: 'DP-04', desc: 'CRM SLA tracking (3-day setter SLA)', projectId: 'PRJ-10', responsible: SOPS, externalOwner: 'CRM/Tech (TBD)', status: 'Open', requiredBy: '2026-11-28', escalation: 'If CRM capacity is unavailable' },
     { id: 'DP-05', desc: 'CRM chat activity logging', projectId: 'PRJ-09', responsible: SOPS, externalOwner: 'CRM/Tech (TBD)', status: 'Open', requiredBy: '2026-12-12', escalation: 'No' },
@@ -865,8 +869,8 @@ function buildSeed() {
   // ---------- DECISIONS ----------
   const decisions = [
     { id: 'DEC-01', decision: 'Approve (or return with gaps) the revised sales messaging', projectId: 'PRJ-11', owner: HOS, raised: '2026-10-30', requiredBy: '2026-11-06', impact: 'Deployment, training, chat templates, UAE scripts and reactivation sequences all wait.', status: 'Open', final: '', source: 'Pending action stated in brief' },
-    { id: 'DEC-02', decision: 'Pending voucher requirements — approve quantities/values per project', projectId: 'DEP-01', owner: TBD + ' — AK or Ankit Karnana (confirm)', raised: '2026-10-30', requiredBy: '2026-11-13', impact: 'Blocks EXP-01 offer outreach.', status: 'Open', final: '', source: 'Pending dependency stated in brief' },
-    { id: 'DEC-03', decision: 'Incentive-related decisions (ambassador, referral, any sales incentives)', projectId: 'DEP-01', owner: TBD + ' — AK or Ankit Karnana (confirm)', raised: '2026-10-30', requiredBy: '2026-11-13', impact: 'Blocks PRJ-01 and PRJ-02 milestone 1.', status: 'Open', final: '', source: 'Pending dependency stated in brief' },
+    { id: 'DEC-02', decision: 'Pending voucher requirements — approve quantities/values per project', projectId: 'DEP-01', owner: TBD + ' — AK or Ankit Khanna (confirm)', raised: '2026-10-30', requiredBy: '2026-11-13', impact: 'Blocks EXP-01 offer outreach.', status: 'Open', final: '', source: 'Pending dependency stated in brief' },
+    { id: 'DEC-03', decision: 'Incentive-related decisions (ambassador, referral, any sales incentives)', projectId: 'DEP-01', owner: TBD + ' — AK or Ankit Khanna (confirm)', raised: '2026-10-30', requiredBy: '2026-11-13', impact: 'Blocks PRJ-01 and PRJ-02 milestone 1.', status: 'Open', final: '', source: 'Pending dependency stated in brief' },
     { id: 'DEC-04', decision: 'Other pending approvals — enumerate and close (list not provided in brief)', projectId: 'DEP-01', owner: HOS, raised: '2026-10-30', requiredBy: '2026-11-04', impact: 'Unknown until enumerated.', status: 'Open', final: '', source: 'Pending dependency stated in brief' },
     { id: 'DEC-05', decision: 'Confirm MDRPL scope, revenue objective and owner (no expansion assumed)', projectId: 'PRJ-03', owner: HOS, raised: '2026-10-30', requiredBy: '2026-11-13', impact: 'No execution plan can be built until answered.', status: 'Open', final: '', source: 'Clarification flagged during structuring' },
     { id: 'DEC-06', decision: 'Confirm product name and proposition for initiative #15 ("Suraasa" / "Suraasa Share")', projectId: 'PRJ-13', owner: HOS, raised: '2026-10-30', requiredBy: '2026-11-28', impact: 'Collateral and outreach cannot start.', status: 'Open', final: '', source: 'Clarification flagged during structuring' },
@@ -880,7 +884,7 @@ function buildSeed() {
   // ---------- IMMEDIATE ACTION QUEUE (seeded, non-computed) ----------
   const actions = [
     { id: 'A-01', kind: 'Pending action', action: 'Review the revised sales messaging (AK, Divya, Atishay)', why: 'Stated pending action; blocks deployment, training and four dependent projects.', ownerRole: 'Head of Sales', priority: 'P0', output: 'Review notes with gaps; approval or return', dependency: 'None', timeline: 'By 6 Nov 2026 (proposed)', projectId: 'PRJ-11', taskId: 'T-059', bucket: 'Implement immediately' },
-    { id: 'A-02', kind: 'Pending action', action: 'Enumerate pending vouchers, approvals and incentive items; name owner per item', why: 'Dependencies with AK and Ankit Karnana are stated as pending but not itemised.', ownerRole: 'Sales Operations (tracking) → Head of Sales (owners)', priority: 'P0', output: 'Itemised register with owner and TAT', dependency: 'AK, Ankit Karnana availability', timeline: 'By 6 Nov 2026 (proposed)', projectId: 'DEP-01', taskId: 'T-117', bucket: 'Requires a decision' },
+    { id: 'A-02', kind: 'Pending action', action: 'Enumerate pending vouchers, approvals and incentive items; name owner per item', why: 'Dependencies with AK and Ankit Khanna are stated as pending but not itemised.', ownerRole: 'Sales Operations (tracking) → Head of Sales (owners)', priority: 'P0', output: 'Itemised register with owner and TAT', dependency: 'AK, Ankit Khanna availability', timeline: 'By 6 Nov 2026 (proposed)', projectId: 'DEP-01', taskId: 'T-117', bucket: 'Requires a decision' },
     { id: 'A-03', kind: 'Pending action', action: 'Record baseline and success criteria for the Deal Loss offer experiment', why: 'Experiment is live; without a baseline the result cannot be read.', ownerRole: 'Sales Operations', priority: 'P0', output: 'Experiment one-pager', dependency: 'None', timeline: 'By 6 Nov 2026 (proposed)', projectId: 'EXP-01', taskId: 'T-020', bucket: 'Implement immediately' },
     { id: 'A-04', kind: 'Pending action', action: 'Confirm MDRPL scope and revenue objective', why: 'Brief flags scope as unclear; no expansion assumed.', ownerRole: 'Head of Sales', priority: 'P1', output: 'Scope note in charter', dependency: 'None', timeline: 'By 13 Nov 2026 (proposed)', projectId: 'PRJ-03', taskId: 'T-026', bucket: 'Requires a decision' },
     { id: 'A-05', kind: 'Pending action', action: 'Confirm product name/proposition for initiative #15', why: 'Product name missing in brief.', ownerRole: 'Head of Sales', priority: 'P2', output: 'Confirmed name + proposition', dependency: 'None', timeline: 'By 28 Nov 2026 (proposed)', projectId: 'PRJ-13', taskId: 'T-094', bucket: 'Requires a decision' },

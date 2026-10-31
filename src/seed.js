@@ -23,6 +23,7 @@ function buildSeed() {
   const roles = [
     { name: 'Head of Sales', kind: 'Confirmed', note: 'Overall portfolio oversight and strategic decisions.' },
     { name: 'AK', kind: 'Confirmed', note: 'Vouchers, approvals, incentives; contributed to messaging revision.' },
+    { name: 'Ankit Khanna', kind: 'Confirmed', note: 'Vouchers, approvals, incentives.' },
     { name: 'Shrayansh Sood', kind: 'Confirmed', note: 'CRM/Tech lead.' },
     { name: 'Divya', kind: 'Confirmed', note: 'Contributed to messaging revision.' },
     { name: 'Atishay', kind: 'Confirmed', note: 'Contributed to messaging revision.' },
@@ -34,9 +35,12 @@ function buildSeed() {
     { name: 'Project Manager', kind: 'Proposed role', note: 'Proposed PMO role to run the control tower. Not a confirmed employee.' },
     { name: 'Sales Operations', kind: 'Proposed role', note: 'Trackers, CRM views, reporting, SLA compliance.' },
     { name: 'CRM/Tech', kind: 'Proposed role', note: 'CRM triggers, fields, integrations, logging.' },
+    { name: 'Shrayansh SoodCRM/Tech', kind: 'Confirmed', note: 'CRM/Tech lead.' },
     { name: 'Marketing', kind: 'Proposed role', note: 'Campaigns, promotion, registration journeys.' },
     { name: 'B2B Sales', kind: 'Proposed role', note: 'School/principal/HR outreach and institutional selling.' },
-    { name: 'Product', kind: 'Proposed role', note: 'Observe journey, job platform integration.' }
+    { name: 'Product', kind: 'Proposed role', note: 'Observe journey, job platform integration.' },
+    { name: 'PRJ-06 owner (TBD)', kind: 'Proposed role', note: 'Owner of PRJ-06 (Career Launchpad).' },
+    { name: 'PRJ-13 owner (TBD)', kind: 'Proposed role', note: 'Owner of PRJ-13 (Suraasa Share).' }
   ];
 
   const programs = [
