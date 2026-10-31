@@ -117,18 +117,24 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
+          const DEFAULT_SYNC_URL = 'https://script.google.com/a/macros/suraasa.com/s/AKfycbz5HYVgwAklH_LrfSKJsbn4-W_W2B4nlRpep573elh3DT3NTDHueCqDIGg7KKoHs_dZ/exec';
+          let changed = false;
           if (!S.meta.sync) {
-            S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+            S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+            changed = true;
+          } else if (!S.meta.sync.url) {
+            S.meta.sync.url = DEFAULT_SYNC_URL;
+            S.meta.sync.enabled = true;
+            changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
             S.roles = S.roles.filter(r => r.name !== 'Shrayansh SoodCRM/Tech');
-            save(false);
+            changed = true;
           }
 
           // Ensure standard roles exist in proper order
           const seedRoles = buildSeed().roles;
           const roleNames = new Set(S.roles.map(r => r.name));
-          let changed = false;
           seedRoles.forEach(sr => {
             if (!roleNames.has(sr.name)) {
               S.roles.push(sr);

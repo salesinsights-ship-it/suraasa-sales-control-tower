@@ -990,7 +990,15 @@ function buildSeed() {
       version: 1,
       seeded: stamp,
       savedAt: stamp,
-      sync: { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 },
+      sync: {
+        url: 'https://script.google.com/a/macros/suraasa.com/s/AKfycbz5HYVgwAklH_LrfSKJsbn4-W_W2B4nlRpep573elh3DT3NTDHueCqDIGg7KKoHs_dZ/exec',
+        enabled: true,
+        autoSync: true,
+        lastSync: null,
+        status: 'idle',
+        error: null,
+        baseVersion: 1
+      },
       note: 'Seed built from the Head of Sales brief dated 30 Oct 2026. All dates and owners marked TBD/(proposed) are unconfirmed.'
     },
     roles, programs, projects, tasks, risks, dependencies, decisions, updates: [], actions, governance, options,
