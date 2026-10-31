@@ -117,14 +117,15 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = 'https://script.google.com/a/macros/suraasa.com/s/AKfycbz5HYVgwAklH_LrfSKJsbn4-W_W2B4nlRpep573elh3DT3NTDHueCqDIGg7KKoHs_dZ/exec';
+          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxWGgTe5GJidK2m3nPeZOTTeL-bLKyaVdomX6VJZFa5eMScv-mQp7z9fbbsidPVFd1D/exec';
           let changed = false;
           if (!S.meta.sync) {
-            S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+            S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'connected', error: null, baseVersion: 2 };
             changed = true;
-          } else if (!S.meta.sync.url) {
+          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/')) {
             S.meta.sync.url = DEFAULT_SYNC_URL;
             S.meta.sync.enabled = true;
+            S.meta.sync.status = 'connected';
             changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
@@ -1852,17 +1853,27 @@
         const sep = this.config.url.includes('?') ? '&' : '?';
         const res = await fetch(this.config.url + sep + 'action=pull&_=' + Date.now());
         const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        if (!data.projects || !data.tasks) throw new Error('Invalid state received from Sheet.');
+        if (data.error && !data.ok) throw new Error(data.error);
+
+        const receivedState = data.state || data;
+        if (!receivedState.projects || !receivedState.tasks) {
+          if (data.empty || (Array.isArray(receivedState.projects) && receivedState.projects.length === 0)) {
+            console.log('Sheet is empty, pushing local state...');
+            await this.push();
+            return;
+          }
+          throw new Error('Invalid state received from Sheet.');
+        }
 
         const currentSync = Object.assign({}, this.config, {
           status: 'connected',
           error: null,
           lastSync: nowIso(),
-          baseVersion: (data.meta && data.meta.version) || 1
+          baseVersion: data.version !== undefined ? data.version : ((receivedState.meta && receivedState.meta.version) || 1)
         });
 
-        S = data;
+        S = receivedState;
+        S.meta = S.meta || {};
         S.meta.sync = currentSync;
         save(false);
         render();
@@ -1880,10 +1891,11 @@
       if (!this.config.url) return;
       try {
         const sep = this.config.url.includes('?') ? '&' : '?';
-        const res = await fetch(this.config.url + sep + 'action=status&_=' + Date.now());
+        const res = await fetch(this.config.url + sep + '_=' + Date.now());
         const data = await res.json();
-        if (data && data.version && data.version > (this.config.baseVersion || 1)) {
-          console.log('Remote Sheet version is newer (' + data.version + ' > ' + this.config.baseVersion + '). Pulling updates...');
+        const ver = data.version !== undefined ? data.version : (data.meta && data.meta.version);
+        if (ver !== undefined && ver > (this.config.baseVersion || 0)) {
+          console.log('Remote Sheet version is newer (' + ver + ' > ' + this.config.baseVersion + '). Pulling updates...');
           this.pull();
         }
       } catch (e) {
@@ -2118,10 +2130,10 @@
         toast('Testing connection to Google Sheet...');
         try {
           const sep = url.includes('?') ? '&' : '?';
-          const res = await fetch(url + sep + 'action=status&_=' + Date.now());
+          const res = await fetch(url + sep + '_=' + Date.now());
           const d = await res.json();
-          if (d.error) throw new Error(d.error);
-          toast('Connection successful! Google Sheet Web App version: ' + (d.version || 1));
+          if (d.error && !d.ok) throw new Error(d.error);
+          toast('Connection successful! Google Sheet: ' + (d.sheet || 'Connected') + ' (v' + (d.version !== undefined ? d.version : 1) + ')');
         } catch (err) {
           toast('Connection failed: ' + err.message, true);
         }

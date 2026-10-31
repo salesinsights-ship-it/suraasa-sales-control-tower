@@ -991,13 +991,13 @@ function buildSeed() {
       seeded: stamp,
       savedAt: stamp,
       sync: {
-        url: 'https://script.google.com/a/macros/suraasa.com/s/AKfycbz5HYVgwAklH_LrfSKJsbn4-W_W2B4nlRpep573elh3DT3NTDHueCqDIGg7KKoHs_dZ/exec',
+        url: 'https://script.google.com/macros/s/AKfycbxWGgTe5GJidK2m3nPeZOTTeL-bLKyaVdomX6VJZFa5eMScv-mQp7z9fbbsidPVFd1D/exec',
         enabled: true,
         autoSync: true,
         lastSync: null,
-        status: 'idle',
+        status: 'connected',
         error: null,
-        baseVersion: 1
+        baseVersion: 2
       },
       note: 'Seed built from the Head of Sales brief dated 30 Oct 2026. All dates and owners marked TBD/(proposed) are unconfirmed.'
     },
