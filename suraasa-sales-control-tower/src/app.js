@@ -45,6 +45,10 @@
         if (d && Array.isArray(d.projects) && Array.isArray(d.tasks)) {
           S = d;
           if (!Array.isArray(S.roles)) S.roles = [];
+          if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
+            S.roles = S.roles.filter(r => r.name !== 'Shrayansh SoodCRM/Tech');
+            save(false);
+          }
           const seedRoles = buildSeed().roles;
           const roleNames = new Set(S.roles.map(r => r.name));
           let changed = false;
@@ -75,10 +79,10 @@
   const ms = (p, id) => (p.milestones || []).find(m => m.id === id);
   function people() {
     const set = new Set();
-    (S.roles || []).forEach(r => set.add(r.name));
-    try { (buildSeed().roles || []).forEach(r => set.add(r.name)); } catch (e) {}
-    S.projects.forEach(p => { [p.owner, p.accountable, p.sponsor].forEach(v => { if (!isTBD(v)) set.add(v); }); (p.raci || []).forEach(r => { [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => { if (!isTBD(v)) set.add(v); }); }); });
-    S.tasks.forEach(t => { [t.owner, t.accountable].forEach(v => { if (!isTBD(v)) String(v).split(',').forEach(x => set.add(x.trim())); }); });
+    (S.roles || []).forEach(r => { if (r.name !== 'Shrayansh SoodCRM/Tech') set.add(r.name); });
+    try { (buildSeed().roles || []).forEach(r => { if (r.name !== 'Shrayansh SoodCRM/Tech') set.add(r.name); }); } catch (e) {}
+    S.projects.forEach(p => { [p.owner, p.accountable, p.sponsor].forEach(v => { if (!isTBD(v) && v !== 'Shrayansh SoodCRM/Tech') set.add(v); }); (p.raci || []).forEach(r => { [].concat(r.R || [], r.C || [], r.I || [], [r.A]).forEach(v => { if (!isTBD(v) && v !== 'Shrayansh SoodCRM/Tech') set.add(v); }); }); });
+    S.tasks.forEach(t => { [t.owner, t.accountable].forEach(v => { if (!isTBD(v)) String(v).split(',').forEach(x => { const tr = x.trim(); if (tr && tr !== 'Shrayansh SoodCRM/Tech') set.add(tr); }); }); });
     return [...set].filter(Boolean).sort();
   }
 

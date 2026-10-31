@@ -35,7 +35,6 @@ function buildSeed() {
     { name: 'Project Manager', kind: 'Proposed role', note: 'Proposed PMO role to run the control tower. Not a confirmed employee.' },
     { name: 'Sales Operations', kind: 'Proposed role', note: 'Trackers, CRM views, reporting, SLA compliance.' },
     { name: 'CRM/Tech', kind: 'Proposed role', note: 'CRM triggers, fields, integrations, logging.' },
-    { name: 'Shrayansh SoodCRM/Tech', kind: 'Confirmed', note: 'CRM/Tech lead.' },
     { name: 'Marketing', kind: 'Proposed role', note: 'Campaigns, promotion, registration journeys.' },
     { name: 'B2B Sales', kind: 'Proposed role', note: 'School/principal/HR outreach and institutional selling.' },
     { name: 'Product', kind: 'Proposed role', note: 'Observe journey, job platform integration.' },
