@@ -3,43 +3,50 @@
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <div class="app">
-  <header class="top">
-    <button class="logo" data-act="nav" data-v="overview" aria-label="Control Tower home">
-      <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="currentColor"/><path d="m8 14.5 4 4 8-9" fill="none" stroke="var(--on-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Control Tower</span>
+  <aside class="side">
+    <button class="brand" data-act="nav" data-v="overview" aria-label="Suraasa Control Tower home">
+      <img class="logo-l" src="{{LOGO_LIGHT}}" alt="Suraasa">
+      <img class="logo-d" src="{{LOGO_DARK}}" alt="Suraasa">
     </button>
+    <p class="brand-sub">Control Tower</p>
     <nav class="nav" id="nav" aria-label="Main"></nav>
-    <div class="tools">
+  </aside>
+  <div class="main-col">
+    <header class="top">
+      <img class="top-logo logo-l" src="{{LOGO_LIGHT}}" alt="Suraasa">
+      <img class="top-logo logo-d" src="{{LOGO_DARK}}" alt="Suraasa">
       <div class="find">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.5-4.5"/></svg>
-        <input id="q" type="search" placeholder="Find anything" autocomplete="off" role="combobox" aria-label="Find projects, tasks, decisions and risks" aria-expanded="false" aria-controls="find-results">
+        <input id="q" type="search" placeholder="Find anything" autocomplete="off" role="combobox" aria-label="Find projects, tasks, milestones, people and comments" aria-expanded="false" aria-controls="find-results">
         <kbd aria-hidden="true">/</kbd>
         <div class="find-results" id="find-results" role="listbox" hidden></div>
       </div>
-      <div class="menu-wrap">
-        <button class="btn primary new" data-act="menu" data-m="new" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New</span></button>
-        <div class="menu right" id="menu-new" role="menu">
-          <button role="menuitem" data-act="add-task">Task</button>
-          <button role="menuitem" data-act="add-project">Project</button>
-          <button role="menuitem" data-act="add-decision">Decision</button>
-          <button role="menuitem" data-act="add-risk">Risk</button>
-          <button role="menuitem" data-act="add-dep">Dependency</button>
-          <button role="menuitem" data-act="add-update">Weekly update</button>
+      <div class="tools">
+        <div class="menu-wrap needs-write">
+          <button class="btn primary new" data-act="menu" data-m="new" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New</span></button>
+          <div class="menu right" id="menu-new" role="menu">
+            <button role="menuitem" data-act="add-task">Task</button>
+            <button role="menuitem" data-act="add-project">Project</button>
+            <button role="menuitem" data-act="add-decision">Decision</button>
+            <button role="menuitem" data-act="add-risk">Risk</button>
+            <button role="menuitem" data-act="add-dep">Dependency</button>
+            <button role="menuitem" data-act="add-update">Weekly update</button>
+          </div>
+        </div>
+        <div id="sync-indicator"></div>
+        <button class="bell" data-act="nav" data-v="notifications" aria-label="Notifications" id="bell"></button>
+        <div class="menu-wrap">
+          <button class="me-btn" id="me-btn" data-act="menu" data-m="me" aria-haspopup="true" aria-expanded="false"></button>
+          <div class="menu right keep" id="menu-me"></div>
         </div>
       </div>
-      <div id="sync-indicator"></div>
-      <div class="menu-wrap">
-        <button class="me-btn" id="me-btn" data-act="menu" data-m="me" aria-haspopup="true" aria-expanded="false"></button>
-        <div class="menu right keep" id="menu-me">
-          <label class="fsel stack"><span>I am</span><select id="me" data-act="set-me"></select></label>
-          <button id="theme-toggle">Use dark theme</button>
-        </div>
-      </div>
-    </div>
-  </header>
-  <main class="content" id="main" tabindex="-1"></main>
+    </header>
+    <main class="content" id="main" tabindex="-1"></main>
+  </div>
   <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
 </div>
+<div id="signin" class="signin" hidden></div>
 <div id="modal-root"></div>
+<div class="tip" id="tip" role="tooltip" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>

@@ -1,0 +1,33 @@
+// Google sign-in, end to end, with Google's button and token check simulated.
+const { chromium } = require('playwright');
+const { backend, page, CLIENT } = require('./harness');
+const results = []; const ok = (n, c, x) => results.push([c ? 'PASS' : 'FAIL', n + (x ? ' :: ' + x : '')]);
+const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = Object.assign({ aud: CLIENT, email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }, extra || {}); return id; };
+(async () => {
+  const br = await chromium.launch();
+  const b = backend(true);
+  const p = await page(br, b);
+  ok('sign-in screen shows before any data', await p.evaluate(() => !document.querySelector('#signin').hidden), '');
+  ok('official logo on the sign-in screen', await p.evaluate(() => { const i = document.querySelector('#signin img'); return !!i && i.naturalWidth > 0 && /Suraasa/.test(i.alt); }));
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'dist', 'index.html'), 'utf8');
+  ok('page source holds no project, owner or risk data', !/Referral Plan|Messaging Optimisation|Ankit Khanna|PRJ-0\d\d/.test(src));
+  ok('no project data on screen before sign-in', await p.evaluate(() => !SCT.state.projects.length && !/Referral Plan|Messaging Optimisation/.test(document.documentElement.innerHTML)));
+  if (process.env.SHOTS) await p.screenshot({ path: require('path').join(process.env.SHOTS, 'signin.png') });
+  await p.evaluate(t => window.__gsi.callback({ credential: t }), token(b, 'stranger@suraasa.com')); await p.waitForTimeout(300);
+  ok('someone not on the list is refused', /no access/.test(await p.textContent('#signin')), await p.textContent('#signin'));
+  await p.evaluate(t => window.__gsi.callback({ credential: t }), token(b, 'someone@gmail.com')); await p.waitForTimeout(300);
+  ok('another domain is refused', /@suraasa\.com/.test(await p.textContent('#signin')));
+  await p.evaluate(t => window.__gsi.callback({ credential: t }), token(b, 'ak@suraasa.com')); await p.waitForTimeout(500);
+  ok('listed person gets in with their role', await p.evaluate(() => document.querySelector('#signin').hidden && SCT.ME.role === 'Task Owner' && SCT.state.projects.length > 0));
+  await p.reload(); await p.waitForTimeout(500);
+  ok('stays signed in on reload', await p.evaluate(() => document.querySelector('#signin').hidden && SCT.state.projects.length > 0));
+  await p.click('#me-btn'); await p.click('[data-act="sign-out"]'); await p.waitForTimeout(300);
+  ok('sign out returns to the sign-in screen', await p.evaluate(() => !document.querySelector('#signin').hidden));
+  await p.reload(); await p.waitForTimeout(500);
+  ok('session gone after sign out', await p.evaluate(() => !document.querySelector('#signin').hidden));
+  ok('no copy of the work left in this browser', await p.evaluate(() => !SCT.state.projects.length && !/Referral Plan|Messaging/.test(JSON.stringify(localStorage))));
+  ok('no page errors', !p.errs.length, p.errs.join('|'));
+  await br.close();
+  for (const r of results) console.log(r[0], r[1]);
+  console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');
+})().catch(e => { for (const r of results) console.log(r[0], r[1]); console.error(String(e).slice(0, 700)); process.exit(1); });

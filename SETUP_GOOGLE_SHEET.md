@@ -2,6 +2,13 @@
 
 This guide walks you through setting up real-time, two-way synchronization between the **Suraasa Sales Control Tower** web application and a Google Sheet using the Google Apps Script backend located in `apps-script/Code.gs`.
 
+
+> **Updating an existing install?** Do not follow this guide. It is for a brand-new Sheet. Use [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+>
+> On a new Sheet the site starts empty, because the published page no longer contains any data. Import a JSON backup from Administration, or add your first project.
+>
+> For sign-in, see [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md). The behaviour described below as "poll every 15 seconds" is now a check when the page opens, when you return to the tab and every 60 seconds.
+
 ---
 
 ## Architecture Overview

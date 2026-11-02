@@ -6,12 +6,13 @@
 (function () {
   'use strict';
   const KEY = 'suraasa_sales_control_tower_v1';
+  const BASE_KEY = 'suraasa_sales_control_tower_base';
 
   // Fallback defaults for configurable option lists
   const FALLBACKS = {
     priorities: ['P0', 'P1', 'P2', 'P3'],
     projectStatuses: ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'],
-    taskStatuses: ['Not Started', 'In Progress', 'Awaiting Approval', 'Blocked', 'On Hold', 'Completed'],
+    taskStatuses: ENGINE.TASK_STATUSES.slice(),
     taskKinds: ['Task', 'Subtask', 'Recurring', 'Decision'],
     milestoneStatuses: ['Pending', 'In Progress', 'Completed'],
     categories: [
@@ -42,7 +43,7 @@
     riskLevels: ['High', 'Medium', 'Low'],
     riskStatuses: ['Open', 'Mitigated', 'Resolved', 'Escalated', 'Closed'],
     dependencyStatuses: ['Open', 'Escalated', 'Resolved', 'Closed'],
-    decisionStatuses: ['Open', 'Pending AK/Ankit decision', 'Closed', 'Escalated'],
+    decisionStatuses: ['Open', 'Closed', 'Escalated'],
     actionKinds: ['Immediate action', 'Pending action', 'Recommendation'],
     actionBuckets: [
       'Implement immediately',
@@ -56,14 +57,27 @@
   };
 
   let S = null; // State object
+  const ME = { role: 'Administrator', email: '', name: '', open: true }; // who is using the site
   const UI = {
     view: 'overview',
     projectId: null,
     ptab: 'summary',
     taskFilter: 'pending',
     tgroup: 'due',
+    savedView: '', bulkOn: false, bulk: new Set(), report: { from: '', to: '' },
     pmode: 'list',
     pchip: 'all',
+    homeTab: 'decisions',
+    taskId: null,
+    tlFilter: 'all',
+    tlLimit: 30,
+    tview: 'list',
+    tcal: '',
+    notifTab: 'unread',
+    adminTab: 'users',
+    auditQ: '',
+    auditLimit: 50,
+    pscope: 'all',
     actionTab: 'queue',
     raciTab: 'projects',
     weekTab: 'need',
@@ -78,7 +92,10 @@
   };
 
   // Helper to dynamically get option list from S.options or fallback
-  const opt = k => (S && S.options && Array.isArray(S.options[k]) && S.options[k].length) ? S.options[k] : (FALLBACKS[k] || []);
+  const opt = k => {
+    const list = (S && S.options && Array.isArray(S.options[k]) && S.options[k].length) ? S.options[k] : (FALLBACKS[k] || []);
+    return k === 'taskStatuses' ? ENGINE.TASK_STATUSES.concat(list.filter(x => !ENGINE.TASK_STATUSES.includes(x))) : list;
+  };
 
   // ---------- utils ----------
   const $ = (s, r) => (r || document).querySelector(s);
@@ -105,16 +122,9 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const by = (k, dir) => (a, b) => { const x = a[k] == null ? '' : a[k], y = b[k] == null ? '' : b[k]; return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'desc' ? -1 : 1); };
   const RAG_WORD = { Green: 'On track', Amber: 'At risk', Red: 'Delayed', Grey: 'Not started' };
-  const pillRag = r => '<span class="pill ' + (r || 'grey').toLowerCase() + '">' + esc(RAG_WORD[r] || r || 'Not started') + '</span>';
+  const pillRag = (r, level) => '<span class="pill ' + (r || 'grey').toLowerCase() + '">' + esc(level || RAG_WORD[r] || r || 'Not started') + '</span>';
   const pillPrio = p => '<span class="pill ' + (p || 'p3').toLowerCase() + '">' + esc(p || '—') + '</span>';
-  const pillStatus = s => {
-    const m = {
-      'Completed': 'green', 'In Progress': 'blue', 'Blocked': 'red', 'On Hold': 'amber',
-      'Awaiting Approval': 'amber', 'Not Started': 'grey', 'Pending': 'grey', 'Open': 'amber',
-      'Closed': 'green', 'Resolved': 'green', 'Mitigated': 'green', 'Escalated': 'red', 'Decided': 'green'
-    };
-    return '<span class="pill ' + (m[s] || 'outline') + '">' + esc(s || '—') + '</span>';
-  };
+  const pillStatus = s => '<span class="pill ' + statusTone(s) + '">' + esc(s || 'Not set') + '</span>';
   function toast(msg, err, undo) {
     const t = $('#toast');
     if (!t) return;
@@ -154,16 +164,6 @@
             changed = true;
           }
 
-          // Ensure standard roles exist in proper order
-          const seedRoles = buildSeed().roles;
-          const roleNames = new Set(S.roles.map(r => r.name));
-          seedRoles.forEach(sr => {
-            if (!roleNames.has(sr.name)) {
-              S.roles.push(sr);
-              roleNames.add(sr.name);
-              changed = true;
-            }
-          });
           // Ensure options are populated with all lists
           Object.keys(FALLBACKS).forEach(k => {
             if (!Array.isArray(S.options[k]) || !S.options[k].length) {
@@ -188,10 +188,25 @@
       S.meta.savedAt = nowIso();
       S.meta.version = (S.meta.version || 1) + 1;
       localStorage.setItem(KEY, JSON.stringify(S));
+      if (triggerSync) autoMilestones();
       if (triggerSync && window.SYNC && window.SYNC.onLocalChange) {
         window.SYNC.onLocalChange();
       }
     } catch (e) { toast('Could not save in this browser: ' + e.message, true); }
+  }
+
+  /** A milestone completes itself when its tasks are all done, and reopens if one is reopened. */
+  function autoMilestones() {
+    S.projects.forEach(p => {
+      if (!canManageP(p)) return;
+      (p.milestones || []).forEach(m => {
+        const list = S.tasks.filter(t => t.projectId === p.id && t.ms === m.id && !t.parent && t.status !== 'Cancelled');
+        if (!list.length) return;
+        const done = list.every(t => t.status === 'Completed');
+        if (done && m.status !== 'Completed') { m.status = 'Completed'; m.autoCompleted = true; log('Milestone "' + m.name + '" completed on ' + p.id); }
+        else if (!done && m.status === 'Completed' && m.autoCompleted) { m.status = 'In Progress'; m.autoCompleted = false; }
+      });
+    });
   }
 
   function log(text) {
@@ -384,12 +399,8 @@
   }
 
   // ---------- computed ----------
-  function taskOverdue(t) { return t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) < 0; }
-  function projectProgress(id) {
-    const ts = pTasks(id).filter(t => t.kind !== 'Recurring');
-    if (!ts.length) return 0;
-    return Math.round(ts.reduce((a, t) => a + (t.status === 'Completed' ? 100 : (+t.progress || 0)), 0) / ts.length);
-  }
+  function taskOverdue(t) { return ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) < 0; }
+  function projectProgress(id) { return ENGINE.projectPct(pTasks(id)); }
   function nextMilestone(p) {
     const open = (p.milestones || []).filter(m => m.status !== 'Completed');
     const dated = open.filter(m => isDate(m.due)).sort(by('due'));
@@ -400,35 +411,11 @@
     return u[0] || null;
   }
   function health(p) {
-    const reasons = [];
-    const ts = pTasks(p.id);
-    if (p.status === 'Completed') return { rag: 'Green', reasons: ['Completed'] };
-    if (p.status === 'Blocked') reasons.push('Status set to Blocked');
-    const odT = ts.filter(taskOverdue); if (odT.length) reasons.push(odT.length + ' overdue task' + (odT.length > 1 ? 's' : ''));
-    const odM = (p.milestones || []).filter(m => m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) < 0); if (odM.length) reasons.push(odM.length + ' overdue milestone' + (odM.length > 1 ? 's' : ''));
+    const rules = healthRules();
     const deps = S.dependencies.filter(d => d.projectId === p.id && d.status !== 'Closed' && d.status !== 'Resolved');
-    const odD = deps.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) < 0); if (odD.length) reasons.push(odD.length + ' dependency past required-by date');
-    if (reasons.length) return { rag: 'Red', reasons };
-    const started = p.status !== 'Not Started' || ts.some(t => t.status !== 'Not Started');
-    if (!started) return { rag: 'Grey', reasons: ['Not started'] };
-    const amber = [];
-    const soonM = (p.milestones || []).filter(m => m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) <= 7);
-    soonM.forEach(m => {
-      const mt = ts.filter(t => t.ms === m.id);
-      const prog = mt.length ? Math.round(mt.reduce((a, t) => a + (t.status === 'Completed' ? 100 : +t.progress || 0), 0) / mt.length) : 0;
-      if (prog < 50) amber.push('Milestone "' + m.name + '" due in ' + daysFromToday(m.due) + 'd at ' + prog + '% task progress');
-    });
-    const soonT = ts.filter(t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) <= 7 && (+t.progress || 0) < 50 && (t.priority === 'P0' || t.priority === 'P1'));
-    if (soonT.length) amber.push(soonT.length + ' P0/P1 task' + (soonT.length > 1 ? 's' : '') + ' due within 7 days with <50% progress');
-    const soonD = deps.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 14);
-    if (soonD.length) amber.push(soonD.length + ' open dependency due within 14 days');
     const lu = lastUpdate(p.id);
-    const ageOk = lu && (Date.now() - new Date(lu.ts).getTime()) / 86400000 <= 14;
-    if (!ageOk && p.status === 'In Progress') amber.push(lu ? 'No owner update in 14+ days' : 'No weekly owner update submitted yet');
-    if (isTBD(p.accountable)) amber.push('No confirmed Accountable owner');
-    if (p.status === 'On Hold') amber.push('On hold');
-    if (amber.length) return { rag: 'Amber', reasons: amber };
-    return { rag: 'Green', reasons: ['On track'] };
+    const past = (S.snapshots || []).find(r => r.projectId === p.id && r.date === addDays(todayStr(), -rules.stagnantDays));
+    return ENGINE.health(p, { tasks: pTasks(p.id), deps, lastUpdateTs: lu && lu.ts, today: dnum(todayStr()), now: Date.now(), rules, progressAgo: past ? +past.progress : null, progressNow: projectProgress(p.id) });
   }
   function raciIssues() {
     const out = [];
@@ -448,30 +435,33 @@
   const openDec = d => !['Closed', 'Decided'].includes(d.status);
   const closedDecStatus = () => opt('decisionStatuses').includes('Decided') ? 'Decided' : 'Closed';
   function stats() {
-    const hs = S.projects.map(p => ({ p, h: health(p) }));
+    const live = liveProjects();
+    const hs = live.map(p => ({ p, h: health(p) }));
     return {
-      total: S.projects.length,
-      active: S.projects.filter(p => p.status === 'In Progress').length,
-      notStarted: S.projects.filter(p => p.status === 'Not Started').length,
+      total: live.length,
+      active: live.filter(p => p.status === 'In Progress').length,
+      notStarted: live.filter(p => p.status === 'Not Started').length,
       atRisk: hs.filter(x => x.h.rag === 'Amber').length,
       delayed: hs.filter(x => x.h.rag === 'Red').length,
-      completed: S.projects.filter(p => p.status === 'Completed').length,
+      completed: live.filter(p => p.status === 'Completed').length,
       decisions: S.decisions.filter(openDec).length,
       deps: S.dependencies.filter(d => d.status === 'Open' || d.status === 'Escalated').length,
-      overdue: S.tasks.filter(taskOverdue).length,
+      overdue: liveTasks().filter(taskOverdue).length,
       hs
     };
   }
   function actionQueue() {
     const items = [];
-    S.tasks.filter(taskOverdue).forEach(t => items.push({ rank: 1, type: 'Overdue task', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
+    const tasks = liveTasks();
+    tasks.filter(taskOverdue).forEach(t => items.push({ rank: 1, type: 'Overdue task', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
     S.risks.filter(r => r.status === 'Open' && r.impact === 'High' && r.probability === 'High').forEach(r => items.push({ rank: 2, type: 'Critical risk', ref: r.id, text: r.desc, owner: r.owner, project: r.projectId, due: r.deadline, prio: 'P0', go: { v: 'risks' } }));
     S.dependencies.filter(d => (d.status === 'Open' || d.status === 'Escalated') && (/^yes/i.test(d.escalation || '') || (isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 7))).forEach(d => items.push({ rank: 2, type: 'Blocking dependency', ref: d.id, text: d.desc, owner: d.externalOwner, project: d.projectId, due: d.requiredBy, prio: 'P0', go: { v: 'risks', tab: 'deps' } }));
-    S.projects.filter(p => p.status === 'Blocked').forEach(p => items.push({ rank: 2, type: 'Blocked project', ref: p.id, text: p.name, owner: p.owner, project: p.id, due: p.due, prio: p.priority, go: { v: 'project', id: p.id } }));
+    tasks.filter(t => t.status === 'Blocked').forEach(t => items.push({ rank: 2, type: 'Blocked task', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'risks' } }));
+    liveProjects().filter(p => p.status === 'Blocked').forEach(p => items.push({ rank: 2, type: 'Blocked project', ref: p.id, text: p.name, owner: p.owner, project: p.id, due: p.due, prio: p.priority, go: { v: 'project', id: p.id } }));
     S.decisions.filter(openDec).forEach(d => items.push({ rank: 3, type: 'Pending decision', ref: d.id, text: d.decision, owner: d.owner, project: d.projectId, due: d.requiredBy, prio: isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 7 ? 'P0' : 'P1', go: { v: 'decisions' } }));
-    S.tasks.filter(t => t.status !== 'Completed' && !taskOverdue(t) && isDate(t.due) && daysFromToday(t.due) <= 7).forEach(t => items.push({ rank: 4, type: 'Due within 7 days', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
-    S.projects.forEach(p => (p.milestones || []).filter(m => m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) <= 7 && daysFromToday(m.due) >= 0).forEach(m => items.push({ rank: 4, type: 'Milestone due', ref: m.id, text: m.name, owner: p.owner, project: p.id, due: m.due, prio: p.priority, go: { v: 'project', id: p.id, tab: 'plan' } })));
-    S.tasks.filter(t => t.status !== 'Completed' && (t.priority === 'P0' || t.priority === 'P1') && isTBD(t.owner) && !taskOverdue(t) && !(isDate(t.due) && daysFromToday(t.due) <= 7)).forEach(t => items.push({ rank: 5, type: 'High-priority, unassigned', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
+    tasks.filter(t => ENGINE.isOpen(t) && t.status !== 'Blocked' && !taskOverdue(t) && isDate(t.due) && daysFromToday(t.due) <= 7).forEach(t => items.push({ rank: 4, type: 'Due within 7 days', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
+    liveProjects().forEach(p => (p.milestones || []).filter(m => m.status !== 'Completed' && isDate(m.due) && daysFromToday(m.due) <= 7 && daysFromToday(m.due) >= 0).forEach(m => items.push({ rank: 4, type: 'Milestone due', ref: m.id, text: m.name, owner: p.owner, project: p.id, due: m.due, prio: p.priority, go: { v: 'project', id: p.id, tab: 'plan' } })));
+    tasks.filter(t => ENGINE.isOpen(t) && (t.priority === 'P0' || t.priority === 'P1') && isTBD(t.owner) && !taskOverdue(t) && !(isDate(t.due) && daysFromToday(t.due) <= 7)).forEach(t => items.push({ rank: 5, type: 'High-priority, unassigned', ref: t.id, text: t.name, owner: t.owner, project: t.projectId, due: t.due, prio: t.priority, go: { v: 'project', id: t.projectId, tab: 'tasks' } }));
     return items.sort((a, b) => a.rank - b.rank || (a.due || 'z').localeCompare(b.due || 'z'));
   }
 
@@ -480,6 +470,10 @@
 
   function go(v, params) {
     params = params || {};
+    UI.taskId = null;
+    if (v === 'myprojects') { v = 'portfolio'; UI.pscope = 'mine'; UI.pmode = 'list'; UI.pchip = 'all'; }
+    else if (v === 'portfolio') UI.pscope = params.scope || 'all';
+    if (v === 'data') { v = 'admin'; UI.adminTab = 'data'; }
     if (v === 'risks') { v = 'decisions'; UI.riskTab = params.tab || 'risks'; }
     else if (v === 'decisions') { UI.riskTab = params.tab || 'decisions'; }
     else if (v === 'timeline') { v = 'portfolio'; UI.pmode = 'timeline'; }
@@ -493,40 +487,54 @@
   }
 
   // ---------- render root ----------
-  const NAV = [['overview', 'Home'], ['portfolio', 'Projects'], ['tasks', 'Tasks'], ['decisions', 'Decisions & risks'], ['weekly', 'Weekly review']];
-  const NAV_MORE = [['actions', 'Action plan'], ['raci', 'Who does what'], ['governance', 'How we work'], ['data', 'Data & settings']];
+  const NAV = [['overview', 'Home'], ['tasks', 'My Tasks'], ['portfolio', 'Projects'], ['myprojects', 'My Projects'], ['decisions', 'Decisions & risks'], ['weekly', 'Weekly review'], ['notifications', 'Notifications'], ['reports', 'Reports']];
+  const NAV_MORE = [['actions', 'Action plan'], ['raci', 'Who does what'], ['governance', 'How we work'], ['admin', 'Administration']];
   const ICON = {
     overview: '<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>',
-    portfolio: '<path d="M4 5h16v3H4zm0 5.5h16v3H4zM4 16h16v3H4z"/>',
     tasks: '<path d="m9.5 16.2-4-4L4 13.7l5.5 5.5L20.5 8.2 19 6.7z"/>',
+    portfolio: '<path d="M4 5h16v3H4zm0 5.5h16v3H4zM4 16h16v3H4z"/>',
+    myprojects: '<path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.4 0-8 2.3-8 5.2V21h16v-1.8c0-2.9-3.6-5.2-8-5.2z"/>',
     decisions: '<path d="M12 2 4 5.5V11c0 5 3.4 9.6 8 11 4.6-1.4 8-6 8-11V5.5zm-1 14.2-3.7-3.7 1.4-1.4 2.3 2.3 5.3-5.3 1.4 1.4z"/>',
+    weekly: '<path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14z"/>',
+    notifications: '<path d="M12 22a2.5 2.5 0 0 0 2.4-2h-4.8A2.5 2.5 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"/>',
+    reports: '<path d="M5 20V10h3v10zm5.5 0V4h3v16zM16 20v-7h3v7z"/>',
+    actions: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
+    raci: '<path d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zm-4 6c-4 0-8 2-8 4v1h16v-1c0-2-4-4-8-4z"/>',
+    governance: '<path d="M12 2 2 7v2h20V7zM4 11v8H2v2h20v-2h-2v-8h-2v8h-3v-8h-2v8H11v-8H9v8H6v-8z"/>',
+    admin: '<path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.100 1.600 2 3.400 2.400-1a7.500 7.500 0 0 0 1.700 1l.4 2.500h4l.4-2.500a7.500 7.500 0 0 0 1.700-1l2.400 1 2-3.400zM13 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>',
     more: '<path d="M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>'
   };
   const ico = k => '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">' + (ICON[k] || '') + '</svg>';
   const CHEV = '<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
 
-  function moreMenu(id) {
-    return '<div class="menu" id="menu-' + id + '" role="menu">' + NAV_MORE.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div>';
-  }
-
   function renderNav(st) {
-    const on = v => UI.view === v || (UI.view === 'project' && v === 'portfolio');
-    const moreOn = NAV_MORE.some(n => n[0] === UI.view);
+    const on = v => UI.view === v || (UI.view === 'project' && v === 'portfolio') || (UI.view === 'portfolio' && v === (UI.pscope === 'mine' ? 'myprojects' : 'portfolio'));
     const missing = weeklyRows().filter(r => r.stale && r.p.status === 'In Progress').length;
-    const badge = { decisions: st.decisions, weekly: missing };
-    $('#nav').innerHTML = NAV.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + n[1] + (badge[n[0]] ? '<span class="count">' + badge[n[0]] + '</span>' : '') + '</button>').join('') +
-      '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more" aria-haspopup="true" aria-expanded="false">More</button>' + moreMenu('more') + '</div>';
-    const tabs = [['overview', 'Home'], ['portfolio', 'Projects'], ['tasks', 'Tasks'], ['decisions', 'Decisions']];
+    const read = readSet();
+    const unread = myNotifications().filter(n => !read.has(n.id)).length;
+    const badge = { decisions: st.decisions, weekly: missing, notifications: unread };
+    const item = n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span>' + (badge[n[0]] ? '<span class="count">' + badge[n[0]] + '</span>' : '') + '</button>';
+    const main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
+    const lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
+    $('#nav').innerHTML = main.map(item).join('') + '<div class="nav-sep"></div>' + lower.map(item).join('');
+    const tabs = [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']];
+    const others = NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower);
+    const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
-      '<div class="menu-wrap"><button class="' + (moreOn || UI.view === 'weekly' ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu"><button role="menuitem" data-act="nav" data-v="weekly">Weekly review</button>' + NAV_MORE.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>';
+      '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>';
+    $('#bell').innerHTML = ico('notifications') + (unread ? '<span class="count">' + unread + '</span>' : '');
+    $('#bell').setAttribute('aria-label', 'Notifications' + (unread ? ', ' + unread + ' unread' : ''));
   }
 
   function renderMe() {
+    document.body.classList.toggle('ro', !canWrite());
+    $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : ico('myprojects');
+    $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Choose your name');
+    const open = $('#menu-me').classList.contains('open');
     const list = people();
-    const opts = '<option value="">Everyone</option>' + list.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('');
-    $('#me').innerHTML = opts;
-    $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.4 0-8 2.3-8 5.2V21h16v-1.8c0-2.9-3.6-5.2-8-5.2z"/></svg>';
-    $('#me-btn').setAttribute('aria-label', UI.me ? 'Signed in view: ' + UI.me : 'Choose your name');
+    $('#menu-me').innerHTML = (ME.open ? '<label class="fsel stack"><span>I am</span><select id="me" data-act="set-me"><option value="">Everyone</option>' + list.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>' : '<div class="me-c"><b>' + esc(UI.me) + '</b><span class="quiet">' + esc(ME.role) + '</span><span class="quiet">' + esc(ME.email) + '</span></div>') +
+      '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' + (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
+    if (open) $('#menu-me').classList.add('open');
   }
 
   function render() {
@@ -539,11 +547,22 @@
     const R = {
       overview: vOverview, actions: vActions, portfolio: vPortfolio,
       tasks: vTasks, raci: vRaci, decisions: vDecisions, weekly: vWeekly,
-      governance: vGovernance, data: vData, project: vProject
+      governance: vGovernance, project: vProject, notifications: vNotifications, reports: vReports, admin: vAdmin
     };
-    $('#main').innerHTML = (R[UI.view] || vOverview)(st, aq);
+    $('#main').classList.toggle('wide', UI.view === 'overview');
+    hideTip();
+    const y = window.SYNC;
+    const first = y && y.config.enabled && !y.base;
+    $('#main').innerHTML = first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq);
     if (keep) { try { const n = $(keep); if (n) n.focus(); } catch (e) { /* selector unavailable */ } }
     if (window.SYNC && window.SYNC.updateUI) window.SYNC.updateUI();
+  }
+
+  function skeleton() {
+    return '<div class="skel" role="status" aria-label="Loading from the Google Sheet"><i class="sk-h"></i><i class="sk-b"></i>' + '<i></i>'.repeat(6) + '</div>';
+  }
+  function firstLoadFailed() {
+    return '<div class="empty"><h2>Could not load the data</h2><p>' + esc(SYNC.config.error || 'The Google Sheet did not respond.') + '</p><button class="btn primary" data-act="sync-retry">Try again</button></div>';
   }
 
   // ---------- shared pieces ----------
@@ -591,13 +610,14 @@
   function taskRow(t, o) {
     o = o || {};
     const done = t.status === 'Completed';
-    return '<div class="r r-task' + (done ? ' is-done' : '') + (t.parent ? ' is-sub' : '') + '" data-act="edit-task" data-id="' + esc(t.id) + '">' +
-      '<input class="tick" type="checkbox" data-act="task-done" data-id="' + esc(t.id) + '" ' + (done ? 'checked' : '') + ' aria-label="Mark done: ' + esc(t.name) + '">' +
-      '<span class="r-main"><button class="r-t" data-act="edit-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' + (o.noProject ? '' : '<span class="r-s">' + esc(pName(t.projectId)) + '</span>') + '</span>' +
+    const canWork = canWorkT(t);
+    return '<div class="r r-task' + (done ? ' is-done' : '') + (t.status === 'Cancelled' ? ' is-cancelled' : '') + (t.parent ? ' is-sub' : '') + '" data-act="open-task" data-id="' + esc(t.id) + '">' +
+      (UI.bulkOn ? '<input class="tick pick" type="checkbox" data-act="bulk-pick" data-id="' + esc(t.id) + '" ' + (UI.bulk.has(t.id) ? 'checked' : '') + ' aria-label="Select: ' + esc(t.name) + '">' : '<input class="tick" type="checkbox" data-act="task-done" data-id="' + esc(t.id) + '" ' + (done ? 'checked' : '') + (canWork ? '' : ' disabled') + ' aria-label="Mark done: ' + esc(t.name) + '">') +
+      '<span class="r-main"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' + (o.noProject ? '' : '<span class="r-s">' + esc(pName(t.projectId)) + '</span>') + '</span>' +
       '<span class="r-p">' + pillPrio(t.priority) + '</span>' +
       '<span class="r-who">' + who(t.owner) + '</span>' +
       '<span class="r-when">' + when(t.due, done) + '</span>' +
-      '<span class="r-st"><select class="st" aria-label="Status of ' + esc(t.name) + '" data-act="task-status" data-id="' + esc(t.id) + '">' + opt('taskStatuses').map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + esc(s) + '</option>').join('') + '</select></span></div>';
+      '<span class="r-st">' + (canWork ? '<select class="st" aria-label="Status of ' + esc(t.name) + '" data-act="task-status" data-id="' + esc(t.id) + '">' + statusOptions(t) + '</select>' : pillStatus(t.status)) + '</span></div>';
   }
 
   function decisionRow(d, o) {
@@ -639,7 +659,7 @@
 
   function projectRow(x) {
     const p = x.p, h = x.h, nm = nextMilestone(p), prog = projectProgress(p.id);
-    const line = h.rag === 'Amber' || h.rag === 'Red' ? h.reasons[0] : (p.nextAction || p.objective || '');
+    const line = h.rag === 'Amber' || h.rag === 'Red' ? h.level + ': ' + h.reasons[0] : (p.nextAction || p.objective || '');
     const nextDate = nm && isDate(nm.due) ? nm.due : p.due;
     return '<div class="r r-proj" data-act="open" data-id="' + esc(p.id) + '">' +
       '<span class="mark ' + h.rag.toLowerCase() + '" title="' + esc(RAG_WORD[h.rag]) + '"></span>' +
@@ -661,46 +681,160 @@
   }
 
   // ---------- Home ----------
+  const weekOf = s => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return localDate(d); };
+  const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return localDate(d); };
+  const pct = (n, of) => of ? Math.round(n / of * 100) : 0;
+
+  function stat(label, value, of, note, act, attrs, meter) {
+    return '<button class="stat" data-act="' + act + '" ' + (attrs || '') + '><span class="stat-l">' + esc(label) + '</span><span class="stat-v"><b>' + value + '</b>' + (of ? '<small>' + esc(of) + '</small>' : '') + '</span>' +
+      '<span class="stat-n">' + esc(note) + '</span>' + (meter ? '<span class="meter ' + meter[1] + '"><i style="width:' + Math.max(meter[0], meter[0] ? 2 : 0) + '%"></i></span>' : '') + '</button>';
+  }
+
+  function segBar(parts, total, tall) {
+    return '<div class="segbar' + (tall ? ' tall' : '') + '">' + parts.filter(p => p.n).map(p => '<button class="sb sb-' + p.key + '" style="flex:' + p.n + '" data-act="' + p.act + '" ' + (p.attrs || '') + ' data-tip="' + esc(p.label + '|' + p.n + ' of ' + total + ' projects') + '" aria-label="' + esc(p.label + ': ' + p.n + ' of ' + total + ' projects') + '">' + (tall && pct(p.n, total) >= 6 ? p.n : '') + '</button>').join('') + '</div>';
+  }
+
+  function workload(openT, milestones) {
+    const first = weekOf(todayStr());
+    const weeks = Array.from({ length: 8 }, (_, i) => ({ key: addDays(first, i * 7), p0: 0, p1: 0, rest: 0, ms: 0 }));
+    const byKey = Object.fromEntries(weeks.map(w => [w.key, w]));
+    const late = { key: 'late', p0: 0, p1: 0, rest: 0, ms: 0 };
+    let after = 0, noDate = 0;
+    openT.forEach(t => {
+      if (!isDate(t.due)) { noDate++; return; }
+      const w = daysFromToday(t.due) < 0 ? late : byKey[weekOf(t.due)];
+      if (!w) { after++; return; }
+      if (t.priority === 'P0') w.p0++; else if (t.priority === 'P1') w.p1++; else w.rest++;
+    });
+    milestones.forEach(m => { const w = byKey[weekOf(m.due)]; if (w) w.ms++; });
+    const cols = (late.p0 + late.p1 + late.rest ? [late] : []).concat(weeks);
+    const tot = w => w.p0 + w.p1 + w.rest;
+    const max = Math.max(1, ...cols.map(tot));
+    const name = w => w.key === 'late' ? 'Late' : w.key === first ? 'This week' : fmtShort(w.key);
+    const seg = (cls, n) => n ? '<i class="w-' + cls + '" style="height:calc((100% - 26px) * ' + Math.max(n / max, .03).toFixed(4) + ')"></i>' : '';
+    const col = w => {
+      const label = name(w) + ': ' + plural(tot(w), 'task');
+      const tip = (w.key === 'late' || w.key === first ? name(w) : 'Week of ' + name(w)) + '|' + plural(tot(w), 'task') + '|' + w.p0 + ' P0|' + w.p1 + ' P1|' + w.rest + ' P2 or lower' + (w.ms ? '|' + plural(w.ms, 'milestone') : '');
+      return '<button class="wk' + (w.key === first ? ' now' : '') + (w.key === 'late' ? ' late' : '') + '" data-act="go-week-of" data-w="' + w.key + '" data-tip="' + esc(tip) + '" aria-label="' + esc(label) + '"><span class="wk-plot"><span class="wk-v">' + (tot(w) || '') + '</span>' + seg('p0', w.p0) + seg('p1', w.p1) + seg('rest', w.rest) + '</span><span class="wk-l">' + esc(w.key === first ? 'Now' : name(w)) + '</span><span class="wk-m">' + (w.ms ? '<em></em>' + w.ms : '') + '</span></button>';
+    };
+    const peak = cols.reduce((a, w) => tot(w) > tot(a) ? w : a, cols[0]);
+    const rows = cols.map(w => '<tr><td>' + esc(name(w)) + '</td><td>' + w.p0 + '</td><td>' + w.p1 + '</td><td>' + w.rest + '</td><td>' + tot(w) + '</td><td>' + w.ms + '</td></tr>').join('');
+    return '<section class="panel"><div class="s-h"><h2>Work due, next 8 weeks</h2>' + (tot(peak) ? '<span class="quiet">Busiest: ' + esc(peak.key === first ? 'this week' : peak.key === 'late' ? 'late work' : 'week of ' + name(peak)) + '</span>' : '') + '</div>' +
+      '<div class="legend"><span><i class="lg w-p0"></i>P0</span><span><i class="lg w-p1"></i>P1</span><span><i class="lg w-rest"></i>P2 or lower</span><span><i class="lg ms-k"></i>Milestones</span></div>' +
+      '<div class="wks">' + cols.map(col).join('') + '</div>' +
+      '<p class="quiet">' + plural(after, 'more task') + ' due later, ' + noDate + ' with no date.</p>' +
+      '<details class="acc mini-acc"><summary>' + CHEV + 'See the numbers</summary><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Week</th><th>P0</th><th>P1</th><th>P2 or lower</th><th>Tasks</th><th>Milestones</th></tr></thead><tbody>' + rows + '</tbody></table></div></details></section>';
+  }
+
+  function ownersPanel(openT) {
+    const counts = {};
+    openT.forEach(t => {
+      const w = whoParts(t.owner);
+      const k = w.open ? '__none' : w.name;
+      counts[k] = counts[k] || { name: w.name, n: 0, cls: w.open ? 'none' : w.proposed ? 'prop' : 'conf', filter: w.open ? '__none' : w.name };
+      counts[k].n++;
+    });
+    const list = Object.values(counts).sort((a, b) => b.n - a.n);
+    const top = list.slice(0, 6);
+    const rest = list.slice(6).reduce((a, x) => a + x.n, 0);
+    const max = Math.max(1, ...top.map(x => x.n));
+    const row = x => '<button class="own" data-act="go-owner" data-o="' + esc(x.filter) + '" data-tip="' + esc(x.name + '|' + plural(x.n, 'open task') + '|' + { conf: 'Confirmed owner', prop: 'Proposed, not confirmed', none: 'Nobody assigned' }[x.cls]) + '" aria-label="' + esc(x.name + ': ' + plural(x.n, 'open task')) + '"><span class="own-n ' + x.cls + '">' + esc(x.name) + '</span><span class="own-b"><i class="o-' + x.cls + '" style="width:' + Math.max(x.n / max * 100, 2) + '%"></i><b>' + x.n + '</b></span></button>';
+    return '<section class="panel"><div class="s-h"><h2>Who holds the open work</h2></div>' +
+      '<div class="legend"><span><i class="lg o-conf"></i>Confirmed</span><span><i class="lg o-prop"></i>Proposed</span><span><i class="lg o-none"></i>Nobody yet</span></div>' +
+      '<div class="owns">' + top.map(row).join('') + '</div>' +
+      (rest ? '<p class="quiet">' + plural(rest, 'more task') + ' with other people.</p>' : '') + '</section>';
+  }
+
   function vOverview(st, aq) {
+    if (taskOnly() && UI.me) return vHomeTask();
     const me = UI.me;
+    const mineT = t => !me || isMine(t.owner) || isMine(t.accountable);
+    const tasks = liveTasks().filter(t => !ENGINE.isCancelled(t)).filter(mineT);
+    const openT = tasks.filter(ENGINE.isOpen);
     const dec = S.decisions.filter(d => openDec(d) && mineMatch(d.owner)).sort((a, b) => (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
-    const slip = st.hs.filter(x => (x.h.rag === 'Red' || x.h.rag === 'Amber') && (!me || [x.p.owner, x.p.accountable, x.p.sponsor].some(mineMatch)))
-      .sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1) || String(a.p.priority).localeCompare(String(b.p.priority)));
-    const dueAll = aq.filter(a => (a.rank === 1 || a.rank === 4) && mineMatch(a.owner));
-    const late = dueAll.filter(a => a.rank === 1).length;
-    const blocks = aq.filter(a => a.rank === 2 && (!me || mineMatch(a.owner)));
+    const decWeek = dec.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 7).length;
+    const hs = st.hs.filter(x => !me || [x.p.owner, x.p.accountable, x.p.sponsor].some(mineMatch));
+    const liveP = hs.filter(x => x.p.status !== 'Completed');
+    const slip = liveP.filter(x => x.h.rag === 'Red' || x.h.rag === 'Amber').sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1) || String(a.p.priority).localeCompare(String(b.p.priority)));
+    const delayed = slip.filter(x => x.h.rag === 'Red').length;
+    const due = aq.filter(a => (a.rank === 1 || a.rank === 4) && mineMatch(a.owner));
+    const dueT = due.filter(a => /^T-/.test(a.ref)).length;
+    const late = due.filter(a => a.rank === 1).length;
+    const blocks = aq.filter(a => a.rank === 2 && mineMatch(a.owner));
+    const confirmed = openT.filter(t => !isTBD(t.owner)).length;
+    const risks = S.risks.filter(r => (r.status === 'Open' || r.status === 'Escalated') && mineMatch(r.owner));
+    const critical = risks.filter(r => riskLevel(r)[0] === 'Critical').length;
+    const active = liveP.filter(x => x.p.status === 'In Progress');
+    const updated = active.filter(x => { const u = lastUpdate(x.p.id); return u && (Date.now() - new Date(u.ts).getTime()) / 86400000 <= 7; }).length;
+    const waiting = S.dependencies.filter(d => (d.status === 'Open' || d.status === 'Escalated') && (!me || mineMatch(d.responsible) || mineMatch(d.externalOwner)));
+    const escalate = waiting.filter(d => d.status === 'Escalated' || /^yes/i.test(d.escalation || '')).length;
+    const nextNeed = waiting.map(d => d.requiredBy).filter(isDate).sort()[0];
+    const miles = [];
+    hs.forEach(x => (x.p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push(m); }));
 
-    const s1 = dec.length ? plural(dec.length, 'decision is', 'decisions are') + ' waiting' + (me ? ' on you' : '') : 'No decisions are waiting';
-    const s2 = slip.length ? plural(slip.length, 'project is', 'projects are') + ' slipping' : 'no projects are slipping';
-    const s3 = dueAll.length ? plural(dueAll.length, 'thing is', 'things are') + ' due this week' + (late ? ', ' + late + ' already late' : '') : 'nothing is due this week';
-    const clear = !dec.length && !slip.length && !dueAll.length;
+    const stats = [
+      stat('Decisions waiting', dec.length, '', decWeek ? decWeek + ' due this week' : 'None due this week', 'go-decisions'),
+      stat('Projects slipping', slip.length, 'of ' + liveP.length, delayed ? delayed + ' delayed' : 'None delayed yet', 'go-attention'),
+      stat('Due in 7 days', due.length, '', late ? late + ' already late' : plural(dueT, 'task') + ', ' + plural(due.length - dueT, 'milestone'), 'go-week'),
+      stat('Tasks done', tasks.length - openT.length, 'of ' + tasks.length, pct(tasks.length - openT.length, tasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(tasks.length - openT.length, tasks.length), 'blue']),
+      stat('Owners confirmed', confirmed, 'of ' + openT.length, pct(confirmed, openT.length) + '% of open tasks', 'go-unassigned', '', [pct(confirmed, openT.length), pct(confirmed, openT.length) < 50 ? 'red' : 'blue']),
+      stat('Open risks', risks.length, '', critical ? critical + ' critical' : 'None critical', 'go-risks')
+    ].join('');
 
-    const seen = { Red: 0, Amber: 0, Green: 0, Grey: 0 };
-    st.hs.forEach(x => { if (x.p.status !== 'Completed') seen[x.h.rag]++; });
-    const live = st.total - st.completed;
-    const strip = [['Red', 'attention'], ['Amber', 'attention'], ['Green', 'Green'], ['Grey', 'Grey']].filter(k => seen[k[0]]);
-    const noOwner = S.projects.filter(p => isTBD(p.owner)).length;
+    const avail = [['decisions', 'Decisions', dec.length], ['slipping', 'Slipping', slip.length], ['due', 'Due this week', due.length], ['blocking', 'Blocking', blocks.length]];
+    const counts = Object.fromEntries(avail.map(a => [a[0], a[2]]));
+    const tab = counts[UI.homeTab] ? UI.homeTab : (avail.find(a => a[2]) || avail[0])[0];
+    const lists = {
+      decisions: [dec.slice(0, 6).map(d => decisionRow(d)), 'go-decisions', dec.length],
+      slipping: [slip.slice(0, 6).map(projectRow), 'go-attention', slip.length],
+      due: [due.slice(0, 6).map(queueRow), 'go-week', due.length],
+      blocking: [blocks.slice(0, 6).map(queueRow), 'go-actions', blocks.length]
+    }[tab];
+    const list = lists[0].length ? '<div class="rows">' + lists[0].join('') + '</div>' + (lists[2] > 6 ? '<button class="linkbtn more" data-act="' + lists[1] + '">See all ' + lists[2] + '</button>' : '')
+      : emptyLine('Nothing needs attention here', 'New items appear as dates get closer.');
 
-    const sect = (title, n, rows, all, emptyText) => '<section class="home-s"><div class="s-h"><h2>' + esc(title) + '</h2>' + (n > rows.length ? all : '') + '</div>' + (rows.length ? '<div class="rows">' + rows.join('') + '</div>' : '<p class="quiet">' + esc(emptyText) + '</p>') + '</section>';
+    const count = rag => liveP.filter(x => x.h.rag === rag).length;
+    const parts = [['Red', 'attention'], ['Amber', 'attention'], ['Green', 'Green'], ['Grey', 'Grey']].map(k => ({ key: k[0].toLowerCase(), label: RAG_WORD[k[0]], n: count(k[0]), act: 'go-chip', attrs: 'data-chip="' + k[1] + '"' }));
+    const cats = {};
+    liveP.forEach(x => { const c = x.p.category || 'Other'; (cats[c] = cats[c] || []).push(x); });
+    const catRows = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length).map(c => {
+      const xs = cats[c];
+      const ps = ['Red', 'Amber', 'Green', 'Grey'].map(r => ({ key: r.toLowerCase(), label: c + ': ' + RAG_WORD[r], n: xs.filter(x => x.h.rag === r).length, act: 'go-cat', attrs: 'data-c="' + esc(c) + '"' }));
+      return '<div class="cat"><span class="cat-n" title="' + esc(c) + '">' + esc(c) + '</span>' + segBar(ps, xs.length) + '<span class="cat-c">' + xs.length + '</span></div>';
+    }).join('');
 
     return `
-    <div class="home">
-      <p class="today">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-      ${clear ? '<h1 class="say">Nothing needs you today.</h1>' : `<h1 class="say">
-        <button class="${dec.length ? 'u-blue' : ''}" data-act="go-decisions">${s1},</button>
-        <button class="${slip.length ? 'u-amber' : ''}" data-act="go-attention">${s2},</button>
-        <button class="${late ? 'u-red' : dueAll.length ? 'u-ink' : ''}" data-act="go-week">and ${s3}.</button>
-      </h1>`}
-      <div class="strip" role="img" aria-label="${live} live projects: ${seen.Red} delayed, ${seen.Amber} at risk, ${seen.Green} on track, ${seen.Grey} not started">
-        ${strip.map(k => '<button class="seg-' + k[0].toLowerCase() + '" style="flex:' + seen[k[0]] + '" data-act="go-chip" data-chip="' + k[1] + '" title="' + esc(RAG_WORD[k[0]]) + '" aria-label="' + seen[k[0]] + ' ' + esc(RAG_WORD[k[0]]) + '"></button>').join('')}
+    <div class="dash">
+      <div class="dash-h">
+        <div><h1>Sales overview</h1><p class="quiet">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
+        ${ME.open ? '<label class="fsel"><span>Showing</span><select data-act="set-me" aria-label="Show work for"><option value="">Everyone</option>' + people().map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>' : ''}
       </div>
-      <p class="strip-key">${live} live projects: ${['Red', 'Amber', 'Green', 'Grey'].filter(k => seen[k]).map(k => '<span class="key"><i class="k-' + k.toLowerCase() + '"></i>' + seen[k] + ' ' + RAG_WORD[k].toLowerCase() + '</span>').join('')}</p>
-      ${me ? '' : '<p class="whoami">Showing everyone\'s work. <label>See only yours: <select data-act="set-me" aria-label="Choose your name"><option value="">Choose your name</option>' + people().map(p => '<option>' + esc(p) + '</option>').join('') + '</select></label></p>'}
-      ${noOwner ? '<p class="flag"><span>' + (noOwner === st.total ? 'None of the ' + st.total + ' projects has' : noOwner + ' of ' + st.total + ' projects have no') + ' a confirmed owner.</span> <button class="linkbtn" data-act="go-portfolio">Assign owners</button></p>'.replace('have no a confirmed', 'have no confirmed') : ''}
-      ${sect(me ? 'Your decisions' : 'Decisions waiting', dec.length, dec.slice(0, 4).map(d => decisionRow(d)), '<button class="linkbtn" data-act="go-decisions">See all ' + dec.length + '</button>', 'No decisions are waiting.')}
-      ${sect('Slipping', slip.length, slip.slice(0, 4).map(projectRow), '<button class="linkbtn" data-act="go-attention">See all ' + slip.length + '</button>', 'Every project is on track.')}
-      ${sect('Due this week', dueAll.length, dueAll.slice(0, 4).map(queueRow), '<button class="linkbtn" data-act="go-week">See all ' + dueAll.length + '</button>', 'Nothing is due in the next 7 days.')}
-      ${blocks.length ? sect('Blocking work', blocks.length, blocks.slice(0, 4).map(queueRow), '<button class="linkbtn" data-act="nav" data-v="actions">See all ' + blocks.length + '</button>', '') : ''}
+      <div class="stats">${stats}</div>
+      <div class="dash-g">
+        <section class="panel">
+          <div class="s-h"><h2>Needs attention</h2></div>
+          <div class="bar-row">${seg('htab', avail, tab)}</div>
+          ${list}
+        </section>
+        <section class="panel">
+          <div class="s-h"><h2>Project health</h2><button class="linkbtn" data-act="go-portfolio">All ${liveP.length}</button></div>
+          ${liveP.length ? segBar(parts, liveP.length, true) : ''}
+          <div class="legend">${parts.filter(p => p.n).map(p => '<span><i class="lg sb-' + p.key + '"></i>' + esc(p.label) + '</span>').join('')}</div>
+          <div class="cats">${catRows}</div>
+          ${active.length ? '<p class="flag"><span><b>' + updated + ' of ' + active.length + '</b> active projects have an update this week.</span>' + (updated < active.length ? ' <button class="linkbtn" data-act="nav" data-v="weekly">Add updates</button>' : '') + '</p>' : ''}
+          <h3>Risks and dependencies</h3>
+          <div class="facts-l">
+            <button class="fl" data-act="go-risks"><span>Critical risks</span><b>${critical} of ${risks.length}</b></button>
+            <button class="fl" data-act="go-deps"><span>Waiting on others</span><b>${waiting.length}</b></button>
+            <button class="fl" data-act="go-deps"><span>Need escalating</span><b>${escalate}</b></button>
+            <button class="fl" data-act="go-deps"><span>Next needed by</span><b>${nextNeed ? fmtShort(nextNeed) : 'Nothing due'}</b></button>
+          </div>
+        </section>
+      </div>
+      <div class="dash-g">
+        ${workload(openT, miles)}
+        ${ownersPanel(openT)}
+      </div>
     </div>`;
   }
 
@@ -727,7 +861,9 @@
   function vPortfolio(st) {
     if (UI.pmode === 'timeline') return portfolioHead() + vTimeline();
     const f = UI.filters;
-    let rows = st.hs.slice();
+    const archived = S.projects.filter(p => p.archivedAt);
+    let rows = UI.pchip === 'archived' ? archived.map(p => ({ p, h: health(p) })) : st.hs.slice();
+    if (UI.pscope === 'mine') rows = rows.filter(x => ownsP(x.p) || isMine(x.p.sponsor));
     ['category', 'priority', 'status', 'type', 'program'].forEach(k => { if (f[k]) rows = rows.filter(r => k === 'program' ? (f[k] === 'none' ? !r.p.program : r.p.program === f[k]) : r.p[k] === f[k]); });
     if (f.owner) rows = rows.filter(r => r.p.owner === f.owner || r.p.accountable === f.owner);
     const attention = x => x.h.rag === 'Red' || x.h.rag === 'Amber';
@@ -737,7 +873,8 @@
       ['Green', 'On track', rows.filter(x => x.h.rag === 'Green' && !isDone(x)).length],
       ['Grey', 'Not started', rows.filter(x => x.h.rag === 'Grey').length], ['done', 'Done', rows.filter(isDone).length]
     ];
-    const test = { all: () => true, attention, Green: x => x.h.rag === 'Green' && !isDone(x), Grey: x => x.h.rag === 'Grey', done: isDone };
+    chips.push(['blocked', 'Blocked', rows.filter(x => x.h.level === 'Blocked').length], ['archived', 'Archived', archived.length]);
+    const test = { all: () => true, attention, Green: x => x.h.rag === 'Green' && !isDone(x), Grey: x => x.h.rag === 'Grey', done: isDone, blocked: x => x.h.level === 'Blocked', archived: () => true };
     rows = rows.filter(test[UI.pchip] || test.all);
     const sk = UI.sort.portfolio || 'priority';
     const key = { priority: x => String(x.p.priority), due: x => (nextMilestone(x.p) || {}).due || x.p.due || 'z', name: x => x.p.name.toLowerCase(), progress: x => -projectProgress(x.p.id) };
@@ -755,13 +892,19 @@
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
     const head = '<div class="r r-proj r-head" aria-hidden="true"><span></span><span>Project</span><span>Priority</span><span>Owner</span><span>Next date</span><span>Tasks done</span></div>';
     const sections = UI.pchip === 'all' && sk === 'priority' ? [['Needs attention', attention, 'late'], ['On track', test.Green, ''], ['Not started', test.Grey, ''], ['Done', isDone, '']] : null;
+    const summary = UI.pscope === 'mine' ? (() => {
+      const mine = rows.map(r => r.p.id), ts = liveTasks().filter(t => mine.includes(t.projectId));
+      const c = ENGINE.projectCounts(ts, dnum(todayStr()));
+      const wk = ts.filter(t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 7).length;
+      return '<div class="stats">' + stat('Projects', rows.length, '', rows.filter(attention).length + ' need attention', 'nav', 'data-v="myprojects"') + stat('Active tasks', c.open, '', c.done + ' done', 'nav', 'data-v="tasks"') + stat('Late', c.overdue, '', 'Open tasks past due', 'nav', 'data-v="tasks"') + stat('Blocked', c.blocked, '', 'Open tasks', 'nav', 'data-v="tasks"') + stat('In review', c.review, '', 'Waiting for you', 'nav', 'data-v="tasks"') + stat('Due this week', wk, '', 'Open tasks', 'nav', 'data-v="tasks"') + '</div>';
+    })() : '';
     let headUsed = false;
     const headOnce = () => { if (headUsed) return ''; headUsed = true; return head; };
     const list = !rows.length ? emptyLine('No projects match', 'Try another filter, or clear them.', active ? '<button class="btn sm" data-act="clear-filters">Clear filters</button>' : '')
       : sections ? sections.map(s => { const r = rows.filter(s[1]); return r.length ? group('p-' + s[0], s[0], r.length, headOnce() + r.map(projectRow).join(''), s[0] !== 'Done', s[2]) : ''; }).join('')
         : '<div class="rows">' + head + rows.map(projectRow).join('') + '</div>';
 
-    return portfolioHead() + `
+    return portfolioHead() + summary + `
       <div class="bar-row">
         <div class="chips">${chips.filter(c => c[0] === 'all' || c[2] || UI.pchip === c[0]).map(c => chip('pchip', 'data-h="' + c[0] + '"', c[1], c[2], UI.pchip === c[0])).join('')}</div>
         <div class="bar-end">
@@ -773,37 +916,44 @@
   }
 
   function portfolioHead() {
-    return '<div class="page-h"><h1>Projects</h1>' + seg('pmode', [['list', 'List'], ['timeline', 'Timeline']], UI.pmode) + '</div>';
+    return '<div class="page-h"><h1>' + (UI.pscope === 'mine' ? 'My Projects' : 'Projects') + '</h1>' + seg('pmode', [['list', 'List'], ['timeline', 'Timeline']], UI.pmode) + '</div>';
   }
 
   function vProject() {
     const p = P(UI.projectId);
     if (!p) return '<button class="back" data-act="nav" data-v="portfolio">Projects</button>' + emptyLine('This project no longer exists', 'It may have been removed in the Google Sheet.');
-    const h = health(p), prog = projectProgress(p.id), ts = pTasks(p.id);
-    const openT = ts.filter(t => t.status !== 'Completed');
+    const h = health(p), prog = projectProgress(p.id), ts = pTasks(p.id), c = ENGINE.projectCounts(ts, dnum(todayStr()));
     const nm = nextMilestone(p);
+    const manage = canManageP(p);
     const decs = S.decisions.filter(d => openDec(d) && d.projectId === p.id);
     const rs = S.risks.filter(r => r.projectId === p.id), ds = S.dependencies.filter(d => d.projectId === p.id);
     const openRisks = rs.filter(r => r.status === 'Open' || r.status === 'Escalated').length + ds.filter(d => d.status === 'Open' || d.status === 'Escalated').length;
-    const tabs = [['summary', 'Summary'], ['plan', 'Plan', openT.length], ['risks', 'Risks', openRisks], ['updates', 'Updates', S.updates.filter(u => u.projectId === p.id).length + (p.comments || []).length], ['people', 'People']];
+    const tabs = [['summary', 'Summary'], ['plan', 'Plan', c.open], ['risks', 'Risks', openRisks], ['updates', 'Updates', S.updates.filter(u => u.projectId === p.id).length + (p.comments || []).length], ['people', 'People'], ['files', 'Files', (p.attachments || []).length || null], ['activity', 'Activity']];
     const tab = UI.ptab;
     const pg = p.program ? (S.programs.find(x => x.id === p.program) || {}).name : '';
+    const ready = ENGINE.readyForClosure(p, ts);
     let body = '';
 
     if (tab === 'summary') {
       const dl = pairs => '<dl class="dl">' + pairs.filter(x => x[1]).map(x => '<dt>' + x[0] + '</dt><dd>' + x[1] + '</dd>').join('') + '</dl>';
       const ul = a => (a || []).length ? '<ul class="list">' + a.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '';
+      const mr = p.manualRisk;
       body = `
+        ${ready ? '<p class="flag green"><span><b>Ready for closure.</b> All work is done. Check the final deliverables, then close the project.</span>' + (manage ? ' <button class="linkbtn" data-act="close-project" data-id="' + esc(p.id) + '">Close project</button>' : '') + '</p>' : ''}
+        ${p.archivedAt ? '<p class="flag"><span><b>Archived</b> on ' + esc(shortTime(p.archivedAt)) + '.</span>' + (manage ? ' <button class="linkbtn" data-act="restore-project" data-id="' + esc(p.id) + '">Restore</button>' : '') + '</p>' : ''}
         ${p.nextAction ? '<div class="next"><h2>Next action</h2><p>' + esc(p.nextAction) + '</p></div>' : ''}
-        ${h.rag === 'Amber' || h.rag === 'Red' ? '<section class="sec"><h2>Why it is ' + esc(RAG_WORD[h.rag].toLowerCase()) + '</h2><ul class="list">' + h.reasons.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></section>' : ''}
+        ${h.rag === 'Amber' || h.rag === 'Red' ? '<section class="sec"><h2>Why it is ' + esc(h.level.toLowerCase()) + '</h2><ul class="list">' + h.reasons.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></section>' : ''}
+        ${mr ? '<section class="sec"><h2>Owner\'s risk assessment</h2><p>' + pillRag({ 'At risk': 'Amber', Delayed: 'Red', 'On track': 'Green' }[mr.level] || 'Grey', mr.level) + ' ' + esc(mr.reason) + '</p><p class="mini">' + esc(mr.by) + ', ' + esc(shortTime(mr.ts)) + '. The calculated health above stays as it is.</p></section>' : ''}
         ${decs.length ? '<section class="sec"><h2>Decisions waiting</h2><div class="rows">' + decs.map(d => decisionRow(d, { noProject: true })).join('') + '</div></section>' : ''}
         <section class="sec"><h2>What this project is for</h2>${dl([['Objective', esc(p.objective)], ['Expected outcome', esc(p.outcome)], ['Success measures', ul(p.metrics)]])}</section>
+        <details class="acc"><summary>${CHEV}How progress and health are worked out</summary><div class="acc-bd"><p>Progress is the weighted average of active top-level tasks: the sum of weight × completion, divided by the sum of weights. Cancelled and recurring tasks are left out, and subtasks count through their parent. Each task's completion comes from its subtasks, then its checklist, then the value set by hand with a note.</p><p class="mini">Now: ${c.done} done, ${c.open} open, ${c.blocked} blocked, ${c.overdue} late, out of ${c.total} active tasks. Health rules are in Administration.</p></div></details>
         <details class="acc"><summary>${CHEV}Full charter</summary><div class="acc-bd">${dl([
-        ['Problem', esc(p.problem)], ['Business impact', esc(p.impact)], ['Category', esc(p.category)], ['Type', esc(p.type)], ['Program', esc(pg)], ['Value class', esc(p.valueClass)],
+        ['Problem', esc(p.problem)], ['Business impact', esc(p.impact)], ['Team', esc(p.department)], ['Category', esc(p.category)], ['Type', esc(p.type)], ['Program', esc(pg)], ['Value class', esc(p.valueClass)],
         ['Priority', esc(p.priority) + (p.priorityProposed ? ' (proposed)' : '')], ['Why this priority', esc(p.priorityRationale)],
-        ['Start', p.start ? fmt(p.start) + (p.datesProposed ? ' (proposed)' : '') : ''], ['Target end', p.due ? fmt(p.due) + (p.datesProposed ? ' (proposed)' : '') : 'Ongoing'],
+        ['Start', p.start ? fmt(p.start) + (p.datesProposed ? ' (proposed)' : '') : ''], ['Target end', p.due ? fmt(p.due) + (p.datesProposed ? ' (proposed)' : '') : 'Ongoing'], ['Original target', p.originalDue && p.originalDue !== p.due ? fmt(p.originalDue) : ''],
         ['Hypothesis', esc(p.hypothesis)], ['Test period', esc(p.testPeriod)], ['Success criteria', esc(p.successCriteria)], ['Baseline', esc(p.baseline)], ['Cadence', esc(p.cadence)], ['To clarify', esc(p.clarification)],
-        ['Depends on', ul(p.dependencies)], ['Known risks', ul(p.risks)], ['Assumptions', ul(p.assumptions)], ['Flags', (p.flags || []).map(esc).join(', ')]
+        ['Depends on', ul(p.dependencies)], ['Known risks', ul(p.risks)], ['Assumptions', ul(p.assumptions)], ['Flags', (p.flags || []).map(esc).join(', ')],
+        ['Visibility', p.restricted ? 'Restricted to named people' : 'Everyone signed in'], ['Created', p.createdAt ? esc(shortTime(p.createdAt)) + (p.createdBy ? ' by ' + esc(p.createdBy) : '') : ''], ['Last changed', p.updatedAt ? esc(shortTime(p.updatedAt)) + (p.updatedBy ? ' by ' + esc(p.updatedBy) : '') : '']
       ])}</div></details>`;
     } else if (tab === 'plan') {
       const withSubs = list => list.map(t => taskRow(t, { noProject: true }) + S.tasks.filter(x => x.parent === t.id).map(x => taskRow(x, { noProject: true })).join('')).join('');
@@ -812,47 +962,50 @@
       const msBlock = m => {
         const mt = tops.filter(t => t.ms === m.id); mt.forEach(t => seen.add(t.id));
         const d = daysFromToday(m.due); const late = m.status !== 'Completed' && d != null && d < 0;
-        return '<div class="ms"><div class="r r-ms" data-act="edit-ms" data-id="' + esc(p.id) + '" data-ms="' + esc(m.id) + '"><span class="mark ' + (m.status === 'Completed' ? 'green' : late ? 'red' : 'diamond') + '"></span><span class="r-main"><button class="r-t" data-act="edit-ms" data-id="' + esc(p.id) + '" data-ms="' + esc(m.id) + '">' + esc(m.name) + '</button></span><span class="r-when">' + when(m.due, m.status === 'Completed') + '</span><span class="r-do">' + pillStatus(m.status) + '</span></div>' + withSubs(mt) + '</div>';
+        return '<div class="ms"><div class="r r-ms" data-act="edit-ms" data-id="' + esc(p.id) + '" data-ms="' + esc(m.id) + '"><span class="mark ' + (m.status === 'Completed' ? 'green' : late ? 'red' : 'diamond') + '"></span><span class="r-main"><button class="r-t" data-act="edit-ms" data-id="' + esc(p.id) + '" data-ms="' + esc(m.id) + '">' + esc(m.name) + '</button></span><span class="r-prog"><span class="prog"><i style="width:' + ENGINE.milestonePct(m, ts) + '%"></i></span><span>' + ENGINE.milestonePct(m, ts) + '%</span></span><span class="r-when">' + when(m.due, m.status === 'Completed') + '</span><span class="r-do">' + pillStatus(m.status) + '</span></div>' + withSubs(mt) + '</div>';
       };
       const blocks = (p.workstreams || []).map(w => {
         const mss = (p.milestones || []).filter(m => m.ws === w.id);
         const inner = mss.map(msBlock).join('');
-        return '<section class="ws"><div class="s-h"><h2>' + esc(w.name) + '</h2><button class="linkbtn" data-act="edit-ws" data-id="' + esc(p.id) + '" data-ws="' + esc(w.id) + '">Edit</button></div>' + (inner || '<p class="quiet">No milestones yet.</p>') + '</section>';
+        return '<section class="ws"><div class="s-h"><h2>' + esc(w.name) + '</h2>' + (manage ? '<button class="linkbtn" data-act="edit-ws" data-id="' + esc(p.id) + '" data-ws="' + esc(w.id) + '">Edit</button>' : '') + '</div>' + (inner || '<p class="quiet">No milestones yet.</p>') + '</section>';
       }).join('');
       const orphanMs = (p.milestones || []).filter(m => !ws(p, m.ws));
       const orphanHtml = orphanMs.length ? '<section class="ws"><div class="s-h"><h2>Other milestones</h2></div>' + orphanMs.map(msBlock).join('') + '</section>' : '';
       const loose = tops.filter(t => !seen.has(t.id));
       const looseHtml = loose.length ? '<section class="ws"><div class="s-h"><h2>Other tasks</h2></div><div class="rows">' + withSubs(loose) + '</div></section>' : '';
-      body = '<div class="bar-row no-print"><p class="quiet">' + ts.filter(t => t.status === 'Completed').length + ' of ' + plural(ts.length, 'task') + ' done</p><div class="bar-end"><button class="btn sm" data-act="add-ws" data-id="' + esc(p.id) + '">Add workstream</button><button class="btn sm" data-act="add-ms" data-id="' + esc(p.id) + '">Add milestone</button><button class="btn sm primary" data-act="add-task" data-pid="' + esc(p.id) + '">Add task</button></div></div>' +
+      body = '<div class="bar-row no-print"><p class="quiet">' + c.done + ' of ' + plural(c.total, 'task') + ' done</p>' + (manage ? '<div class="bar-end"><button class="btn sm" data-act="add-ws" data-id="' + esc(p.id) + '">Add workstream</button><button class="btn sm" data-act="add-ms" data-id="' + esc(p.id) + '">Add milestone</button><button class="btn sm primary" data-act="add-task" data-pid="' + esc(p.id) + '">Add task</button></div>' : '') + '</div>' +
         (blocks + orphanHtml + looseHtml || emptyLine('Nothing planned yet', 'Add a milestone or a first task to get this moving.'));
     } else if (tab === 'risks') {
-      body = '<section class="sec"><div class="s-h"><h2>Risks</h2><button class="btn sm" data-act="add-risk" data-pid="' + esc(p.id) + '">Add risk</button></div>' + (rs.length ? '<div class="rows">' + rs.slice().sort((a, b) => riskScore(b) - riskScore(a)).map(r => riskRow(r, { noProject: true })).join('') + '</div>' : '<p class="quiet">No risks logged.</p>') + '</section>' +
-        '<section class="sec"><div class="s-h"><h2>Waiting on others</h2><button class="btn sm" data-act="add-dep" data-pid="' + esc(p.id) + '">Add dependency</button></div>' + (ds.length ? '<div class="rows">' + ds.slice().sort(by('requiredBy')).map(d => depRow(d, { noProject: true })).join('') + '</div>' : '<p class="quiet">Not waiting on anyone.</p>') + '</section>';
+      body = '<section class="sec"><div class="s-h"><h2>Risks</h2>' + (manage ? '<button class="btn sm" data-act="add-risk" data-pid="' + esc(p.id) + '">Add risk</button>' : '') + '</div>' + (rs.length ? '<div class="rows">' + rs.slice().sort((a, b) => riskScore(b) - riskScore(a)).map(r => riskRow(r, { noProject: true })).join('') + '</div>' : '<p class="quiet">No risks logged.</p>') + '</section>' +
+        '<section class="sec"><div class="s-h"><h2>Waiting on others</h2>' + (manage ? '<button class="btn sm" data-act="add-dep" data-pid="' + esc(p.id) + '">Add dependency</button>' : '') + '</div>' + (ds.length ? '<div class="rows">' + ds.slice().sort(by('requiredBy')).map(d => depRow(d, { noProject: true })).join('') + '</div>' : '<p class="quiet">Not waiting on anyone.</p>') + '</section>' +
+        (ts.some(t => t.status === 'Blocked') ? '<section class="sec"><h2>Blocked tasks</h2><div class="rows">' + ts.filter(t => t.status === 'Blocked').map(t => taskRow(t, { noProject: true })).join('') + '</div></section>' : '');
     } else if (tab === 'updates') {
       const ups = S.updates.filter(u => u.projectId === p.id).sort((a, b) => b.ts > a.ts ? 1 : -1);
-      const acts = S.activity.filter(a => a.text.includes(p.id) || a.text.includes(p.name));
-      const comments = (p.comments || []).map((c, idx) => '<div class="comment"><div class="c-h"><b>' + esc(c.who || 'Someone') + '</b><span class="quiet">' + new Date(c.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + (c.editedAt ? ', edited' : '') + '</span><span class="c-acts no-print"><button class="linkbtn" data-act="edit-comment" data-pid="' + esc(p.id) + '" data-i="' + idx + '">Edit</button><button class="linkbtn danger" data-act="del-comment" data-pid="' + esc(p.id) + '" data-i="' + idx + '">Delete</button></span></div><p>' + esc(c.text) + '</p></div>').join('');
-      body = '<section class="sec"><div class="s-h"><h2>Weekly updates</h2><button class="btn sm primary" data-act="add-update" data-pid="' + esc(p.id) + '">Add update</button></div>' + (ups.length ? ups.map(updateCard).join('') : '<p class="quiet">No updates yet. Active projects show as at risk until one is added.</p>') + '</section>' +
-        '<section class="sec"><h2>Comments</h2><form data-act="add-comment" data-pid="' + esc(p.id) + '" class="c-form no-print"><input name="c" aria-label="Add a comment" placeholder="Add a comment" required>' + (UI.me ? '<input type="hidden" name="who" value="' + esc(UI.me) + '">' : '<input name="who" aria-label="Your name" placeholder="Your name">') + '<button class="btn">Post</button></form>' + comments + '</section>' +
-        (acts.length ? '<details class="acc"><summary>' + CHEV + 'History (' + acts.length + ')</summary><div class="acc-bd">' + acts.map(a => '<div class="comment"><p>' + esc(a.text) + '</p><span class="quiet">' + new Date(a.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</span></div>').join('') + '</div></details>' : '');
+      const comments = (p.comments || []).map((cm, idx) => '<div class="comment"><div class="c-h"><b>' + esc(cm.who || 'Someone') + '</b><span class="quiet">' + esc(shortTime(cm.ts)) + (cm.editedAt ? ', edited' : '') + '</span>' + (isAdmin() || isMine(cm.who) ? '<span class="c-acts no-print"><button class="linkbtn" data-act="edit-comment" data-pid="' + esc(p.id) + '" data-i="' + idx + '">Edit</button><button class="linkbtn danger" data-act="del-comment" data-pid="' + esc(p.id) + '" data-i="' + idx + '">Delete</button></span>' : '') + '</div><p>' + esc(cm.text) + '</p></div>').join('');
+      body = '<section class="sec"><div class="s-h"><h2>Weekly updates</h2>' + (canWrite() ? '<button class="btn sm primary" data-act="add-update" data-pid="' + esc(p.id) + '">Add update</button>' : '') + '</div>' + (ups.length ? ups.map(updateCard).join('') : '<p class="quiet">No updates yet. Active projects show as at risk until one is added.</p>') + '</section>' +
+        '<section class="sec"><h2>Comments</h2>' + (canWrite() ? '<form data-act="add-comment" data-pid="' + esc(p.id) + '" class="c-form no-print"><input name="c" aria-label="Add a comment" placeholder="Add a comment. Use @name to mention someone." required>' + (UI.me ? '<input type="hidden" name="who" value="' + esc(UI.me) + '">' : '<input name="who" aria-label="Your name" placeholder="Your name">') + '<button class="btn">Post</button></form>' : '') + comments + '</section>';
     } else if (tab === 'people') {
-      body = '<section class="sec"><dl class="dl"><dt>Owner</dt><dd>' + who(p.owner) + '</dd><dt>Accountable</dt><dd>' + who(p.accountable) + '</dd><dt>Sponsor</dt><dd>' + who(p.sponsor) + '</dd></dl></section>' +
-        '<section class="sec"><div class="s-h"><h2>Who does what</h2><button class="btn sm" data-act="add-raci" data-id="' + esc(p.id) + '">Add row</button></div>' + raciTable(p) + '</section>';
+      body = '<section class="sec"><dl class="dl"><dt>Owner</dt><dd>' + who(p.owner) + '</dd><dt>Accountable</dt><dd>' + who(p.accountable) + '</dd><dt>Sponsor</dt><dd>' + who(p.sponsor) + '</dd>' + ((p.members || []).length ? '<dt>Team</dt><dd>' + p.members.map(esc).join(', ') + '</dd>' : '') + '</dl></section>' +
+        '<section class="sec"><div class="s-h"><h2>Who does what</h2>' + (manage ? '<button class="btn sm" data-act="add-raci" data-id="' + esc(p.id) + '">Add row</button>' : '') + '</div>' + raciTable(p) + '</section>';
+    } else if (tab === 'files') {
+      body = '<section class="sec"><h2>Links and files</h2><p class="quiet">Add links to Google Drive files. Uploading files directly is not available yet.</p>' + (p.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (manage ? '<button class="linkbtn danger" data-act="pj-link-del" data-id="' + esc(p.id) + '" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (manage ? '<div class="add-row"><input id="pj-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="pj-link-add" data-id="' + esc(p.id) + '">Add</button></div>' : '') + '</section>';
+    } else if (tab === 'activity') {
+      body = '<section class="sec"><h2>Activity</h2>' + timeline(a => a.projectId === p.id, p.id) + '</section>';
     }
 
-    return `<button class="back no-print" data-act="nav" data-v="portfolio">Projects</button>
+    return `<nav class="crumbs no-print" aria-label="Breadcrumb"><button class="linkbtn" data-act="nav" data-v="portfolio">Projects</button><span aria-hidden="true">/</span><span aria-current="page">${esc(p.name)}</span></nav>
       <div class="p-head">
         <div class="p-title"><h1>${esc(p.name)}</h1>
-          <div class="p-tags">${pillRag(h.rag)}${pillStatus(p.status)}${pillPrio(p.priority)}</div></div>
-        <div class="btnrow no-print"><button class="btn" data-act="edit-project" data-id="${esc(p.id)}">Edit</button>
+          <div class="p-tags">${h.rag === 'Grey' ? '' : pillRag(h.rag, h.level)}${pillStatus(p.status)}${pillPrio(p.priority)}${p.restricted ? '<span class="pill outline">Restricted</span>' : ''}</div></div>
+        <div class="btnrow no-print">${manage ? '<button class="btn" data-act="edit-project" data-id="' + esc(p.id) + '">Edit</button>' : ''}
           <div class="menu-wrap"><button class="btn icon" data-act="menu" data-m="proj" aria-haspopup="true" aria-expanded="false" aria-label="More project actions">${ico('more')}</button>
-          <div class="menu right" id="menu-proj" role="menu"><button role="menuitem" data-act="print-project" data-id="${esc(p.id)}">Print report</button><button role="menuitem" class="danger" data-act="del-project" data-id="${esc(p.id)}">Delete project</button></div></div></div>
+          <div class="menu right" id="menu-proj" role="menu"><button role="menuitem" data-act="print-project" data-id="${esc(p.id)}">Print report</button><button role="menuitem" data-act="export-csv" data-what="project:${esc(p.id)}">Download report</button>${manage ? '<button role="menuitem" data-act="risk-assess" data-id="' + esc(p.id) + '">Add risk assessment</button>' + (p.status === 'Completed' ? '<button role="menuitem" data-act="reopen-project" data-id="' + esc(p.id) + '">Reopen project</button>' : '<button role="menuitem" data-act="close-project" data-id="' + esc(p.id) + '">Close project</button>') + (p.archivedAt ? '<button role="menuitem" data-act="restore-project" data-id="' + esc(p.id) + '">Restore project</button>' : '<button role="menuitem" data-act="archive-project" data-id="' + esc(p.id) + '">Archive project</button>') : ''}${isAdmin() ? '<button role="menuitem" class="danger" data-act="del-project" data-id="' + esc(p.id) + '">Delete project</button>' : ''}</div></div></div>
       </div>
       <dl class="facts">
         <div><dt>Owner</dt><dd>${who(p.owner)}</dd></div>
         <div><dt>Next milestone</dt><dd>${nm ? '<span class="clip" title="' + esc(nm.name) + '">' + esc(nm.name) + '</span>' + when(nm.due) : '<span class="when none">None set</span>'}</dd></div>
-        <div><dt>Target end</dt><dd>${p.due ? when(p.due, p.status === 'Completed') : '<span class="when none">Ongoing</span>'}</dd></div>
-        <div><dt>Tasks done</dt><dd><span class="r-prog"><span class="prog"><i style="width:${prog}%"></i></span><span>${prog}%</span></span></dd></div>
+        <div><dt>Target end</dt><dd>${p.due ? when(p.due, p.status === 'Completed') : '<span class="when none">Ongoing</span>'}${p.originalDue && p.originalDue !== p.due ? '<em class="mini"> was ' + esc(fmtShort(p.originalDue)) + '</em>' : ''}</dd></div>
+        <div><dt>Progress</dt><dd><span class="r-prog"><span class="prog"><i style="width:${prog}%"></i></span><span>${prog}%</span></span><span class="mini">${c.done} of ${c.total} tasks, ${c.overdue} late, ${c.blocked} blocked</span></dd></div>
       </dl>
       <div class="tabs no-print" role="tablist">${tabs.map(t => '<button role="tab" aria-selected="' + (tab === t[0]) + '" data-act="ptab" data-tab="' + t[0] + '" class="' + (tab === t[0] ? 'on' : '') + '">' + t[1] + (t[2] ? '<span>' + t[2] + '</span>' : '') + '</button>').join('')}</div>
       ${body}`;
@@ -865,26 +1018,30 @@
 
   // ---------- Tasks ----------
   function vTasks(st, aq) {
-    const f = UI.taskFilter;
-    const wk = t => t.status !== 'Completed' && isDate(t.due) && daysFromToday(t.due) <= 7;
+    const f = UI.taskFilter === 'pending' && UI.me && !UI.tasksTouched ? 'my' : UI.taskFilter;
+    const wk = t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) <= 7;
     const F = {
-      all: () => true, my: t => UI.me && ((t.owner || '').includes(UI.me) || (t.accountable || '').includes(UI.me)) && t.status !== 'Completed',
-      overdue: taskOverdue, week: wk, pending: t => t.status !== 'Completed', completed: t => t.status === 'Completed',
-      approval: t => (t.status === 'Awaiting Approval' || t.kind === 'Decision') && t.status !== 'Completed',
-      unassigned: t => isTBD(t.owner) && t.status !== 'Completed'
+      all: () => true, my: t => UI.me && (isMine(t.owner) || isMine(t.accountable)) && ENGINE.isOpen(t),
+      overdue: taskOverdue, week: wk, pending: ENGINE.isOpen, completed: t => t.status === 'Completed', cancelled: ENGINE.isCancelled, blocked: t => t.status === 'Blocked', review: t => ['In Review', 'Awaiting Approval'].includes(t.status),
+      approval: t => (t.status === 'Awaiting Approval' || t.status === 'In Review' || t.kind === 'Decision') && ENGINE.isOpen(t),
+      unassigned: t => isTBD(t.owner) && ENGINE.isOpen(t)
     };
     const ff = UI.filters;
-    const base = S.tasks.filter(t => (!ff.tproject || t.projectId === ff.tproject) && (!ff.tprio || t.priority === ff.tprio) && (!ff.towner || (t.owner || '').includes(ff.towner)));
+    const ownerOk = t => !ff.towner || (ff.towner === '__none' ? /^tbd$/i.test(String(t.owner || 'TBD').trim()) : (t.owner || '').includes(ff.towner));
+    const base = liveTasks().filter(t => (!ff.tproject || t.projectId === ff.tproject) && (!ff.tprio || t.priority === ff.tprio) && ownerOk(t) && (!ff.tweek || (isDate(t.due) && weekOf(t.due) === ff.tweek)));
     const count = k => base.filter(F[k]).length;
     const chips = [['pending', 'Open'], ['my', 'Mine'], ['week', 'Due this week']];
     if (S.tasks.some(taskOverdue)) chips.splice(1, 0, ['overdue', 'Late']);
+    if (base.some(F.blocked)) chips.push(['blocked', 'Blocked']);
     chips.push(['approval', 'Needs approval'], ['unassigned', 'No owner'], ['completed', 'Done']);
     const list = base.filter(F[f] || F.pending).sort((a, b) => (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
 
-    const active = ['tproject', 'tprio', 'towner'].filter(k => ff[k]).length;
+    const active = ['tproject', 'tprio', 'towner', 'tweek'].filter(k => ff[k]).length;
     const narrow = active > 0 || f !== 'pending';
     let body;
-    if (!list.length) {
+    if (UI.tview === 'board') body = boardView(base.filter(f === 'completed' ? F.completed : t => (f === 'pending' ? !ENGINE.isCancelled(t) : (F[f] || F.pending)(t) || (f === 'my' && UI.me && isMine(t.owner) && t.status === 'Completed'))));
+    else if (UI.tview === 'calendar') body = calendarView(list);
+    else if (!list.length) {
       body = f === 'my' && !UI.me ? '' : emptyLine('No tasks here', f === 'pending' ? 'Add a task to get started.' : 'Try another view above.');
     } else if (UI.tgroup === 'project') {
       const ids = [...new Set(list.map(t => t.projectId))];
@@ -909,21 +1066,71 @@
     const filters = showF ? '<div class="filters">' +
       filterSel('tproject', 'Project', S.projects.map(p => [p.id, p.name])) +
       filterSel('tprio', 'Priority', opt('priorities').map(p => [p, p])) +
-      filterSel('towner', 'Owner', people().map(p => [p, p])) +
+      filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p]))) +
+      (ff.tweek ? '<span class="quiet">Week of ' + fmtShort(ff.tweek) + '</span>' : '') +
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
 
-    return `<div class="page-h"><h1>Tasks</h1><button class="btn primary no-print" data-act="add-task">Add task</button></div>
+    return `<div class="page-h"><h1>${UI.me ? 'My Tasks' : 'Tasks'}</h1><div class="btnrow">${seg('tview', [['list', 'List'], ['board', 'Board'], ['calendar', 'Calendar']], UI.tview)}${canWrite() ? '<button class="btn primary no-print" data-act="add-task">Add task</button>' : ''}</div></div>
       <div class="bar-row">
         <div class="chips">${chips.map(c => chip('tfilter', 'data-f="' + c[0] + '"', c[1], c[0] === 'my' && !UI.me ? null : count(c[0]), f === c[0])).join('')}</div>
         <div class="bar-end">
           <label class="fsel"><span>Group</span><select data-act="tgroup"><option value="due" ${UI.tgroup !== 'project' ? 'selected' : ''}>By date</option><option value="project" ${UI.tgroup === 'project' ? 'selected' : ''}>By project</option></select></label>
+          ${savedViews().length ? '<label class="fsel"><span>Saved view</span><select data-act="view-load"><option value="">None</option>' + savedViews().map(v => '<option ' + (UI.savedView === v.name ? 'selected' : '') + '>' + esc(v.name) + '</option>').join('') + '</select></label>' : ''}
+          ${UI.savedView ? '<button class="btn sm" data-act="view-del">Remove view</button>' : '<button class="btn sm" data-act="view-save">Save view</button>'}
           <button class="btn sm" data-act="toggle-filters" aria-expanded="${showF}">Filters${active ? ' (' + active + ')' : ''}</button>
+          ${UI.tview === 'list' && canWrite() ? '<button class="btn sm" data-act="bulk-toggle" aria-pressed="' + !!UI.bulkOn + '">' + (UI.bulkOn ? 'Stop selecting' : 'Select') + '</button>' : ''}
         </div>
       </div>
       ${filters}
       ${f === 'my' && !UI.me ? '<p class="whoami"><label>See your tasks: <select data-act="set-me" aria-label="Choose your name"><option value="">Choose your name</option>' + people().map(p => '<option>' + esc(p) + '</option>').join('') + '</select></label></p>' : ''}
+      ${UI.bulkOn && UI.tview === 'list' ? '<div class="bulk-bar"><span><b>' + UI.bulk.size + '</b> selected</span><button class="linkbtn" data-act="bulk-all" data-ids="' + esc(list.map(t => t.id).join(',')) + '">Select all ' + list.length + '</button><button class="linkbtn" data-act="bulk-none">Clear</button><button class="btn sm primary" data-act="bulk-edit"' + (UI.bulk.size ? '' : ' disabled') + '>Edit selected</button></div>' : ''}
       ${body}
-      <p class="quiet foot">Names in italics are proposed, not confirmed. Click a task to see or change everything about it.</p>`;
+      <p class="quiet foot">Names in italics are proposed, not confirmed. Open a task to update it.</p>`;
+  }
+
+  function savedViews() { try { return JSON.parse(localStorage.getItem('sct_views') || '[]'); } catch (e) { return []; } }
+  function writeViews(v) { try { localStorage.setItem('sct_views', JSON.stringify(v)); } catch (e) { toast('This browser could not save the view.', true); } }
+  function saveViewForm() {
+    openForm('Save this view', [{ k: 'name', label: 'Name', req: true, full: true }], {}, o => {
+      const name = o.name.trim();
+      const v = savedViews().filter(x => x.name !== name);
+      const ff = UI.filters;
+      v.push({ name, f: UI.taskFilter, tview: UI.tview, tgroup: UI.tgroup, filters: { tproject: ff.tproject || '', tprio: ff.tprio || '', towner: ff.towner || '', tweek: ff.tweek || '' } });
+      writeViews(v); UI.savedView = name; closeModal(); render(); toast('View saved in this browser');
+      return false;
+    }, '', 'Save view');
+  }
+  function bulkEdit() {
+    const list = [...UI.bulk].map(id => S.tasks.find(t => t.id === id)).filter(Boolean);
+    const allowed = list.filter(canManageT), skipped = list.length - allowed.length;
+    if (!allowed.length) { toast('You can only bulk edit tasks in projects you own.', true); return; }
+    openForm('Edit ' + plural(allowed.length, 'task'), [
+      { k: 'owner', label: 'New owner', type: 'datalist', options: people() },
+      { k: 'due', label: 'New due date', type: 'date' },
+      { k: 'priority', label: 'New priority', type: 'select', allowBlank: true, options: opt('priorities') },
+      { k: 'status', label: 'New status', type: 'select', allowBlank: true, options: ['Not Started', 'In Progress', 'On Hold', 'In Review'] },
+      { k: 'reason', label: 'Reason, recorded on each task', type: 'textarea', full: true, rows: 2 }
+    ], {}, o => {
+      const set = ['owner', 'due', 'priority', 'status'].filter(k => o[k]);
+      if (!set.length) { $('#ferr').textContent = 'Choose at least one change.'; return false; }
+      if (set.includes('owner') && !o.reason.trim()) { $('#ferr').textContent = 'Give a reason for changing the owner.'; return false; }
+      const stuck = o.status ? allowed.filter(t => t.status !== o.status && ENGINE.moveProblem(t, o.status, { admin: isAdmin() })) : [];
+      const go = allowed.filter(t => !stuck.includes(t));
+      if (!confirm('Change ' + set.join(', ') + ' on ' + plural(go.length, 'task') + '?' + (skipped + stuck.length ? ' ' + plural(skipped + stuck.length, 'task') + ' will be left as they are.' : ''))) return false;
+      go.forEach(t => {
+        if (o.owner) t.owner = o.owner;
+        if (o.due) t.due = o.due;
+        if (o.priority) t.priority = o.priority;
+        if (o.status && t.status !== o.status) applyStatus(t, o.status, '');
+        if (o.reason.trim()) addNote(t, 'update', 'Bulk change: ' + o.reason.trim());
+        stampTask(t);
+      });
+      log('Bulk edit on ' + go.length + ' tasks: ' + set.join(', '));
+      UI.bulk.clear(); UI.bulkOn = false;
+      save(true); closeModal(); render();
+      toast(plural(go.length, 'task') + ' changed' + (skipped + stuck.length ? ', ' + (skipped + stuck.length) + ' left as they were' : ''));
+      return false;
+    }, '', 'Review and apply');
   }
 
   // ---------- Who does what ----------
@@ -1248,6 +1455,395 @@
     <details class="acc"><summary>${CHEV}Reset</summary><div class="acc-bd"><p class="quiet">Replaces everything in this browser with the original data from the 30 Oct 2026 brief.</p><button class="btn danger" data-act="reset">Reset to original data</button></div></details>`;
   }
 
+  // ---------- people and permissions (the Sheet backend enforces the same rules) ----------
+  const sameName = (field, name) => !!name && !/^\s*tbd/i.test(String(field || '')) && String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === String(name).trim().toLowerCase());
+  const isMine = v => sameName(v, UI.me);
+  const ownsP = p => !!p && (isMine(p.owner) || isMine(p.accountable));
+  const isAdmin = () => ME.role === 'Administrator';
+  const canWrite = () => ME.role !== 'Viewer';
+  const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
+  const canManageT = t => canManageP(P(t.projectId));
+  const canWorkT = t => canManageT(t) || (canWrite() && isMine(t.owner));
+  const taskOnly = () => ME.role === 'Task Owner' || (ME.open && !!UI.me && !S.projects.some(ownsP));
+  const liveProjects = () => S.projects.filter(p => !p.archivedAt);
+  const liveTasks = () => { const off = new Set(S.projects.filter(p => p.archivedAt).map(p => p.id)); return S.tasks.filter(t => !off.has(t.projectId)); };
+  const shortTime = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+  const safeUrl = u => /^https:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '';
+
+  // ---------- activity timeline ----------
+  const TL_FILTERS = [['all', 'All'], ['status', 'Status'], ['progress', 'Progress'], ['owner', 'Ownership'], ['notes', 'Comments'], ['deadline', 'Deadline'], ['system', 'System']];
+  const TL_MATCH = { all: () => true, status: a => a.action === 'status_changed', progress: a => a.action === 'progress_changed', owner: a => a.action === 'owner_changed', notes: a => /_(added|edited)$/.test(a.action), deadline: a => a.action === 'deadline_changed', system: a => ['created', 'deleted', 'updated', 'sheet_edit', 'archive_changed', 'settings_changed'].includes(a.action) };
+  function timeline(match, key) {
+    const f = UI.tlFilter;
+    const list = (S.audit || []).filter(match).filter(TL_MATCH[f] || TL_MATCH.all);
+    const limit = UI.tlLimit;
+    const old = !(S.audit || []).length ? (S.activity || []).filter(a => key && a.text.includes(key)) : [];
+    const rows = list.slice(0, limit).map(a => '<li><time>' + esc(shortTime(a.ts)) + '</time><span>' + esc(a.text) + '<em>' + esc(a.actorName || 'System') + '</em></span></li>').join('') +
+      old.slice(0, limit).map(a => '<li><time>' + esc(shortTime(a.ts)) + '</time><span>' + esc(a.text) + '</span></li>').join('');
+    return '<div class="chips tl-f">' + TL_FILTERS.map(x => chip('tl-filter', 'data-f="' + x[0] + '"', x[1], null, f === x[0])).join('') + '</div>' +
+      (rows ? '<ol class="tl">' + rows + '</ol>' : '<p class="quiet">Nothing recorded here yet.</p>') +
+      (list.length > limit ? '<button class="linkbtn" data-act="tl-more">Show more</button>' : '');
+  }
+
+  // ---------- task status ----------
+  function statusOptions(t) {
+    const list = [t.status].concat(ENGINE.nextStatuses(t.status).filter(s => s !== t.status));
+    return list.map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + esc(s) + '</option>').join('');
+  }
+  function addNote(rec, type, text) {
+    rec.notes = (rec.notes || []).concat([{ id: uid('N'), type, text, author: UI.me || ME.name || 'Someone', ts: nowIso() }]);
+  }
+  function stampTask(t) { t.updatedAt = nowIso(); t.updatedBy = UI.me || 'Website'; }
+  function applyStatus(t, to, text) {
+    const was = t.status;
+    if (to === 'Blocked') { t.blocker = { text, owner: UI.me || '', ts: nowIso() }; addNote(t, 'blocker', text); }
+    if (was === 'Blocked' && to !== 'Blocked' && t.blocker) { addNote(t, 'blocker', 'Blocker resolved: ' + t.blocker.text); t.blocker = null; }
+    if (to === 'Cancelled') { t.cancelReason = text; addNote(t, 'update', 'Cancelled: ' + text); }
+    if (to === 'Completed') { t.progress = 100; t.completedAt = todayStr(); }
+    else if (was === 'Completed') { t.completedAt = ''; if (+t.progress >= 100) t.progress = 90; }
+    t.status = to;
+    stampTask(t);
+  }
+  function refresh() { render(); if (UI.taskId && $('#modal')) renderTaskPanel(); }
+  function setStatus(t, to) {
+    if (t.status === to) return;
+    if (!canWorkT(t)) { toast('You do not have permission to change this task.', true); refresh(); return; }
+    if (['Changes Requested'].includes(to) && !canManageT(t)) { toast('Only a project owner can request changes.', true); refresh(); return; }
+    if (to === 'Completed' && t.requiresReview && !canManageT(t)) { toast('A project owner must approve this task.', true); refresh(); return; }
+    const needsText = (to === 'Cancelled' && !t.cancelReason) || (to === 'Blocked' && !(t.blocker && t.blocker.text));
+    if (needsText) {
+      const panel = !!UI.taskId;
+      UI.taskId = null;
+      openForm(to === 'Blocked' ? 'What is blocking this task?' : 'Why is this task being cancelled?', [{ k: 'text', label: to === 'Blocked' ? 'Blocker' : 'Reason', type: 'textarea', full: true, req: true }], {}, o => {
+        applyStatus(t, to, o.text); log('Task ' + t.id + ' status: ' + to); save(true); closeModal(); render(); if (panel) openTask(t.id); toast('Task marked ' + to);
+        return false;
+      }, '', to === 'Blocked' ? 'Mark blocked' : 'Cancel task');
+      render();
+      return;
+    }
+    const problem = ENGINE.moveProblem(t, to, { admin: isAdmin() });
+    if (problem) { toast(problem, true); refresh(); return; }
+    const was = t.status;
+    applyStatus(t, to, '');
+    log('Task ' + t.id + ' status: ' + was + ' → ' + to);
+    save(true); refresh();
+    toast('Status changed to ' + to);
+  }
+  function tickTask(t) {
+    if (!canWorkT(t)) { toast('You do not have permission to change this task.', true); refresh(); return; }
+    const from = t.status, was = { status: t.status, progress: t.progress, completedAt: t.completedAt, blocker: t.blocker };
+    const undo = () => { Object.assign(t, was); stampTask(t); log('Task ' + t.id + ' restored to ' + t.status); save(true); refresh(); };
+    if (from === 'Completed') { applyStatus(t, 'In Progress', ''); log('Task ' + t.id + ' reopened'); save(true); refresh(); toast('Task reopened', false, undo); return; }
+    if (t.requiresReview && !canManageT(t)) { setStatus(t, 'In Review'); return; }
+    if (!ENGINE.nextStatuses(from).includes('Completed')) { toast('A ' + from + ' task has to move to In Progress before it can be completed.', true); refresh(); return; }
+    const problem = ENGINE.moveProblem(t, 'Completed', { admin: isAdmin() });
+    if (problem) { toast(problem, true); refresh(); return; }
+    applyStatus(t, 'Completed', '');
+    log('Task ' + t.id + ' status: ' + from + ' → Completed'); save(true); refresh();
+    toast('Task done', false, undo);
+  }
+  function askExtension(t) {
+    UI.taskId = null;
+    openForm('Ask for more time', [{ k: 'to', label: 'New due date', type: 'date', req: true }, { k: 'reason', label: 'Why is more time needed?', type: 'textarea', full: true, req: true }], { to: t.due || '' }, o => {
+      if (t.due && o.to <= t.due) { $('#ferr').textContent = 'Choose a date after the current due date.'; return false; }
+      t.extensionRequest = { to: o.to, from: t.due || '', reason: o.reason, by: UI.me || 'Someone', ts: nowIso() };
+      addNote(t, 'extension', 'Asked to move the due date to ' + fmtShort(o.to) + ': ' + o.reason);
+      stampTask(t); log('Task ' + t.id + ': more time requested'); save(true); closeModal(); render(); openTask(t.id);
+      toast('Request sent to the project owner');
+      return false;
+    }, '', 'Send request');
+    render();
+  }
+  function decideExtension(t, yes) {
+    const r = t.extensionRequest;
+    if (!r) return;
+    if (!canManageT(t)) { toast('Only the project owner can decide this.', true); return; }
+    if (yes) t.due = r.to;
+    addNote(t, 'extension', yes ? 'Due date moved to ' + fmtShort(r.to) + '.' : 'Request for more time declined.');
+    t.extensionRequest = null;
+    stampTask(t); log('Task ' + t.id + ': more time ' + (yes ? 'approved' : 'declined')); save(true); refresh();
+    toast(yes ? 'Due date moved' : 'Request declined');
+  }
+
+  // ---------- task panel ----------
+  function openTask(id) {
+    UI.taskId = id; UI.tlFilter = 'all'; UI.tlLimit = 30;
+    if (!$('#modal')) $('#modal-root')._opener = document.activeElement;
+    renderTaskPanel();
+  }
+  function renderTaskPanel() {
+    const t = S.tasks.find(x => x.id === UI.taskId);
+    if (!t) { closeModal(); toast('This task no longer exists.', true); return; }
+    const p = P(t.projectId), peers = pTasks(t.projectId), pctV = ENGINE.taskPct(t, peers), mode = ENGINE.progressMode(t, peers);
+    const work = canWorkT(t), manage = canManageT(t);
+    const subs = ENGINE.subtasksOf(S.tasks, t.id);
+    const deps = (t.dependsOn || []).map(id => S.tasks.find(x => x.id === id)).filter(Boolean);
+    const blocks = ENGINE.downstream(S.tasks, t.id);
+    const notes = (t.notes || []).slice().reverse();
+    const m = p ? ms(p, t.ms) : null;
+    const draft = (() => { try { return localStorage.getItem('sct_draft_' + t.id) || ''; } catch (e) { return ''; } })();
+    const facts = [['Owner', who(t.owner)], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority)], ['Collaborators', (t.collaborators || []).map(esc).join(', ')]].filter(x => x[1]);
+    const noteTypes = [['update', 'Progress update'], ['comment', 'Comment'], ['question', 'Question for the project owner'], ['decision', 'Decision']];
+    const xr = t.extensionRequest;
+    const review = (work && ENGINE.isOpen(t) && !xr && !manage ? '<button class="btn" data-act="tk-ext-ask">Ask for more time</button>' : '') +
+      (work && ['In Progress', 'Changes Requested'].includes(t.status) ? '<button class="btn" data-act="tk-review">Submit for review</button>' : '') +
+      (manage && ['In Review', 'Awaiting Approval'].includes(t.status) ? '<button class="btn primary" data-act="tk-approve">Approve</button><button class="btn" data-act="tk-changes">Request changes</button>' : '');
+    const h = '<div class="modal-bg" id="modal"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><div class="mh-t"><span class="pill ' + statusTone(t.status) + '">' + esc(t.status) + '</span><h2 id="m-title">' + esc(t.name) + '</h2></div><button class="btn icon ghost" data-act="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' +
+      '<div class="mb">' +
+      (t.status === 'Blocked' && t.blocker ? '<p class="flag red"><b>Blocked:</b> ' + esc(t.blocker.text) + '</p>' : '') +
+      (t.status === 'Cancelled' && t.cancelReason ? '<p class="flag"><b>Cancelled:</b> ' + esc(t.cancelReason) + '</p>' : '') +
+      (xr ? '<p class="flag"><span><b>More time requested:</b> ' + esc(xr.by) + ' asked to move the due date to ' + esc(fmtShort(xr.to)) + '. ' + esc(xr.reason) + '</span>' + (manage ? ' <span class="btnrow"><button class="btn sm primary" data-act="tk-ext-yes">Approve</button><button class="btn sm" data-act="tk-ext-no">Decline</button></span>' : '') + '</p>' : '') +
+      (ENGINE.waitingOn(S.tasks, t).length ? '<p class="flag"><b>Waiting on:</b> ' + ENGINE.waitingOn(S.tasks, t).map(x => esc(x.name)).join(', ') + '</p>' : '') +
+      '<dl class="kv-g">' + facts.map(x => '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>').join('') + '</dl>' +
+      (t.deliverable ? '<section class="ts"><h3>Expected outcome</h3><p>' + esc(t.deliverable) + '</p></section>' : '') +
+      (t.criteria ? '<section class="ts"><h3>Done when</h3><p>' + esc(t.criteria) + '</p></section>' : '') +
+      (t.desc ? '<section class="ts"><h3>Details</h3><p>' + esc(t.desc) + '</p></section>' : '') +
+      '<section class="ts"><h3>Progress <span class="mini">' + (mode === 'Manual' ? 'updated by hand' : 'calculated from ' + mode.toLowerCase()) + '</span></h3><div class="pbar"><span class="prog big"><i style="width:' + pctV + '%"></i></span><b>' + pctV + '%</b></div></section>' +
+      (work ? '<section class="ts upd-box"><h3>Update this task</h3><textarea id="tu-text" rows="3" aria-label="What changed?" placeholder="What changed?">' + esc(draft) + '</textarea><div class="tu-row">' +
+        '<label class="fsel"><span>Type</span><select id="tu-type">' + noteTypes.map(n => '<option value="' + n[0] + '">' + n[1] + '</option>').join('') + '</select></label>' +
+        '<label class="fsel"><span>Status</span><select id="tu-status">' + statusOptions(t) + '</select></label>' +
+        (mode === 'Manual' && t.status !== 'Completed' ? '<label class="fsel"><span>Progress</span><select id="tu-progress">' + [0, 10, 20, 30, 40, 50, 60, 70, 80, 90].concat(+t.progress % 10 ? [+t.progress] : []).sort((a, b) => a - b).map(v => '<option ' + (v === +t.progress ? 'selected' : '') + ' value="' + v + '">' + v + '%</option>').join('') + '</select></label>' : '') +
+        '<button class="btn primary" data-act="tu-save">Save update</button></div><div class="ferr" id="tu-err" role="alert"></div></section>' : '') +
+      (review ? '<div class="btnrow ts">' + review + '</div>' : '') +
+      '<section class="ts"><h3>Checklist</h3>' + (t.checklist || []).map((c, i) => '<div class="chk"><input type="checkbox" class="tick" data-act="tk-check" data-i="' + i + '" ' + (c.done ? 'checked' : '') + (work ? '' : ' disabled') + ' aria-label="' + esc(c.text) + '"><span class="' + (c.done ? 'dn' : '') + '">' + esc(c.text) + '</span>' + (work ? '<button class="linkbtn danger" data-act="tk-check-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-check-new" aria-label="New checklist item" placeholder="Add a checklist item"><button class="btn sm" data-act="tk-check-add">Add</button></div>' : (t.checklist || []).length ? '' : '<p class="quiet">No checklist.</p>') + '</section>' +
+      '<section class="ts"><h3>Subtasks</h3>' + (subs.length ? '<div class="rows">' + subs.map(x => '<button class="sub" data-act="open-task" data-id="' + esc(x.id) + '"><span>' + esc(x.name) + '</span><span class="mini">' + esc(x.status) + '</span></button>').join('') + '</div>' : '<p class="quiet">No subtasks.</p>') + (manage || isMine(t.owner) ? '<button class="linkbtn" data-act="add-subtask" data-id="' + esc(t.id) + '">Add subtask</button>' : '') + '</section>' +
+      '<section class="ts"><h3>Depends on</h3>' + deps.map(d => '<div class="chk"><span>' + esc(d.name) + ' <span class="mini">' + esc(d.status) + '</span></span>' + (manage ? '<button class="linkbtn danger" data-act="tk-dep-del" data-id="' + esc(d.id) + '">Remove</button>' : '') + '</div>').join('') + (deps.length ? '' : '<p class="quiet">Nothing.</p>') +
+      (manage ? '<div class="add-row"><select id="tk-dep-new" aria-label="Add a dependency"><option value="">Add a task this one waits for</option>' + peers.filter(x => x.id !== t.id && !(t.dependsOn || []).includes(x.id)).map(x => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('') + '</select><button class="btn sm" data-act="tk-dep-add">Add</button></div>' : '') +
+      (blocks.length ? '<p class="mini">Holding up ' + plural(blocks.length, 'task') + ': ' + blocks.slice(0, 5).map(x => esc(x.name)).join(', ') + '</p>' : '') + '</section>' +
+      '<section class="ts"><h3>Links and files</h3>' + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
+      '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
+      '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
+      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+    const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
+    $('#modal-root').innerHTML = h;
+    $('#modal-root')._dirty = false;
+    $('#modal .mb').scrollTop = keep;
+  }
+  const statusTone = s => ({ 'Completed': 'green', 'In Progress': 'blue', 'Blocked': 'red', 'On Hold': 'amber', 'In Review': 'amber', 'Awaiting Approval': 'amber', 'Changes Requested': 'amber', 'Open': 'amber', 'Closed': 'green', 'Resolved': 'green', 'Mitigated': 'green', 'Escalated': 'red', 'Decided': 'green' }[s] || 'grey');
+  function mutateTask(fn, text) {
+    const t = S.tasks.find(x => x.id === UI.taskId);
+    if (!t) return;
+    fn(t); stampTask(t);
+    if (text) log(text);
+    save(true); refresh();
+  }
+  function saveTaskUpdate() {
+    const t = S.tasks.find(x => x.id === UI.taskId);
+    const text = $('#tu-text').value.trim(), type = $('#tu-type').value, to = $('#tu-status').value;
+    const pEl = $('#tu-progress'), newP = pEl ? +pEl.value : null;
+    const err = m => { $('#tu-err').textContent = m; };
+    const progressMoved = pEl && newP !== (+t.progress || 0);
+    if (progressMoved && !text) return err('Add a note explaining the progress change.');
+    if (to !== t.status) {
+      if (to === 'Cancelled' && !text) return err('Give a reason for cancelling.');
+      if (to === 'Blocked' && !text) return err('Say what is blocking this task.');
+      const problem = ENGINE.moveProblem(t, to, { cancelReason: text, blockerText: text, admin: isAdmin() });
+      if (problem) return err(problem);
+      if (to === 'Completed' && t.requiresReview && !canManageT(t)) return err('A project owner must approve this task.');
+      if (to === 'Changes Requested' && !canManageT(t)) return err('Only a project owner can request changes.');
+    }
+    if (!text && !progressMoved && to === t.status) return err('Add a note or change something first.');
+    if (progressMoved) t.progress = newP;
+    if (to !== t.status) applyStatus(t, to, text);
+    if (text && !['Blocked', 'Cancelled'].includes(to)) addNote(t, type, text);
+    if (text) t.latestUpdate = text.slice(0, 200);
+    stampTask(t);
+    try { localStorage.removeItem('sct_draft_' + t.id); } catch (e) { /* private window */ }
+    log('Task ' + t.id + ' updated');
+    save(true); refresh();
+    toast('Update saved');
+  }
+
+  // ---------- tasks: board and calendar ----------
+  const BOARD = ['Not Started', 'In Progress', 'Blocked', 'In Review', 'Changes Requested', 'Completed'];
+  function taskCard(t) {
+    return '<article class="card-t" draggable="' + canWorkT(t) + '" data-drag="' + esc(t.id) + '" data-act="open-task" data-id="' + esc(t.id) + '"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button><span class="r-s">' + esc(pName(t.projectId)) + '</span><span class="card-m">' + pillPrio(t.priority) + when(t.due, t.status === 'Completed') + '</span></article>';
+  }
+  function boardView(list) {
+    const col = s => list.filter(t => s === 'In Review' ? (t.status === 'In Review' || t.status === 'Awaiting Approval') : s === 'Not Started' ? (t.status === 'Not Started' || t.status === 'Backlog') : t.status === s);
+    return '<div class="board">' + BOARD.map(s => { const items = col(s); return '<section class="bcol" data-drop="' + esc(s) + '"><h3>' + esc(s) + '<span>' + items.length + '</span></h3>' + (items.slice(0, 40).map(taskCard).join('') || '<p class="quiet">Nothing here</p>') + (items.length > 40 ? '<p class="quiet">' + (items.length - 40) + ' more</p>' : '') + '</section>'; }).join('') + '</div>';
+  }
+  function calendarView(list) {
+    const base = UI.tcal ? new Date(UI.tcal + '-01T00:00:00') : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const y = base.getFullYear(), mth = base.getMonth();
+    const key = y + '-' + String(mth + 1).padStart(2, '0');
+    const start = (new Date(y, mth, 1).getDay() + 6) % 7, days = new Date(y, mth + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < start; i++) cells.push('<div class="cal-c off"></div>');
+    for (let d = 1; d <= days; d++) {
+      const ds = key + '-' + String(d).padStart(2, '0');
+      const items = list.filter(t => t.due === ds);
+      cells.push('<div class="cal-c' + (ds === todayStr() ? ' now' : '') + '"><b>' + d + '</b>' + items.slice(0, 3).map(t => '<button class="cal-i' + (taskOverdue(t) ? ' late' : '') + '" data-act="open-task" data-id="' + esc(t.id) + '" title="' + esc(t.name) + '">' + esc(t.name) + '</button>').join('') + (items.length > 3 ? '<span class="mini">' + (items.length - 3) + ' more</span>' : '') + '</div>');
+    }
+    const shift = n => { const x = new Date(y, mth + n, 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0'); };
+    return '<div class="cal-h"><button class="btn sm" data-act="tcal" data-m="' + shift(-1) + '">Previous</button><h3>' + base.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) + '</h3><button class="btn sm" data-act="tcal" data-m="' + shift(1) + '">Next</button></div><div class="cal-w">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => '<span>' + d + '</span>').join('') + '</div><div class="cal">' + cells.join('') + '</div>';
+  }
+
+  // ---------- task owner home ----------
+  function vHomeTask() {
+    const mine = liveTasks().filter(t => isMine(t.owner));
+    const open = mine.filter(ENGINE.isOpen);
+    const d = t => isDate(t.due) ? daysFromToday(t.due) : null;
+    const late = open.filter(t => d(t) != null && d(t) < 0), today = open.filter(t => d(t) === 0), week = open.filter(t => d(t) != null && d(t) >= 0 && d(t) <= 7);
+    const blocked = open.filter(t => t.status === 'Blocked'), review = open.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)), changes = open.filter(t => t.status === 'Changes Requested');
+    const noUpdate = open.filter(t => t.status === 'In Progress' && (!t.updatedAt || (Date.now() - new Date(t.updatedAt).getTime()) / 86400000 > 7));
+    const order = t => (t.status === 'Changes Requested' ? 0 : d(t) != null && d(t) < 0 ? 1 : t.status === 'Blocked' ? 2 : d(t) === 0 ? 3 : 4);
+    const list = open.slice().sort((a, b) => order(a) - order(b) || (a.due || 'z').localeCompare(b.due || 'z')).slice(0, 8);
+    const recent = mine.filter(t => t.updatedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
+    const miles = [];
+    liveProjects().filter(p => mine.some(t => t.projectId === p.id)).forEach(p => (p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push({ p, m }); }));
+    miles.sort((a, b) => a.m.due.localeCompare(b.m.due));
+    return `<div class="dash"><div class="dash-h"><div><h1>My work</h1><p class="quiet">${esc(UI.me)}, ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div></div>
+      <div class="stats">
+        ${stat('Late', late.length, '', late.length ? 'Needs you first' : 'Nothing late', 'tfilter-go', 'data-f="overdue"')}
+        ${stat('Due today', today.length, '', '', 'tfilter-go', 'data-f="my"')}
+        ${stat('Due this week', week.length, '', '', 'tfilter-go', 'data-f="my"')}
+        ${stat('Blocked', blocked.length, '', blocked.length ? 'Needs help' : 'Nothing blocked', 'tfilter-go', 'data-f="my"')}
+        ${stat('In review', review.length, '', changes.length ? changes.length + ' need changes' : 'Waiting for approval', 'tfilter-go', 'data-f="my"')}
+        ${stat('Done', mine.filter(ENGINE.isDone).length, 'of ' + mine.length, '', 'tfilter-go', 'data-f="completed"')}
+      </div>
+      <div class="dash-g">
+        <section class="panel"><div class="s-h"><h2>What to do next</h2><button class="linkbtn" data-act="tfilter-go" data-f="my">All my tasks</button></div>${list.length ? '<div class="rows">' + list.map(t => taskRow(t)).join('') + '</div>' : emptyLine('You are all caught up', 'New work appears here when it is assigned to you.')}</section>
+        <section class="panel">
+          ${noUpdate.length ? '<p class="flag"><span><b>' + noUpdate.length + '</b> of your tasks ' + (noUpdate.length === 1 ? 'has' : 'have') + ' had no update for a week.</span></p>' : ''}
+          <h3>Coming up</h3><div class="facts-l">${miles.slice(0, 5).map(x => '<button class="fl" data-act="open" data-id="' + esc(x.p.id) + '" data-tab="plan"><span>' + esc(x.m.name) + '</span><b>' + esc(fmtShort(x.m.due)) + '</b></button>').join('') || '<p class="quiet">No upcoming milestones.</p>'}</div>
+          <h3>Recently updated</h3><div class="facts-l">${recent.map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort((t.updatedAt || '').slice(0, 10))) + '</b></button>').join('') || '<p class="quiet">Nothing yet.</p>'}</div>
+        </section>
+      </div></div>`;
+  }
+
+  // ---------- notifications ----------
+  const readSet = () => { try { return new Set(JSON.parse(localStorage.getItem('sct_read') || '[]')); } catch (e) { return new Set(); } };
+  const writeRead = s => { try { localStorage.setItem('sct_read', JSON.stringify([...s].slice(-800))); } catch (e) { /* private window */ } };
+  const NOTIF_GROUPS = [
+    ['Deadlines', ['Overdue', 'Due today', 'Due tomorrow', 'Due soon', 'Deadline changed', 'Waiting on a late task']],
+    ['Blockers', ['Blocked']],
+    ['Reviews and requests', ['Review requested', 'Changes requested', 'More time requested', 'Question']],
+    ['Assignments', ['Assigned to you', 'Reassigned']],
+    ['Comments and mentions', ['Mentioned', 'New comment']],
+    ['Milestones and closure', ['Milestone late', 'Milestone soon', 'Ready to close']]
+  ];
+  function notifOff() { try { return new Set(JSON.parse(localStorage.getItem('sct_notif_off') || '[]')); } catch (e) { return new Set(); } }
+  function myNotifications() {
+    const off = notifOff();
+    const hidden = new Set(); NOTIF_GROUPS.forEach(g => { if (off.has(g[0])) g[1].forEach(k => hidden.add(k)); });
+    return ENGINE.notifications({ me: UI.me, todayStr: todayStr(), today: dnum(todayStr()), tasks: liveTasks(), projects: liveProjects(), audit: S.audit || [], mine: isMine, ownsProject: ownsP }).filter(n => !hidden.has(n.kind));
+  }
+  function vNotifications() {
+    const list = myNotifications(), read = readSet();
+    const unread = list.filter(n => !read.has(n.id)).length;
+    const f = UI.notifTab;
+    const shown = f === 'unread' ? list.filter(n => !read.has(n.id)) : list;
+    return `<div class="page-h"><h1>Notifications</h1>${unread ? '<button class="btn" data-act="notif-all">Mark all as read</button>' : ''}</div>
+      ${UI.me ? '<div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length]], f) + '</div>' : ''}
+      ${!UI.me ? emptyLine('Choose your name to see your notifications', 'Use the person icon at the top right.') : shown.length ? '<div class="rows">' + shown.map(n => '<div class="r r-note' + (read.has(n.id) ? ' is-read' : '') + '" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'><span class="mark ' + ({ red: 'red', amber: 'amber', info: 'ring' }[n.level]) + '"></span><span class="r-main"><button class="r-t" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'>' + esc(n.text) + '</button><span class="r-s">' + esc(n.kind) + (n.ts ? ', ' + esc(shortTime(n.ts)) : '') + '</span></span>' + (read.has(n.id) ? '' : '<button class="linkbtn" data-act="notif-read" data-n="' + esc(n.id) + '">Mark as read</button>') + '</div>').join('') + '</div>' : emptyLine('You are all caught up', 'Nothing needs your attention right now.')}
+      <details class="acc"><summary>${CHEV}Choose what you see</summary><div class="acc-bd"><p class="quiet">Saved in this browser.</p>${NOTIF_GROUPS.map(g => '<label class="chk"><input type="checkbox" data-act="notif-pref" data-g="' + esc(g[0]) + '" ' + (notifOff().has(g[0]) ? '' : 'checked') + '><span>' + esc(g[0]) + '</span></label>').join('')}</div></details>`;
+  }
+
+  // ---------- reports ----------
+  function trendChart(rows) {
+    if (rows.length < 2) return '<p class="quiet">The trend starts building from today. Each day adds one point.</p>';
+    const W = 640, H = 170, L = 34, B = 24, T = 12, max = Math.max(10, Math.ceil(Math.max(...rows.map(r => r.v)) / 10) * 10);
+    const x = i => L + i * (W - L - 12) / (rows.length - 1), y = v => T + (H - T - B) * (1 - v / max);
+    const pts = rows.map((r, i) => x(i).toFixed(1) + ',' + y(r.v).toFixed(1)).join(' ');
+    return '<svg class="trend" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Overall progress over time, now ' + rows[rows.length - 1].v + ' percent"><line x1="' + L + '" x2="' + (W - 12) + '" y1="' + y(0) + '" y2="' + y(0) + '" class="ax"/><text x="' + (L - 6) + '" y="' + (y(max) + 4) + '" text-anchor="end" class="tk">' + max + '%</text><polyline points="' + pts + '" class="ln"/>' + rows.map((r, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(r.v).toFixed(1) + '" r="4" class="pt"><title>' + esc(r.d + ': ' + r.v + '%') + '</title></circle>').join('') + '<text x="' + L + '" y="' + (H - 6) + '" class="tk">' + esc(fmtShort(rows[0].d)) + '</text><text x="' + (W - 12) + '" y="' + (H - 6) + '" text-anchor="end" class="tk">' + esc(fmtShort(rows[rows.length - 1].d)) + '</text></svg>';
+  }
+  function portfolioRows() {
+    return liveProjects().map(p => {
+      const ts = pTasks(p.id), c = ENGINE.projectCounts(ts, dnum(todayStr())), h = health(p);
+      return { p, c, h, pct: projectProgress(p.id), last: ts.map(t => t.updatedAt || '').concat([p.updatedAt || '']).sort().pop() };
+    });
+  }
+  function inRange(d) { const r = UI.report; return isDate(d) && (!r.from || d >= r.from) && (!r.to || d <= r.to); }
+  function reportTasks() { const r = UI.report; return r.from || r.to ? liveTasks().filter(t => inRange(t.due) || inRange(t.completedAt)) : liveTasks(); }
+  function reportMetrics() {
+    const ts = reportTasks().filter(t => !ENGINE.isCancelled(t)), done = ts.filter(ENGINE.isDone), open = ts.filter(ENGINE.isOpen);
+    const overdue = open.filter(taskOverdue);
+    const dated = done.filter(t => isDate(t.completedAt) && isDate(t.due));
+    const onTime = dated.filter(t => t.completedAt <= t.due);
+    const delays = dated.filter(t => t.completedAt > t.due).map(t => dnum(t.completedAt) - dnum(t.due));
+    const moved = ts.filter(t => t.originalDue && t.originalDue !== t.due);
+    const took = done.filter(t => isDate(t.completedAt) && t.createdAt).map(t => dnum(t.completedAt) - dnum(t.createdAt.slice(0, 10))).filter(n => n >= 0);
+    const milestones = []; liveProjects().forEach(p => (p.milestones || []).forEach(m => { if ((!UI.report.from && !UI.report.to) || inRange(m.due)) milestones.push(m); }));
+    const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) : '';
+    return [
+      ['Task completion', pct(done.length, ts.length) + '%', 'Completed tasks out of all tasks, leaving out cancelled ones. ' + done.length + ' of ' + ts.length + '.'],
+      ['Overdue rate', pct(overdue.length, open.length) + '%', 'Open tasks past their due date out of open tasks. ' + overdue.length + ' of ' + open.length + '.'],
+      ['On-time completion', dated.length ? pct(onTime.length, dated.length) + '%' : 'No data yet', 'Finished on or before the due date, out of finished tasks with both dates. ' + onTime.length + ' of ' + dated.length + '.'],
+      ['Average delay', delays.length ? avg(delays) + ' days' : 'No data yet', 'Average days late, counting only tasks finished late.'],
+      ['Average time to finish', took.length ? avg(took) + ' days' : 'No data yet', 'Days from task creation to completion. Tasks created before the creation date was recorded are left out.'],
+      ['Blocked tasks', String(open.filter(t => t.status === 'Blocked').length), 'Open tasks with the status Blocked.'],
+      ['Milestones complete', pct(milestones.filter(m => m.status === 'Completed').length, milestones.length) + '%', milestones.filter(m => m.status === 'Completed').length + ' of ' + milestones.length + ' milestones.'],
+      ['Deadlines moved', String(moved.length), 'Tasks whose due date differs from the original.']
+    ];
+  }
+  function vReports() {
+    const rows = portfolioRows().sort((a, b) => String(a.p.priority).localeCompare(String(b.p.priority)));
+    const byDay = {};
+    (S.snapshots || []).forEach(r => { (byDay[r.date] = byDay[r.date] || []).push(r); });
+    const trend = Object.keys(byDay).sort().slice(-90).map(d => { const list = byDay[d]; const tot = list.reduce((a, r) => a + (+r.active || 0), 0); return { d, v: tot ? Math.round(list.reduce((a, r) => a + (+r.progress || 0) * (+r.active || 0), 0) / tot) : 0 }; });
+    return `<div class="page-h"><h1>Reports</h1><div class="btnrow"><button class="btn" data-act="export-csv" data-what="portfolio">Download projects</button><button class="btn" data-act="export-csv" data-what="report-tasks">Download tasks</button><button class="btn" data-act="export-csv" data-what="activity">Download activity</button></div></div>
+      <div class="filters"><label class="fsel"><span>From</span><input type="date" data-act="report-range" data-k="from" value="${esc(UI.report.from)}"></label><label class="fsel"><span>To</span><input type="date" data-act="report-range" data-k="to" value="${esc(UI.report.to)}"></label>${UI.report.from || UI.report.to ? '<button class="linkbtn" data-act="report-clear">Clear dates</button><span class="quiet">Measures below count tasks due or finished in these dates.</span>' : ''}</div>
+      <section class="sec"><h2>Key measures</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Measure</th><th>Now</th><th>How it is worked out</th></tr></thead><tbody>${reportMetrics().map(m => '<tr><td><b>' + esc(m[0]) + '</b></td><td class="nw">' + esc(m[1]) + '</td><td>' + esc(m[2]) + '</td></tr>').join('')}</tbody></table></div></section>
+      <section class="sec"><h2>Overall progress over time</h2>${trendChart(trend)}</section>
+      <section class="sec"><h2>Project portfolio</h2><div class="tbl-wrap"><table class="tbl pf"><thead><tr><th>Project</th><th>Owner</th><th>Team</th><th>Priority</th><th>Start</th><th>Due</th><th>Progress</th><th>Done</th><th>Active</th><th>Late</th><th>Blocked</th><th>Health</th><th>Updated</th></tr></thead><tbody>${rows.map(r => '<tr data-act="open" data-id="' + esc(r.p.id) + '"><td><button class="r-t" data-act="open" data-id="' + esc(r.p.id) + '">' + esc(r.p.name) + '</button></td><td>' + who(r.p.owner) + '</td><td>' + esc(r.p.department || '') + '</td><td>' + pillPrio(r.p.priority) + '</td><td class="nw">' + esc(fmtShort(r.p.start)) + '</td><td class="nw">' + (r.p.due ? esc(fmtShort(r.p.due)) : 'Ongoing') + '</td><td>' + r.pct + '%</td><td>' + r.c.done + '</td><td>' + r.c.open + '</td><td>' + r.c.overdue + '</td><td>' + r.c.blocked + '</td><td title="' + esc(r.h.reasons.join('; ')) + '">' + pillRag(r.h.rag, r.h.level) + '</td><td class="nw">' + esc(r.last ? fmtShort(r.last.slice(0, 10)) : '') + '</td></tr>').join('')}</tbody></table></div></section>`;
+  }
+
+  // ---------- administration ----------
+  function vAdmin() {
+    if (!isAdmin()) return emptyLine('This page is for administrators', 'Ask an administrator if you need something changed here.');
+    const t = UI.adminTab;
+    const tabs = [['users', 'Users'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
+    let body = '';
+    if (t === 'users') {
+      const us = S.users || [];
+      body = (ME.open ? '<p class="flag"><span><b>Sign-in is off.</b> Anyone with the link can read and change data, and permissions are not enforced. See SETUP_SIGN_IN.md to turn it on.</span></p>' : '') +
+        (SYNC.api >= 3 ? '<div class="bar-row"><p class="quiet">' + plural(us.length, 'user') + '</p><button class="btn primary" data-act="add-user">Add user</button></div><div class="rows">' + us.map(u => '<div class="r r-user" data-act="edit-user" data-id="' + esc(u.email) + '"><span class="av">' + esc(initials(u.name || u.email)) + '</span><span class="r-main"><button class="r-t" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><span class="r-s">' + esc(u.email) + '</span></span><span class="r-who">' + esc(u.role) + '</span><span class="r-when"><span class="when">' + (u.active ? 'Active' : 'Inactive') + '</span></span></div>').join('') + '</div>' : '<p class="quiet">Update the Apps Script to manage users here. See SETUP_GOOGLE_SHEET.md.</p>');
+    } else if (t === 'audit') {
+      const q = UI.auditQ.toLowerCase();
+      const all = (S.audit || []).filter(a => !q || (a.text + ' ' + a.actorName + ' ' + a.entityId).toLowerCase().includes(q));
+      body = '<div class="bar-row"><label class="fsel"><span>Search</span><input id="audit-q" value="' + esc(UI.auditQ) + '" aria-label="Search the audit log"></label><p class="quiet">Latest ' + all.length + ' events. The full log is the AuditLog tab in the Sheet.</p></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Before</th><th>After</th></tr></thead><tbody>' + all.slice(0, UI.auditLimit).map(a => '<tr><td class="nw">' + esc(shortTime(a.ts)) + '</td><td>' + esc(a.actorName) + '</td><td>' + esc(a.text) + '</td><td>' + esc(a.oldValue) + '</td><td>' + esc(a.newValue) + '</td></tr>').join('') + '</tbody></table></div>' + (all.length > UI.auditLimit ? '<button class="linkbtn more" data-act="audit-more">Show more</button>' : '');
+    } else if (t === 'trash') {
+      const tr = S.trash || [];
+      body = tr.length ? '<div class="rows">' + tr.map(x => { let name = x.recordId; try { const r = JSON.parse(x.record); name = r.name || r.decision || r.desc || r.action || x.recordId; } catch (e) { /* shown by ID */ } return '<div class="r r-tl"><span class="r-main"><span class="r-t">' + esc(name) + '</span><span class="r-s">' + esc(x.collection) + ', deleted by ' + esc(x.actorName) + ' on ' + esc(shortTime(x.ts)) + '</span></span><button class="btn sm" data-act="restore-trash" data-id="' + esc(x.trashId) + '">Restore</button></div>'; }).join('') + '</div>' : emptyLine('Nothing has been deleted', 'Deleted items stay here so they can be restored.');
+    } else if (t === 'health') {
+      const r = healthRules();
+      body = '<p class="quiet">These rules decide when a project reads as At risk or Delayed.</p><dl class="dl sp"><dt>Delayed when overdue share reaches</dt><dd>' + r.overdueShareDelayed + '% of open tasks</dd><dt>Upcoming means within</dt><dd>' + r.soonDays + ' days</dd><dt>Stalled after</dt><dd>' + r.stagnantDays + ' days without an update or progress</dd></dl><button class="btn" data-act="edit-health">Change rules</button>';
+    } else {
+      body = vData();
+    }
+    return '<div class="page-h"><h1>Administration</h1></div><div class="bar-row">' + seg('admintab', tabs, t) + '</div>' + body;
+  }
+  function healthRules() { return Object.assign({}, ENGINE.DEFAULT_RULES, (S.governance && S.governance.healthRules) || {}); }
+  function userForm(u) {
+    const isNew = !u;
+    u = u || { email: '', name: '', role: 'Task Owner', active: true };
+    const f = [{ k: 'name', label: 'Name used on tasks and projects', type: 'datalist', options: people(), req: true, full: true, hint: 'Must match the name in owner fields, or their work will not show as theirs.' }];
+    if (isNew) f.push({ k: 'email', label: 'Suraasa email', type: 'email', req: true, full: true });
+    f.push({ k: 'role', label: 'Role', type: 'select', full: true, options: ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'] }, { k: 'active', label: 'Access', type: 'select', full: true, options: [['true', 'Active'], ['false', 'Inactive']] });
+    openForm(isNew ? 'Add user' : u.email, f, Object.assign({}, u, { active: String(u.active !== false) }), o => {
+      if (isNew) { const email = o.email.toLowerCase(); if ((S.users || []).some(x => x.email === email)) { $('#ferr').textContent = 'This user already exists.'; return false; } S.users = (S.users || []).concat([{ email, name: o.name, role: o.role, active: o.active === 'true' }]); }
+      else Object.assign(u, { name: o.name, role: o.role, active: o.active === 'true' });
+      commit('User ' + (isNew ? o.email : u.email) + ' saved');
+    });
+  }
+
+  // ---------- sign-in ----------
+  function showSignIn(msg) {
+    const box = $('#signin');
+    box.hidden = false;
+    box.innerHTML = '<div class="signin-c"><img class="logo-l" src="' + $('.brand .logo-l').src + '" alt="Suraasa"><img class="logo-d" src="' + $('.brand .logo-d').src + '" alt="Suraasa"><h1>Control Tower</h1><p class="quiet">Sign in with your Suraasa Google account.</p><div id="gsi"></div>' + (msg ? '<p class="ferr" role="alert">' + esc(msg) + '</p>' : '') + '</div>';
+    const start = () => {
+      google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
+      google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
+    };
+    if (window.google && window.google.accounts) return start();
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = start;
+    s.onerror = () => { $('#gsi').textContent = 'Could not load Google sign-in. Check your connection and refresh.'; };
+    document.head.appendChild(s);
+  }
+
   // ---------- forms ----------
   function fieldHtml(f, vals) {
     let v = vals[f.k] == null ? '' : vals[f.k];
@@ -1263,7 +1859,7 @@
       return '<option value="' + esc(ov) + '" ' + (String(v) === String(ov) ? 'selected' : '') + '>' + esc(ol) + '</option>';
     }).join('') + '</select>';
     else if (f.type === 'datalist') inp = '<input id="' + id + '" name="' + f.k + '" list="dl-' + f.k + '" value="' + esc(v) + '"' + ph + ' autocomplete="off"><datalist id="dl-' + f.k + '">' + f.options.map(o => '<option value="' + esc(o) + '">').join('') + '</datalist>';
-    else inp = '<input id="' + id + '" name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>';
+    else inp = '<input id="' + id + '" name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.readonly ? 'readonly ' : '') + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>';
     return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
   }
 
@@ -1326,7 +1922,9 @@
     const o = root._opener;
     root.innerHTML = '';
     root._dirty = false;
+    UI.taskId = null;
     if (o && o.isConnected) o.focus();
+    if (window.SYNC) window.SYNC.afterModal();
   }
   const listToStr = a => (a || []).join(', ');
   const strToList = s => String(s || '').split(/\s*[;,]\s*/).map(x => x.trim()).filter(Boolean);
@@ -1352,7 +1950,7 @@
     p = p || {
       id: nextId('PRJ'), status: 'Not Started', priority: 'P2', priorityProposed: true,
       category: opt('categories')[0] || 'Revenue Generation', type: 'Project',
-      owner: 'TBD', accountable: 'TBD', sponsor: 'Head of Sales',
+      owner: 'TBD', accountable: 'TBD', sponsor: '',
       metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [],
       milestones: [], raci: [], comments: [], flags: [], datesProposed: true
     };
@@ -1375,6 +1973,9 @@
       { k: 'program', label: 'Program', type: 'select', allowBlank: true, options: (S.programs || []).map(x => [x.id, x.name]), more: true },
       { k: 'valueClass', label: 'Value class', type: 'select', allowBlank: true, options: opt('valueClasses'), more: true },
       { k: 'sponsor', label: 'Sponsor', type: 'datalist', options: people(), tbd: true, more: true },
+      { k: 'department', label: 'Team', more: true },
+      { k: 'members', label: 'Team members (comma separated)', full: true, more: true },
+      { k: 'restricted', label: 'Who can see this', type: 'select', full: true, options: [['false', 'Everyone signed in'], ['true', 'Only its owner, team and task owners']], more: true },
       { k: 'priorityProposed', label: 'Priority is', type: 'select', options: [['true', 'Proposed'], ['false', 'Approved']], more: true },
       { k: 'datesProposed', label: 'Dates are', type: 'select', options: [['true', 'Proposed'], ['false', 'Confirmed']], more: true },
       { k: 'priorityRationale', label: 'Why this priority', type: 'textarea', full: true, more: true },
@@ -1387,7 +1988,7 @@
       { k: 'baseline', label: 'Baseline', more: true },
       { k: 'cadence', label: 'Cadence (recurring work)', more: true },
       { k: 'flags', label: 'Flags (comma separated)', more: true },
-      { k: 'id', label: 'Project ID', req: true, more: true }
+      { k: 'id', label: 'Project ID', req: true, more: true, readonly: true }
     ];
     const vals = Object.assign({}, p, {
       metrics: (p.metrics || []).join('\n'),
@@ -1395,6 +1996,8 @@
       risks: (p.risks || []).join('\n'),
       assumptions: (p.assumptions || []).join('\n'),
       flags: listToStr(p.flags),
+      members: listToStr(p.members),
+      restricted: String(!!p.restricted),
       priorityProposed: String(p.priorityProposed !== false),
       datesProposed: String(p.datesProposed !== false)
     });
@@ -1406,6 +2009,8 @@
         risks: lineList(o.risks),
         assumptions: lineList(o.assumptions),
         flags: strToList(o.flags),
+        members: strToList(o.members),
+        restricted: o.restricted === 'true',
         priorityProposed: o.priorityProposed === 'true',
         datesProposed: o.datesProposed === 'true',
         program: o.program || null
@@ -1425,6 +2030,7 @@
           S.updates.forEach(u => { if (u.projectId === p.id) u.projectId = np.id; });
           UI.projectId = np.id;
         }
+        if (p.due && p.due !== np.due && !p.originalDue) np.originalDue = p.due;
         const changes = ['status', 'priority', 'owner', 'accountable', 'due'].filter(k => p[k] !== np[k]).map(k => k + ': ' + (p[k] || '—') + ' → ' + (np[k] || '—'));
         Object.assign(p, np);
         if (np.status === 'Completed' && !p.completedAt) p.completedAt = todayStr();
@@ -1441,7 +2047,7 @@
       { k: 'objective', label: 'What is it for?', type: 'textarea', full: true },
       { k: 'children', label: 'Project IDs (comma separated)', full: true, hint: 'For example PRJ-06, PRJ-12, OPS-03' },
       { k: 'note', label: 'Note', type: 'textarea', full: true, more: true },
-      { k: 'id', label: 'Program ID', req: true, more: true }
+      { k: 'id', label: 'Program ID', req: true, more: true, readonly: true }
     ];
     const vals = Object.assign({}, pg, { children: (pg.children || []).join(', ') });
 
@@ -1600,35 +2206,54 @@
       { k: 'due', label: 'Due date', type: 'date' },
       { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
       { k: 'status', label: 'Status', type: 'select', options: opt('taskStatuses') },
-      { k: 'deliverable', label: 'What gets delivered', full: true },
+      { k: 'deliverable', label: 'Expected outcome', full: true },
+      { k: 'criteria', label: 'Done when', full: true },
+    ].concat(isNew ? [] : [{ k: 'reason', label: 'Reason, if you changed the owner or due date', full: true }]).concat([
       { k: 'desc', label: 'Details', type: 'textarea', full: true, more: true },
-      { k: 'criteria', label: 'Done when', full: true, more: true },
+      { k: 'requiresReview', label: 'Review', type: 'select', full: true, options: [['false', 'Owner can finish it'], ['true', 'Needs approval from the project owner']], more: true },
+      { k: 'collaborators', label: 'Collaborators (comma separated)', full: true, more: true },
       { k: 'ms', label: 'Milestone', type: 'select', allowBlank: true, full: true, options: (proj.milestones || []).map(m => [m.id, m.name]), more: true },
       { k: 'ws', label: 'Workstream', type: 'select', allowBlank: true, full: true, options: (proj.workstreams || []).map(w => [w.id, w.name]), more: true },
       { k: 'accountable', label: 'Answerable', type: 'datalist', options: people(), tbd: true, more: true },
       { k: 'start', label: 'Start date', type: 'date', more: true },
-      { k: 'progress', label: 'Progress %', type: 'number', min: 0, max: 100, more: true },
+      { k: 'weight', label: 'Weight in project progress', type: 'number', min: 1, max: 100, more: true },
+      { k: 'estimate', label: 'Estimated effort (hours)', type: 'number', min: 0, max: 10000, more: true },
       { k: 'kind', label: 'Kind', type: 'select', options: opt('taskKinds'), more: true },
       { k: 'dependency', label: 'Depends on', more: true },
       { k: 'parent', label: 'Parent task ID', type: 'datalist', options: S.tasks.map(x => x.id), more: true },
-      { k: 'id', label: 'Task ID', req: true, more: true }
-    ];
+      { k: 'id', label: 'Task ID', req: true, more: true, readonly: true }
+    ]);
     const extra = isNew ? '' : '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete</button><button class="btn ghost" data-act="add-subtask" data-id="' + esc(t.id) + '">Add subtask</button>';
-    openForm(isNew ? (parent ? 'New subtask' : 'New task') : 'Task', f, t, o => {
+    const vals = Object.assign({ weight: 1 }, t, { requiresReview: String(!!t.requiresReview), collaborators: listToStr(t.collaborators), reason: '' });
+    openForm(isNew ? (parent ? 'New subtask' : 'New task') : 'Edit task', f, vals, o => {
+      o.requiresReview = o.requiresReview === 'true';
+      o.collaborators = strToList(o.collaborators);
+      o.weight = +o.weight || 1;
+      const reason = o.reason; delete o.reason;
+      if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
+      if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
       if (isNew && S.tasks.some(x => x.id === o.id)) { $('#ferr').textContent = 'Task ID already exists.'; return false; }
       if (o.parent && o.parent === o.id) { $('#ferr').textContent = 'A task cannot be its own parent.'; return false; }
-      if (o.progress < 0 || o.progress > 100) { $('#ferr').textContent = 'Progress must be 0–100.'; return false; }
+      if (o.status !== t.status && !isNew) {
+        const problem = ENGINE.moveProblem(t, o.status, { admin: isAdmin() });
+        if (problem) { $('#ferr').textContent = problem; return false; }
+      }
       if (o.status === 'Completed') o.progress = 100;
       if (isNew) {
         const nt = Object.assign({}, base, o);
+        nt.progress = 0;
+        if (nt.due) nt.originalDue = nt.due;
+        nt.createdAt = nowIso(); nt.createdBy = UI.me || 'Website';
         if (nt.status === 'Completed') nt.completedAt = todayStr();
         S.tasks.push(nt);
         commit('Added task ' + nt.id + ' "' + nt.name + '" to ' + nt.projectId);
       } else {
         const ch = ['status', 'owner', 'due', 'priority', 'progress'].filter(k => String(t[k]) !== String(o[k])).map(k => k + ': ' + (t[k] || '—') + ' → ' + (o[k] || '—'));
         if (o.status === 'Completed' && t.status !== 'Completed') o.completedAt = todayStr();
-        if (o.id !== t.id) S.tasks.forEach(x => { if (x.parent === t.id) x.parent = o.id; });
+        if (t.due && o.due !== t.due && !t.originalDue) o.originalDue = t.due;
+        if (reason) addNote(t, 'update', (o.due !== t.due ? 'Due date moved from ' + (t.due || 'none') + ' to ' + (o.due || 'none') : 'Owner changed from ' + t.owner + ' to ' + o.owner) + '. Reason: ' + reason);
         Object.assign(t, o);
+        stampTask(t);
         commit('Updated task ' + t.id + (ch.length ? ' (' + ch.join('; ') + ')' : ''));
       }
     }, extra);
@@ -1639,16 +2264,20 @@
     m = m || { id: 'MS-' + p.id.replace(/^[A-Z]+-/, '') + '-' + ((p.milestones || []).length + 1), status: 'Pending', ws: (p.workstreams[0] || {}).id || '' };
     openForm(isNew ? 'New milestone' : 'Milestone', [
       { k: 'name', label: 'Milestone', req: true, full: true },
+      { k: 'desc', label: 'Description', type: 'textarea', full: true, rows: 2 },
+      { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
       { k: 'due', label: 'Date', type: 'date', req: true },
       { k: 'status', label: 'Status', type: 'select', options: opt('milestoneStatuses') },
       { k: 'ws', label: 'Workstream', type: 'select', allowBlank: true, full: true, options: (p.workstreams || []).map(w => [w.id, w.name]) },
-      { k: 'id', label: 'Milestone ID', req: true, more: true }
+      { k: 'id', label: 'Milestone ID', req: true, more: true, readonly: true }
     ], m, o => {
       if (isNew) {
         if (ms(p, o.id)) { $('#ferr').textContent = 'Milestone ID exists.'; return false; }
         p.milestones.push(o);
         commit('Added milestone "' + o.name + '" to ' + p.id);
       } else {
+        const left = pTasks(p.id).filter(t => t.ms === m.id && ENGINE.isOpen(t)).length;
+        if (o.status === 'Completed' && m.status !== 'Completed' && left) { $('#ferr').textContent = plural(left, 'task is', 'tasks are') + ' still open on this milestone.'; return false; }
         Object.assign(m, o);
         commit('Updated milestone ' + m.id + ' in ' + p.id);
       }
@@ -1660,7 +2289,7 @@
     w = w || { id: 'WS-' + p.id.replace(/^[A-Z]+-/, '') + String.fromCharCode(65 + (p.workstreams || []).length) };
     openForm(isNew ? 'New workstream' : 'Workstream', [
       { k: 'name', label: 'Workstream', req: true, full: true },
-      { k: 'id', label: 'Workstream ID', req: true, more: true }
+      { k: 'id', label: 'Workstream ID', req: true, more: true, readonly: true }
     ], w, o => {
       if (isNew) {
         if (ws(p, o.id)) { $('#ferr').textContent = 'Workstream ID exists.'; return false; }
@@ -1704,7 +2333,7 @@
       { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
       { k: 'deadline', label: 'Resolve by', type: 'date' },
       { k: 'status', label: 'Status', type: 'select', options: opt('riskStatuses') },
-      { k: 'id', label: 'Risk ID', req: true, more: true }
+      { k: 'id', label: 'Risk ID', req: true, more: true, readonly: true }
     ], r, o => {
       if (isNew) {
         S.risks.push(Object.assign(r, o));
@@ -1727,7 +2356,7 @@
       { k: 'status', label: 'Status', type: 'select', options: opt('dependencyStatuses') },
       { k: 'responsible', label: 'Chased by', type: 'datalist', options: people(), tbd: true },
       { k: 'escalation', label: 'When to escalate', full: true, more: true },
-      { k: 'id', label: 'Dependency ID', req: true, more: true }
+      { k: 'id', label: 'Dependency ID', req: true, more: true, readonly: true }
     ], d, o => {
       if (isNew) {
         S.dependencies.push(Object.assign(d, o));
@@ -1741,7 +2370,7 @@
 
   function decisionForm(d) {
     const isNew = !d;
-    d = d || { id: nextId('DEC'), projectId: UI.view === 'project' ? UI.projectId : '', owner: UI.me || 'Head of Sales', raised: todayStr(), status: 'Open', source: 'Logged by user' };
+    d = d || { id: nextId('DEC'), projectId: UI.view === 'project' ? UI.projectId : '', owner: UI.me || 'TBD', raised: todayStr(), status: 'Open', source: 'Logged by user' };
     const projOpts = S.projects.map(p => [p.id, p.name]);
     const deciding = !isNew && openDec(d);
     const fields = isNew ? [
@@ -1753,7 +2382,7 @@
       { k: 'raised', label: 'Date raised', type: 'date', req: true, more: true },
       { k: 'status', label: 'Status', type: 'select', options: opt('decisionStatuses'), more: true },
       { k: 'final', label: 'Decision made', type: 'textarea', full: true, more: true },
-      { k: 'id', label: 'Decision ID', req: true, more: true }
+      { k: 'id', label: 'Decision ID', req: true, more: true, readonly: true }
     ] : [
       { k: '_q', type: 'static', label: 'The question', text: d.decision },
       { k: '_i', type: 'static', label: 'If it waits', text: d.impact || 'Not recorded' },
@@ -1765,7 +2394,7 @@
       { k: 'impact', label: 'What happens if it waits', type: 'textarea', full: true, more: true },
       { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, full: true, options: projOpts, more: true },
       { k: 'raised', label: 'Date raised', type: 'date', req: true, more: true },
-      { k: 'id', label: 'Decision ID', req: true, more: true }
+      { k: 'id', label: 'Decision ID', req: true, more: true, readonly: true }
     ];
     openForm(isNew ? 'New decision' : 'Decision', fields, d, o => {
       if (isNew) {
@@ -1821,7 +2450,7 @@
       { k: 'kind', label: 'Kind', type: 'select', options: opt('actionKinds'), more: true },
       { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, options: S.projects.map(p => [p.id, p.name]), more: true },
       { k: 'taskId', label: 'Task ID', more: true },
-      { k: 'id', label: 'Action ID', req: true, more: true }
+      { k: 'id', label: 'Action ID', req: true, more: true, readonly: true }
     ], a, o => {
       if (isNew) {
         S.actions.push(Object.assign(a, o));
@@ -1855,7 +2484,17 @@
   }
 
   function exportCsv(what) {
+    if (what === 'portfolio') {
+      const rows = portfolioRows().map(r => ({ id: r.p.id, name: r.p.name, owner: r.p.owner, team: r.p.department || '', priority: r.p.priority, status: r.p.status, health: r.h.level, reasons: r.h.reasons.join('; '), start: r.p.start, due: r.p.due, originalDue: r.p.originalDue || '', progress: r.pct, done: r.c.done, active: r.c.open, late: r.c.overdue, blocked: r.c.blocked, updated: r.last || '' }));
+      download('projects_report_' + todayStr() + '.csv', csv(rows, Object.keys(rows[0] || { id: 1 })), 'text/csv');
+      toast('Report downloaded');
+      return;
+    }
     const stamp = todayStr();
+    const taskCols = ['id', 'projectId', 'name', 'owner', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
+    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks(), taskCols), 'text/csv');
+    if (what === 'activity') download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
+    if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
     if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags']), 'text/csv');
     if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks, ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', r => taskOverdue(r) ? 'OVERDUE' : '']), 'text/csv');
     if (what === 'risks') download('risks_' + stamp + '.csv', csv(S.risks, ['id', 'projectId', 'desc', 'impact', 'probability', 'mitigation', 'owner', 'deadline', 'status', 'source']), 'text/csv');
@@ -1873,6 +2512,7 @@
         ['risks', 'dependencies', 'decisions', 'updates', 'actions', 'activity', 'roles', 'programs'].forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
         if (!d.governance) d.governance = buildSeed().governance;
         if (!d.options) d.options = buildSeed().options;
+        if (SYNC.config.enabled && SYNC.base && SYNC.base.projects.length) { toast('Import is only for an empty Sheet. To recover data, use the Sheet\'s version history or a backup copy.', true); return; }
         if (!confirm('Replace current data with "' + file.name + '" (' + d.projects.length + ' projects, ' + d.tasks.length + ' tasks)? Current local data will be overwritten.')) return;
         S = d;
         log('Imported data from ' + file.name);
@@ -1901,174 +2541,315 @@
       '<script>window.onload=function(){window.print()}<\/script></body></html>'); w.document.close();
   }
 
-  // ---------- TWO-WAY GOOGLE SHEETS SYNC MODULE ----------
-  const SYNC = {
-    _timer: null,
-    _pollTimer: null,
+  // ---------- GOOGLE SHEET SYNC ----------
+  // Saves are sent one changed field at a time. The Sheet checks each change against what
+  // this browser last saw, so two people can work at once without overwriting each other.
+  const COLL = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id', decisions: 'id', actions: 'id', updates: 'id', programs: 'id', roles: 'name' };
+  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue']);
+  const APPEND_ONLY = new Set(['notes', 'comments']);
+  function canon(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (Array.isArray(v)) return v.length ? '[' + v.map(canon).join(',') + ']' : '';
+    if (typeof v === 'object') return '{' + Object.keys(v).sort().filter(k => v[k] !== '' && v[k] !== null && v[k] !== undefined).map(k => k + ':' + canon(v[k])).join(',') + '}';
+    return String(v);
+  }
+  const noteKey = n => n.id || (String(n.ts) + '|' + String(n.who || n.author || ''));
+  const sameRecord = (a, b) => [...new Set(Object.keys(a).concat(Object.keys(b)))].every(k => SERVER_ONLY.has(k) || k[0] === '_' || canon(a[k]) === canon(b[k]));
+  function diffOps(base, cur) {
+    const ops = [];
+    Object.keys(COLL).forEach(c => {
+      const idf = COLL[c];
+      const was = new Map((base[c] || []).map(r => [String(r[idf]), r]));
+      const seen = new Set();
+      (cur[c] || []).forEach(r => {
+        const id = String(r[idf]);
+        seen.add(id);
+        const b = was.get(id);
+        if (!b) {
+          const rec = clone(r), restoreOf = rec._restoreOf;
+          delete rec._restoreOf;
+          ops.push(Object.assign({ c, id, create: true, rec }, restoreOf ? { restoreOf } : {}));
+          return;
+        }
+        const set = {}, bs = {};
+        new Set(Object.keys(r).concat(Object.keys(b))).forEach(k => {
+          if (SERVER_ONLY.has(k) || k[0] === '_') return;
+          if (canon(r[k]) !== canon(b[k])) { set[k] = r[k] === undefined ? null : r[k]; bs[k] = b[k] === undefined ? null : b[k]; }
+        });
+        if (Object.keys(set).length) ops.push({ c, id, set, base: bs });
+      });
+      was.forEach((r, id) => { if (!seen.has(id)) ops.push({ c, id, del: true }); });
+    });
+    ['governance', 'options'].forEach(c => { if (canon(cur[c]) !== canon(base[c])) ops.push({ c, id: c, doc: cur[c], base: base[c] }); });
+    const uw = new Map((base.users || []).map(u => [u.email, u]));
+    (cur.users || []).forEach(u => { const b = uw.get(u.email); if (!b || canon(b) !== canon(u)) ops.push({ c: 'users', id: u.email, rec: u }); });
+    return ops;
+  }
+  function applyOp(state, op) {
+    if (op.c === 'governance' || op.c === 'options') { state[op.c] = clone(op.doc); return; }
+    if (op.c === 'users') { state.users = (state.users || []).filter(u => u.email !== op.id).concat([clone(op.rec)]); return; }
+    const idf = COLL[op.c], list = state[op.c] = state[op.c] || [];
+    const i = list.findIndex(r => String(r[idf]) === String(op.id));
+    if (op.del) { if (i >= 0) list.splice(i, 1); return; }
+    if (op.create) { if (i < 0) list.push(clone(op.rec)); return; }
+    if (i < 0) return;
+    Object.keys(op.set).forEach(k => {
+      if (APPEND_ONLY.has(k)) {
+        // Same rule as the server: removed if it was in the base and is gone from this person's list.
+        const baseKeys = new Set(((op.base || {})[k] || []).map(noteKey));
+        const inc = new Map((op.set[k] || []).map(n => [noteKey(n), n]));
+        const out = (list[i][k] || []).filter(n => inc.has(noteKey(n)) || !baseKeys.has(noteKey(n))).map(n => inc.get(noteKey(n)) || n);
+        inc.forEach((n, key) => { if (!out.some(x => noteKey(x) === key)) out.push(n); });
+        list[i][k] = out;
+      } else if (op.set[k] === null) delete list[i][k];
+      else list[i][k] = clone(op.set[k]);
+    });
+  }
 
+  const SYNC = {
+    api: 0, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
     get config() {
-      if (!S.meta.sync) {
-        S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
-      }
+      if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
     },
-
     init() {
-      // Poll every 60 seconds
-      if (this._pollTimer) clearInterval(this._pollTimer);
-      this._pollTimer = setInterval(() => {
-        if (this.config.enabled && this.config.url && this.config.status !== 'syncing') {
-          this.checkRemoteVersion();
-        }
-      }, 60000);
-
-      // Check when window gains focus
-      window.addEventListener('focus', () => {
-        if (this.config.enabled && this.config.url && this.config.status !== 'syncing') {
-          this.checkRemoteVersion();
-        }
-      });
+      try { this.session = localStorage.getItem('sct_session') || ''; this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null'); this.version = this.config.baseVersion; } catch (e) { this.base = null; }
+      setInterval(() => this.poll(), 30000);
+      window.addEventListener('focus', () => this.poll());
+      window.addEventListener('online', () => this.flush());
+      window.addEventListener('beforeunload', e => { if (this.pending()) { e.preventDefault(); e.returnValue = ''; } });
     },
-
+    pending() { return !!(this.base && S && diffOps(this.base, S).length); },
+    persistBase() { try { localStorage.setItem(BASE_KEY, JSON.stringify(this.base)); } catch (e) { /* the Sheet still has the data */ } },
+    async request(body) {
+      const res = await fetch(this.config.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ session: this.session, actorName: UI.me || '' }, body)) });
+      return res.json();
+    },
+    async get(action) {
+      const u = this.config.url, sep = u.includes('?') ? '&' : '?';
+      const res = await fetch(u + sep + 'action=' + action + '&_=' + Date.now());
+      return res.json();
+    },
+    setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
+    needSignIn(msg) { this.session = ''; try { localStorage.removeItem('sct_session'); } catch (e) { /* private window */ } this.checking = false; showSignIn(msg); },
+    async login(idToken) {
+      try {
+        const r = await this.request({ action: 'login', idToken });
+        if (!r.ok) return showSignIn(r.error);
+        this.session = r.session;
+        try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
+        $('#signin').hidden = true;
+        await this.pull(true);
+      } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    signOut() {
+      if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      this.needSignIn('');
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); } catch (e) { /* private window */ }
+      try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
+      location.reload();
+    },
     // On opening the site, get the Sheet's data before anyone can edit a stale copy.
     async boot() {
       if (!this.config.enabled || !this.config.url) return;
-      this.checking = true;
-      this.config.status = 'syncing';
-      this.updateUI();
-      await this.checkRemoteVersion(true);
-      this.checking = false;
-      this.updateUI();
-    },
-
-    onLocalChange() {
-      if (!this.config.enabled || !this.config.url) return;
-      if (!this.config.autoSync) return;
-
-      this.config.status = 'syncing';
-      this.updateUI();
-
-      clearTimeout(this._timer);
-      this._timer = setTimeout(() => {
-        this.push();
-      }, 1500);
-    },
-
-    async push() {
-      if (!this.config.url) {
-        toast('Google Sheet sync URL is not configured.', true);
-        this.config.status = 'idle';
-        this.updateUI();
-        return;
-      }
-      this.config.status = 'syncing';
-      this.updateUI();
-
+      this.checking = true; this.setStatus('syncing');
       try {
-        const payload = { action: 'push', state: S };
-        const res = await fetch(this.config.url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-
-        this.config.status = 'connected';
-        this.config.error = null;
-        this.config.lastSync = nowIso();
-        this.config.baseVersion = data.version || ((this.config.baseVersion || 1) + 1);
-        this.unsent = false;
-        save(false);
-        this.updateUI();
-      } catch (err) {
-        console.error('Sheet push error:', err);
-        this.unsent = true;
-        this.config.status = 'error';
-        this.config.error = 'Could not save to the Google Sheet (' + err.message + '). Your changes are safe in this browser and will be retried.';
-        this.updateUI();
-        toast('Could not save to the Google Sheet', true);
-      }
+        const p = await this.get('ping');
+        this.api = p.api || 0;
+        this.auth = p.auth || { required: false };
+        ME.open = !this.auth.required;
+        if (this.auth.required && !this.session) return this.needSignIn('');
+        await this.pull(true);
+      } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
+      this.checking = false; this.updateUI();
+      if (!this.base) render();
     },
-
-    async pull(silent) {
-      if (!this.config.url) {
-        toast('Google Sheet sync URL is not configured.', true);
-        return;
+    normalise(state, prev) {
+      ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
+      state.options = state.options || prev.options || {};
+      state.governance = state.governance || prev.governance || { cadence: {}, rag: {}, classification: [] };
+      state.meta = Object.assign({}, state.meta || {}, { sync: prev.meta.sync });
+      Object.keys(FALLBACKS).forEach(k => { if (!Array.isArray(state.options[k]) || !state.options[k].length) state.options[k] = FALLBACKS[k].slice(); });
+      return state;
+    },
+    /** Take the Sheet's data, then lay this browser's unsaved changes back on top. */
+    rebase(server, version, drop) {
+      const pending = this.base ? diffOps(this.base, S).filter(o => !(drop && drop.has(o.c + '|' + o.id))) : [];
+      const fresh = this.normalise(server, S);
+      const lost = [];
+      const keep = pending.map(o => this.reconcile(o, fresh, lost)).filter(Boolean);
+      this.base = clone(fresh);
+      S = fresh;
+      this.version = version;
+      keep.forEach(o => applyOp(S, o));
+      if (lost.length) toast(lost[0] + (lost.length > 1 ? ' (and ' + (lost.length - 1) + ' more)' : ''), true);
+      this.config.baseVersion = version;
+      this.persistBase();
+      save(false);
+      render();
+      return keep.length;
+    },
+    /** One unsent change against the Sheet's newest data. Someone else's newer value wins, and the person is told. */
+    reconcile(o, fresh, lost) {
+      const label = (c, id, f) => (f ? f + ' on ' : '') + c.replace(/s$/, '') + ' ' + id;
+      if (o.c === 'governance' || o.c === 'options') {
+        if (canon(fresh[o.c]) !== canon(o.base) && canon(fresh[o.c]) !== canon(o.doc)) { lost.push('Someone else changed the ' + o.c + ' settings. Your change was not saved.'); return null; }
+        return o;
       }
-      this.config.status = 'syncing';
-      this.updateUI();
-
+      if (o.c === 'users') return o;
+      const idf = COLL[o.c], list = fresh[o.c] || [], now = list.find(r => String(r[idf]) === String(o.id));
+      if (o.create) {
+        if (!now || idf !== 'id') return o;
+        if (sameRecord(now, o.rec)) return null; // it did reach the Sheet
+        // Two people took the same next number. Both records are kept.
+        const m = String(o.id).match(/^(.*?)(\d+)$/);
+        if (!m) return o;
+        let n = +m[2] + 1, id = '';
+        do { id = m[1] + String(n++).padStart(m[2].length, '0'); } while (list.some(r => r.id === id));
+        const rec = Object.assign({}, o.rec, { id });
+        return Object.assign({}, o, { id, rec });
+      }
+      const was = (this.base[o.c] || []).find(r => String(r[idf]) === String(o.id));
+      if (o.del) {
+        if (now && was && !sameRecord(now, was)) { lost.push('Someone else changed ' + label(o.c, o.id) + ', so it was not deleted.'); return null; }
+        return o;
+      }
+      if (!now) { lost.push('Someone else deleted ' + label(o.c, o.id) + '. Your change to it was not saved.'); return null; }
+      const set = {}, base = {};
+      Object.keys(o.set).forEach(k => {
+        const theirs = !APPEND_ONLY.has(k) && canon(now[k]) !== canon((o.base || {})[k]) && canon(now[k]) !== canon(o.set[k]);
+        if (theirs) lost.push(k + ' on ' + (now.name || now.decision || now.desc || o.id) + ' was changed by ' + (now.updatedBy || 'someone else') + '. Your change to it was not saved.');
+        else { set[k] = o.set[k]; base[k] = (o.base || {})[k]; }
+      });
+      return Object.keys(set).length ? Object.assign({}, o, { set, base }) : null;
+    },
+    async pull(silent, drop) {
+      if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
+      if (this.busy) { this.again = true; return; }
+      this.setStatus('syncing');
       try {
-        const sep = this.config.url.includes('?') ? '&' : '?';
-        const res = await fetch(this.config.url + sep + 'action=pull&_=' + Date.now());
-        const data = await res.json();
+        const data = this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull');
+        if (data.auth === true) return this.needSignIn(data.error);
         if (data.error && !data.ok) throw new Error(data.error);
-
-        const receivedState = data.state || data;
-        if (!receivedState.projects || !receivedState.tasks) {
-          if (data.empty || (Array.isArray(receivedState.projects) && receivedState.projects.length === 0)) {
-            console.log('Sheet is empty, pushing local state...');
-            await this.push();
-            return;
-          }
-          throw new Error('Invalid state received from Sheet.');
+        const state = data.state || data;
+        if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The Sheet sent something unexpected.');
+        if (data.me) {
+          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || '';
+          if (this.auth.required) { UI.me = ME.name; ME.open = false; }
         }
-
-        const currentSync = Object.assign({}, this.config, {
-          status: 'connected',
-          error: null,
-          lastSync: nowIso(),
-          baseVersion: data.version !== undefined ? data.version : ((receivedState.meta && receivedState.meta.version) || 1)
-        });
-
-        const prevOptions = S.options;
-        S = receivedState;
-        S.meta = S.meta || {};
-        S.meta.sync = currentSync;
-        S.options = S.options || prevOptions;
-        ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity'].forEach(k => { if (!Array.isArray(S[k])) S[k] = []; });
+        if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
+        const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
+        this.config.lastSync = nowIso();
+        this.setStatus('connected');
         save(false);
-        render();
         if (!silent) toast('Got the latest from the Google Sheet');
+        if (left) this.onLocalChange();
+        this.dailySnapshot();
       } catch (err) {
         console.error('Sheet pull error:', err);
-        this.config.status = 'error';
-        this.config.error = 'Could not get the latest from the Google Sheet (' + err.message + ').';
-        this.updateUI();
+        this.setStatus('error', 'Could not get the latest from the Google Sheet (' + err.message + ').');
         if (!silent) toast('Could not get the latest from the Google Sheet', true);
       }
     },
-
-    async checkRemoteVersion(boot) {
-      if (!this.config.url) return;
-      try {
-        const sep = this.config.url.includes('?') ? '&' : '?';
-        const res = await fetch(this.config.url + sep + '_=' + Date.now());
-        const data = await res.json();
-        const ver = data.version !== undefined ? data.version : (data.meta && data.meta.version);
-        if (ver !== undefined && ver > (this.config.baseVersion || 0)) {
-          await this.pull(true);
-        } else if (this.unsent) {
-          await this.push();
-        } else if (boot || this.config.status === 'error') {
-          this.config.status = 'connected';
-          this.config.error = null;
-          this.config.lastSync = nowIso();
-          this.updateUI();
-        }
-      } catch (e) {
-        this.config.status = 'error';
-        this.config.error = 'Could not reach the Google Sheet. Changes stay in this browser until it is back.';
-        this.updateUI();
-      }
+    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
+    onLocalChange() {
+      if (!this.config.enabled || !this.config.url || this.config.autoSync === false) return;
+      this.setStatus('syncing');
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => this.flush(), 900);
     },
-
+    async push() { return this.flush(true); },
+    async flush(fullLegacy) {
+      if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
+      if (this.busy) { this.again = true; return; }
+      if (this.api < 3 && this.api !== 0) return this.legacyPush();
+      if (this.api === 0) { try { const p = await this.get('ping'); this.api = p.api || 1; this.auth = p.auth || { required: false }; } catch (e) { return this.fail(e); } if (this.api < 3) return this.legacyPush(); }
+      if (!this.base) { this.setStatus('connected'); return; }
+      const ops = diffOps(this.base, S);
+      if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
+      this.busy = true;
+      const requestId = uid('REQ') + Date.now();
+      try {
+        const res = await this.request({ action: 'apply', requestId, ops });
+        this.busy = false;
+        if (res.auth === true) return this.needSignIn(res.error);
+        if (res.rejected) return this.refused(res.rejected, ops);
+        if (!res.ok) throw new Error(res.error || 'The Sheet refused the save.');
+        ops.forEach(o => applyOp(this.base, o));
+        (res.stamped || []).forEach(st => {
+          [S, this.base].forEach(state => {
+            const r = (state[st.c] || []).find(x => String(x[COLL[st.c]]) === String(st.id));
+            if (r) ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue'].forEach(k => { if (st[k]) r[k] = st[k]; });
+          });
+        });
+        if ((res.entries || []).length) { [S, this.base].forEach(state => { state.audit = res.entries.concat(state.audit || []).slice(0, 600); }); if (UI.taskId && $('#modal')) renderTaskPanel(); else if (UI.view === 'project') render(); }
+        const jumped = this.version != null && res.version > this.version + 1; // someone else saved in between
+        this.version = res.version;
+        this.config.baseVersion = res.version;
+        this.config.lastSync = nowIso();
+        this.unsent = false;
+        this.setStatus('connected');
+        this.persistBase();
+        save(false);
+        const left = diffOps(this.base, S), sig = JSON.stringify(left);
+        if (left.length && sig === this.lastSent) { this.lastSent = ''; this.again = false; this.pull(true); return; } // never resend the same thing forever
+        this.lastSent = left.length ? sig : '';
+        if (this.again || left.length) { this.again = false; this.flush(); }
+        else if (res.refresh || jumped) this.pull(true);
+      } catch (err) { this.busy = false; this.fail(err); }
+    },
+    fail(err) {
+      console.error('Sheet save error:', err);
+      this.unsent = true;
+      this.setStatus('error', 'Could not save to the Google Sheet (' + err.message + '). Your changes are safe in this browser and will be retried.');
+      toast('Could not save to the Google Sheet. It will retry.', true);
+      clearTimeout(this._retry);
+      this._retry = setTimeout(() => this.flush(), 15000);
+    },
+    async refused(rejected, ops) {
+      const drop = new Set(rejected.filter(r => r.code !== 'duplicate').map(r => r.c + '|' + r.id));
+      // A rejected record is dropped; every other change in the batch is kept and sent again.
+      await this.pull(true, drop);
+      toast(rejected[0].reason + (rejected.length > 1 ? ' (and ' + (rejected.length - 1) + ' more)' : ''), true);
+      this.conflicts = rejected;
+      render();
+      if (UI.taskId && $('#modal')) renderTaskPanel();
+    },
+    async legacyPush() {
+      if (this.busy) { this.again = true; return; }
+      this.busy = true; this.setStatus('syncing');
+      try {
+        const state = Object.assign({}, S); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
+        const data = await this.request({ action: 'push', baseVersion: this.config.baseVersion, client: 'website', state });
+        this.busy = false;
+        if (data.conflict) { await this.pull(true); toast('Someone else changed the Sheet. The latest data is loaded, so please check your last change.', true); return; }
+        if (data.error || data.ok === false) throw new Error(data.error || 'The Sheet refused the save.');
+        this.config.baseVersion = data.version; this.version = data.version; this.base = clone(S); this.persistBase();
+        this.config.lastSync = nowIso(); this.unsent = false; this.setStatus('connected'); save(false);
+        if (this.again) { this.again = false; this.legacyPush(); }
+      } catch (err) { this.busy = false; this.fail(err); }
+    },
+    async poll() {
+      if (!this.config.url || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
+      try {
+        const data = await this.get('version');
+        if (this.unsent) return this.flush();
+        if (data.version !== undefined && data.version !== this.version) await this.pull(true);
+        else if (this.config.status === 'error') this.setStatus('connected');
+      } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
+    },
+    async dailySnapshot() {
+      if (this.api < 3 || !canWrite()) return;
+      const date = todayStr();
+      if ((S.snapshots || []).some(r => r.date === date)) return;
+      const rows = portfolioRows().map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
+      try { await this.request({ action: 'snapshot', rows }); S.snapshots = (S.snapshots || []).concat(rows); } catch (e) { /* tomorrow's visit will add the next point */ }
+    },
     updateUI() {
       const el = $('#sync-indicator');
       if (!el) return;
       const c = this.config;
-      const last = c.lastSync ? ' Last synced ' + new Date(c.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '.' : '';
+      const last = c.lastSync ? ' Last synced ' + shortTime(c.lastSync) + '.' : '';
       const v = !c.url || !c.enabled ? ['grey', 'This browser only', 'Not connected to the Google Sheet.']
         : this.checking ? ['blue', 'Checking', 'Getting the latest from the Google Sheet.']
           : c.status === 'syncing' ? ['blue', 'Saving', 'Saving to the Google Sheet.']
@@ -2078,6 +2859,23 @@
     }
   };
   window.SYNC = SYNC;
+
+  // ---------- chart tooltip ----------
+  function hideTip() { const t = $('#tip'); if (t) t.hidden = true; }
+  function showTip(el) {
+    const t = $('#tip');
+    const lines = el.dataset.tip.split('|');
+    t.textContent = '';
+    lines.forEach((l, i) => { const d = document.createElement(i === 1 ? 'b' : 'div'); d.textContent = l; t.appendChild(d); });
+    t.hidden = false;
+    const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+    t.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8)) + 'px';
+    t.style.top = Math.max(8, r.top - h - 8) + 'px';
+  }
+  document.addEventListener('pointerover', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el && e.pointerType !== 'touch') showTip(el); });
+  document.addEventListener('pointerout', e => { if (e.target.closest && e.target.closest('[data-tip]')) hideTip(); });
+  document.addEventListener('focusin', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) showTip(el); });
+  document.addEventListener('focusout', hideTip);
 
   // ---------- find anything ----------
   function findItems(raw) {
@@ -2090,11 +2888,14 @@
       out.push({ kind, title, sub, act, attrs, score: t.startsWith(q) ? 0 : t.includes(q) ? 1 : 2 });
     };
     S.projects.forEach(p => add('Project', p.name, '', 'open', 'data-id="' + esc(p.id) + '"', p.id + ' ' + p.owner + ' ' + p.category + ' ' + p.objective));
-    S.tasks.forEach(t => add('Task', t.name, pName(t.projectId), 'edit-task', 'data-id="' + esc(t.id) + '"', t.id + ' ' + t.owner + ' ' + (t.desc || '') + ' ' + (t.deliverable || '')));
+    S.tasks.forEach(t => add(t.parent ? 'Subtask' : 'Task', t.name, pName(t.projectId), 'open-task', 'data-id="' + esc(t.id) + '"', t.id + ' ' + t.owner + ' ' + (t.desc || '') + ' ' + (t.deliverable || '') + ' ' + (t.notes || []).map(n => n.text).join(' ')));
+    S.projects.forEach(p => (p.milestones || []).forEach(m => add('Milestone', m.name, p.name, 'open', 'data-id="' + esc(p.id) + '" data-tab="plan"', m.id)));
+    S.projects.forEach(p => (p.comments || []).forEach(c => add('Comment', c.text, p.name, 'open', 'data-id="' + esc(p.id) + '" data-tab="updates"', c.who)));
+    people().forEach(n => add('Person', n, '', 'find-person', 'data-o="' + esc(n) + '"', ''));
     S.decisions.forEach(d => add('Decision', d.decision, d.projectId ? pName(d.projectId) : '', 'edit-decision', 'data-id="' + esc(d.id) + '"', d.id + ' ' + d.owner));
     S.risks.forEach(r => add('Risk', r.desc, pName(r.projectId), 'edit-risk', 'data-id="' + esc(r.id) + '"', r.id + ' ' + r.owner));
     S.dependencies.forEach(d => add('Waiting on', d.desc, pName(d.projectId), 'edit-dep', 'data-id="' + esc(d.id) + '"', d.id + ' ' + d.externalOwner));
-    const rank = { Project: 0, Decision: 1, Task: 2, Risk: 3, 'Waiting on': 4 };
+    const rank = { Project: 0, Person: 1, Decision: 2, Task: 3, Subtask: 4, Milestone: 5, Risk: 6, 'Waiting on': 7, Comment: 8 };
     return out.sort((a, b) => a.score - b.score || rank[a.kind] - rank[b.kind]);
   }
 
@@ -2139,8 +2940,20 @@
       'go-portfolio': () => go('portfolio', { chip: 'all' }),
       'go-attention': () => go('portfolio', { chip: 'attention' }),
       'go-chip': () => go('portfolio', { chip: el.dataset.chip }),
-      'go-week': () => go('tasks', { tab: 'week' }),
-      'go-unassigned': () => go('tasks', { tab: 'unassigned' }),
+      'go-cat': () => { UI.filters = { category: el.dataset.c }; go('portfolio', { chip: 'all' }); },
+      'go-risks': () => go('risks', { tab: 'risks' }),
+      'go-deps': () => go('risks', { tab: 'deps' }),
+      'go-actions': () => { UI.actionTab = 'queue'; go('actions'); },
+      'go-week-of': () => {
+        UI.filters = {};
+        UI.tasksTouched = true;
+        if (el.dataset.w === 'late') go('tasks', { tab: 'overdue' });
+        else { UI.filters.tweek = el.dataset.w; go('tasks', { tab: 'pending' }); }
+      },
+      'go-owner': () => { UI.filters = { towner: el.dataset.o }; UI.tasksTouched = true; go('tasks', { tab: 'pending' }); },
+      htab: () => { UI.homeTab = el.dataset.tab; render(); },
+      'go-week': () => { UI.tasksTouched = true; go('tasks', { tab: 'week' }); },
+      'go-unassigned': () => { UI.tasksTouched = true; go('tasks', { tab: 'unassigned' }); },
       'go-decisions': () => go('decisions'),
       menu: () => {
         const m = $('#menu-' + el.dataset.m);
@@ -2150,7 +2963,7 @@
       },
       group: () => { UI.open[el.dataset.k] = el.getAttribute('aria-expanded') !== 'true'; render(); },
       ptab: () => { UI.ptab = el.dataset.tab; render(); },
-      tfilter: () => { UI.taskFilter = el.dataset.f; render(); },
+      tfilter: () => { UI.taskFilter = el.dataset.f; UI.tasksTouched = true; render(); },
       rtab: () => { UI.riskTab = el.dataset.tab; render(); },
       atab: () => { UI.actionTab = el.dataset.tab; render(); },
       rctab: () => { UI.raciTab = el.dataset.tab; render(); },
@@ -2159,7 +2972,7 @@
       pchip: () => { UI.pchip = el.dataset.h; render(); },
       'toggle-filters': () => { UI.showFilters = !UI.showFilters; render(); },
       'toggle-charts': () => { UI.showCharts = !UI.showCharts; render(); },
-      'clear-filters': () => { UI.filters = {}; render(); },
+      'clear-filters': () => { UI.filters = {}; UI.tasksTouched = true; render(); },
       'gantt-toggle': () => { UI.ganttOpen[id] = !UI.ganttOpen[id]; render(); },
       'gantt-all': () => { S.projects.forEach(p => UI.ganttOpen[p.id] = el.dataset.open === '1'); render(); },
       'close-modal': tryCloseModal,
@@ -2204,29 +3017,9 @@
       'del-role': () => deletePerson(id),
 
       // Tasks
-      'task-done': () => {
-        const t = S.tasks.find(x => x.id === id);
-        const before = { status: t.status, progress: t.progress, completedAt: t.completedAt };
-        const undo = () => { Object.assign(t, before); log('Task ' + t.id + ' restored to ' + t.status); save(true); render(); };
-        if (t.status === 'Completed') {
-          t.status = 'In Progress';
-          t.completedAt = '';
-          if (+t.progress === 100) t.progress = 0;
-          log('Task ' + t.id + ' reopened');
-          save(true); render();
-          toast('Task reopened', false, undo);
-        } else {
-          t.status = 'Completed';
-          t.progress = 100;
-          t.completedAt = todayStr();
-          log('Task ' + t.id + ' status: ' + before.status + ' → Completed');
-          save(true); render();
-          toast('Task done', false, undo);
-        }
-      },
       'add-task': () => taskForm(null, el.dataset.pid),
-      'edit-task': () => taskForm(S.tasks.find(t => t.id === id)),
-      'add-subtask': () => { const t = S.tasks.find(x => x.id === id); taskForm(null, t.projectId, t.id); },
+      'edit-task': () => { UI.taskId = null; taskForm(S.tasks.find(t => t.id === id)); },
+      'add-subtask': () => { const t = S.tasks.find(x => x.id === id); UI.taskId = null; taskForm(null, t.projectId, t.id); },
       'del-task': () => {
         const t = S.tasks.find(x => x.id === id); const subs = S.tasks.filter(x => x.parent === id).length;
         if (!confirm('Delete task ' + t.id + ' "' + t.name + '"' + (subs ? ' and its ' + subs + ' subtask(s)' : '') + '?')) return;
@@ -2330,6 +3123,7 @@
         openForm('Edit comment', [
           { k: 'text', label: 'Comment', type: 'textarea', full: true, req: true }
         ], { text: c.text }, o => {
+          c.edits = (c.edits || []).concat([{ text: c.text, ts: nowIso() }]);
           c.text = o.text;
           c.editedAt = nowIso();
           commit('Comment updated on ' + p.id);
@@ -2345,7 +3139,7 @@
 
       // Google Sheet Sync Actions
       'open-sync': () => {
-        go('data');
+        UI.adminTab = 'data'; go(isAdmin() ? 'admin' : 'overview');
         setTimeout(() => {
           const card = $('#sync-card');
           if (card) card.scrollIntoView({ behavior: 'smooth' });
@@ -2367,6 +3161,8 @@
         toast('Sync configuration saved!');
       },
       'sync-pull': () => SYNC.pull(false),
+      'sync-retry': () => SYNC.boot(),
+      'report-clear': () => { UI.report = { from: '', to: '' }; render(); },
       'sync-push': () => SYNC.push(),
       'sync-test': async () => {
         const url = ($('#sync-url-input') ? $('#sync-url-input').value.trim() : (S.meta.sync && S.meta.sync.url)) || '';
@@ -2388,14 +3184,91 @@
       'export-csv': () => exportCsv(el.dataset.what),
       'print-project': () => printProject(P(id)),
       'print-portfolio': () => { go('portfolio'); setTimeout(() => window.print(), 200); },
-      reset: () => {
-        if (!confirm('Reset ALL data to the initial seed? Every local change (tasks, updates, decisions, RACI edits) will be lost.')) return;
-        if (!confirm('Are you sure? This cannot be undone unless you exported a JSON first.')) return;
-        S = buildSeed();
-        save(false);
-        UI.filters = {};
-        go('overview');
-        toast('Reset to seed data');
+      reset: async () => {
+        if (!confirm('Throw away the copy in this browser and reload from the Google Sheet? Anything not yet saved to the Sheet is lost.')) return;
+        SYNC.base = null;
+        await SYNC.pull(false);
+      },
+      'open-task': () => openTask(id),
+      'task-done': () => { const t = S.tasks.find(x => x.id === id); if (t) tickTask(t); },
+      'tu-save': saveTaskUpdate,
+      'tk-ext-ask': () => { const t = S.tasks.find(x => x.id === UI.taskId); if (t) askExtension(t); },
+      'tk-ext-yes': () => { const t = S.tasks.find(x => x.id === UI.taskId); if (t) decideExtension(t, true); },
+      'tk-ext-no': () => { const t = S.tasks.find(x => x.id === UI.taskId); if (t) decideExtension(t, false); },
+      'tk-review': () => { const t = S.tasks.find(x => x.id === UI.taskId); if (t) setStatus(t, 'In Review'); },
+      'tk-approve': () => { const t = S.tasks.find(x => x.id === UI.taskId); if (!t) return; mutateTask(x => { addNote(x, 'update', 'Approved'); applyStatus(x, 'Completed', ''); }, 'Task ' + t.id + ' approved'); toast('Task approved'); },
+      'tk-changes': () => {
+        const t = S.tasks.find(x => x.id === UI.taskId); if (!t) return;
+        UI.taskId = null;
+        openForm('What needs to change?', [{ k: 'text', label: 'Feedback', type: 'textarea', full: true, req: true }], {}, o => { addNote(t, 'comment', 'Changes requested: ' + o.text); applyStatus(t, 'Changes Requested', ''); log('Task ' + t.id + ' changes requested'); save(true); closeModal(); render(); openTask(t.id); toast('Changes requested'); return false; }, '', 'Request changes');
+      },
+      'tk-check': () => mutateTask(t => { t.checklist[+el.dataset.i].done = !t.checklist[+el.dataset.i].done; }),
+      'tk-check-del': () => mutateTask(t => { t.checklist.splice(+el.dataset.i, 1); }),
+      'tk-check-add': () => { const v = $('#tk-check-new').value.trim(); if (v) mutateTask(t => { t.checklist = (t.checklist || []).concat([{ text: v, done: false }]); }); },
+      'tk-dep-add': () => {
+        const dep = $('#tk-dep-new').value; if (!dep) return;
+        const t = S.tasks.find(x => x.id === UI.taskId);
+        if (ENGINE.wouldLoop(S.tasks, t.id, (t.dependsOn || []).concat([dep]))) { toast('That dependency would create a loop.', true); return; }
+        mutateTask(x => { x.dependsOn = (x.dependsOn || []).concat([dep]); }, 'Dependency added to ' + t.id);
+      },
+      'tk-dep-del': () => mutateTask(t => { t.dependsOn = (t.dependsOn || []).filter(x => x !== id); }),
+      'tk-link-add': () => { const u = safeUrl($('#tk-link-new').value); if (!u) { toast('Paste a full https link.', true); return; } mutateTask(t => { t.attachments = (t.attachments || []).concat([{ name: u.replace(/^https:\/\//, '').slice(0, 60), url: u, by: UI.me || '', ts: nowIso() }]); }); },
+      'tk-link-del': () => mutateTask(t => { t.attachments.splice(+el.dataset.i, 1); }),
+      'pj-link-add': () => { const u = safeUrl($('#pj-link-new').value); if (!u) { toast('Paste a full https link.', true); return; } const p = P(id); p.attachments = (p.attachments || []).concat([{ name: u.replace(/^https:\/\//, '').slice(0, 60), url: u, by: UI.me || '', ts: nowIso() }]); commit('Link added to ' + p.id); },
+      'pj-link-del': () => { const p = P(id); p.attachments.splice(+el.dataset.i, 1); commit('Link removed from ' + p.id); },
+      'tl-filter': () => { UI.tlFilter = el.dataset.f; refresh(); },
+      'view-save': saveViewForm,
+      'view-del': () => { if (!confirm('Remove the saved view "' + UI.savedView + '"?')) return; writeViews(savedViews().filter(v => v.name !== UI.savedView)); UI.savedView = ''; render(); },
+      'bulk-toggle': () => { UI.bulkOn = !UI.bulkOn; UI.bulk.clear(); render(); },
+      'bulk-all': () => { el.dataset.ids.split(',').filter(Boolean).forEach(i => UI.bulk.add(i)); render(); },
+      'bulk-none': () => { UI.bulk.clear(); render(); },
+      'bulk-edit': bulkEdit,
+      'tl-more': () => { UI.tlLimit += 50; refresh(); },
+      tview: () => { UI.tview = el.dataset.tab; render(); },
+      tcal: () => { UI.tcal = el.dataset.m; render(); },
+      'tfilter-go': () => { UI.tasksTouched = true; go('tasks', { tab: el.dataset.f }); },
+      ntab: () => { UI.notifTab = el.dataset.tab; render(); },
+      admintab: () => { UI.adminTab = el.dataset.tab; render(); },
+      'notif-read': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); render(); },
+      'notif-all': () => { const r = readSet(); myNotifications().forEach(n => r.add(n.id)); writeRead(r); render(); },
+      'notif-open': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); const g = JSON.parse(el.dataset.go); if (g.view) { UI.taskFilter = g.filter || UI.taskFilter; UI.tasksTouched = true; go(g.view); } else if (g.task) { render(); openTask(g.task); } else if (g.project) go('project', { id: g.project }); else render(); },
+      'audit-more': () => { UI.auditLimit += 100; render(); },
+      'add-user': () => userForm(null),
+      'edit-user': () => userForm((S.users || []).find(u => u.email === id)),
+      'edit-health': () => {
+        const r = healthRules();
+        openForm('Health rules', [
+          { k: 'overdueShareDelayed', label: 'Delayed when this % of open tasks is overdue', type: 'number', min: 1, max: 100, full: true },
+          { k: 'soonDays', label: 'Count work as upcoming within this many days', type: 'number', min: 1, max: 60, full: true },
+          { k: 'stagnantDays', label: 'Count a project as stalled after this many days', type: 'number', min: 1, max: 90, full: true }
+        ], r, o => { S.governance = S.governance || {}; S.governance.healthRules = o; commit('Health rules updated'); });
+      },
+      'restore-trash': () => {
+        const x = (S.trash || []).find(t => t.trashId === id); if (!x) return;
+        const rec = JSON.parse(x.record); rec._restoreOf = x.trashId;
+        S[x.collection] = (S[x.collection] || []).concat([rec]);
+        S.trash = S.trash.filter(t => t.trashId !== id);
+        commit('Restored ' + x.recordId);
+      },
+      'sign-out': () => SYNC.signOut(),
+      'find-person': () => { UI.filters = { towner: el.dataset.o }; UI.tasksTouched = true; go('tasks', { tab: 'pending' }); },
+      'close-project': () => {
+        const p = P(id), open = pTasks(id).filter(ENGINE.isOpen).length;
+        if (open) { toast(plural(open, 'task is', 'tasks are') + ' still open. Finish or cancel them before closing this project.', true); return; }
+        openForm('Close ' + p.name, [{ k: 'note', label: 'Closing note', type: 'textarea', full: true, req: true }], {}, o => {
+          p.status = 'Completed'; p.completedAt = todayStr(); p.closure = { note: o.note, by: UI.me || 'Website', ts: nowIso() };
+          commit('Project ' + p.id + ' closed');
+        }, '', 'Close project');
+      },
+      'reopen-project': () => { const p = P(id); p.status = 'In Progress'; p.completedAt = ''; commit('Project ' + p.id + ' reopened'); },
+      'archive-project': () => { const p = P(id); if (!confirm('Archive "' + p.name + '"? It leaves every list, and all its history is kept.')) return; p.archivedAt = nowIso(); p.archivedBy = UI.me || 'Website'; commit('Project ' + p.id + ' archived'); go('portfolio'); },
+      'restore-project': () => { const p = P(id); p.archivedAt = ''; p.archivedBy = ''; commit('Project ' + p.id + ' restored'); },
+      'risk-assess': () => {
+        const p = P(id), m = p.manualRisk || {};
+        openForm('Risk assessment', [
+          { k: 'level', label: 'Your view', type: 'select', full: true, options: ['On track', 'At risk', 'Delayed'] },
+          { k: 'reason', label: 'Why', type: 'textarea', full: true, req: true }
+        ], m, o => { p.manualRisk = { level: o.level, reason: o.reason, by: UI.me || 'Website', ts: nowIso() }; commit('Risk assessment added to ' + p.id); });
       }
     };
     const fromFind = !!el.closest('#find-results');
@@ -2408,6 +3281,21 @@
     if (act === 'filter') { UI.filters[el.dataset.k] = el.value; render(); }
     else if (act === 'sort-sel') { UI.sort[el.dataset.t] = el.value; render(); }
     else if (act === 'tgroup') { UI.tgroup = el.value; render(); }
+    else if (act === 'notif-pref') {
+      const off = notifOff(); if (el.checked) off.delete(el.dataset.g); else off.add(el.dataset.g);
+      try { localStorage.setItem('sct_notif_off', JSON.stringify([...off])); } catch (err) { /* private window */ }
+      render();
+    }
+    else if (act === 'view-load') {
+      const v = savedViews().find(x => x.name === el.value);
+      if (v) { UI.taskFilter = v.f; UI.tview = v.tview; UI.tgroup = v.tgroup; UI.tasksTouched = true; Object.assign(UI.filters, { tproject: '', tprio: '', towner: '', tweek: '' }, v.filters); }
+      UI.savedView = el.value; render();
+    }
+    else if (act === 'bulk-pick') {
+      if (el.checked) UI.bulk.add(id); else UI.bulk.delete(id);
+      render();
+    }
+    else if (act === 'report-range') { UI.report[el.dataset.k] = el.value; render(); }
     else if (act === 'set-me') {
       UI.me = el.value;
       try { localStorage.setItem('sct_me', UI.me); } catch (err) { /* private window */ }
@@ -2415,11 +3303,25 @@
     }
     else if (act === 'task-status') {
       const t = S.tasks.find(x => x.id === id);
-      const was = t.status;
-      t.status = el.value;
-      if (t.status === 'Completed') { t.progress = 100; t.completedAt = todayStr(); }
-      commit('Task ' + t.id + ' status: ' + was + ' → ' + t.status);
+      if (t) setStatus(t, el.value);
     }
+  });
+
+  // Draft notes survive closing the panel by accident.
+  document.addEventListener('input', e => {
+    if (e.target.id === 'tu-text' && UI.taskId) { try { localStorage.setItem('sct_draft_' + UI.taskId, e.target.value); } catch (err) { /* private window */ } }
+    if (e.target.id === 'audit-q') { UI.auditQ = e.target.value; render(); const q = $('#audit-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  });
+
+  // Board: drag a card to another column.
+  document.addEventListener('dragstart', e => { const c = e.target.closest && e.target.closest('[data-drag]'); if (c) { e.dataTransfer.setData('text/plain', c.dataset.drag); e.dataTransfer.effectAllowed = 'move'; } });
+  document.addEventListener('dragover', e => { if (e.target.closest && e.target.closest('[data-drop]')) e.preventDefault(); });
+  document.addEventListener('drop', e => {
+    const col = e.target.closest && e.target.closest('[data-drop]');
+    if (!col) return;
+    e.preventDefault();
+    const t = S.tasks.find(x => x.id === e.dataTransfer.getData('text/plain'));
+    if (t) setStatus(t, col.dataset.drop);
   });
 
   // Keep the milestone and workstream choices in step with the chosen project.
@@ -2471,7 +3373,7 @@
 
   document.addEventListener('click', e => {
     if (e.target.id === 'modal') tryCloseModal();
-    if (e.target.closest('#theme-toggle')) toggleTheme();
+    if (e.target.closest('#theme-toggle')) { toggleTheme(); renderMe(); }
   });
 
   // ---------- theme ----------
@@ -2509,5 +3411,5 @@
   SYNC.init();
   render();
   SYNC.boot();
-  window.SCT = { get state() { return S; }, health, stats, actionQueue, raciIssues, renamePerson, deletePerson };
+  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson };
 })();

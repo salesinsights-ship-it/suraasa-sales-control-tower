@@ -4,7 +4,9 @@
   "description": "Suraasa Sales Control Tower",
   "scripts": {
     "build": "node build.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/engine.test.js && node tests/backend.test.js",
+    "test:e2e": "node tests/e2e/journeys.js && node tests/e2e/features.js && node tests/e2e/signin.js && node tests/e2e/conflicts.js && node tests/e2e/compat.js && node tests/e2e/sweep.js"
   }
 }
 

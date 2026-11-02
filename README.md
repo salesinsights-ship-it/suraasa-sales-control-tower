@@ -6,50 +6,54 @@ A single-page project tracker for the Head of Sales and the sales team. It answe
 
 ## How it is organised
 
-- **Home**: one sentence saying what is waiting, slipping and due, then the top items of each.
-- **Projects**: list grouped by health, or a timeline. Open one for its summary, plan, risks, updates and people.
-- **Tasks**: open tasks grouped by date. Tick to finish, with undo. Click for everything else.
-- **Decisions & risks**: decisions, risks and what you are waiting on from others.
-- **Weekly review**: projects that still need an update.
-- **More**: Action plan, Who does what, How we work, Data & settings.
-- **Everywhere**: `/` to find anything, **New** to add anything, and your name (top right) to see only your work. Your name is remembered in this browser.
+- **Home**: headline statistics and what needs attention. Task owners see My work.
+- **My Tasks**: list, board or calendar, with saved views and bulk edit.
+- **Projects** and **My Projects**: list or timeline. Each project has Summary, Plan, Risks, Updates, People, Files and Activity.
+- **Decisions & risks**, **Weekly review**, **Notifications**, **Reports**.
+- **Action plan**, **Who does what**, **How we work**, **Administration**.
+- Everywhere: `/` to find anything, and **New** to add anything.
 
-Every list is one line per item. Anything rarely needed sits behind **More details** in the side panel, and delete lives there too.
+## How it works
 
-## Google Sheet sync
+The page holds no business data. It loads from a Google Sheet through an Apps Script web app, which handles sign-in, permissions, validation and the audit log.
 
-- Backed by Google Apps Script (`apps-script/Code.gs`) with 17 structured tabs.
-- The site gets the latest from the Sheet when it opens, when you return to the tab and every 60 seconds.
-- The status next to **New** shows Saved, Saving, Not saved or This browser only.
-- See [SETUP_GOOGLE_SHEET.md](SETUP_GOOGLE_SHEET.md) for setup.
+| Read this | For |
+|---|---|
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing an update, and rollback |
+| [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Turning on Google sign-in |
+| [docs/AUDIT.md](docs/AUDIT.md) | What was found, and before and after |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, and the data model |
+| [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | Who can do what |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Lifecycle, progress, health, audit log, notifications |
+| [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) | Tests and results |
+| [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | What it does not do |
+| [CHANGELOG.md](CHANGELOG.md) | What changed |
 
-No runtime dependencies: plain HTML, CSS and JavaScript, deployable to any static host.
+No runtime dependencies: plain HTML, CSS and JavaScript.
+
+```
+npm run build       # builds dist/
+npm test            # rules and server tests
+npm run test:e2e    # browser tests (needs: npm i --no-save playwright)
+```
 
 ---
 
 ## File Structure
 
 ```
-├── dist/
-│   ├── Suraasa_Sales_Control_Tower.html   # Standalone assembled single-file deliverable
-│   └── index.html                         # Production build for Vercel/static hosts
 ├── src/
-│   ├── shell_head.html                    # HTML head and meta tags
-│   ├── styles.css                         # Application styles, light and dark
-│   ├── shell_mid.html                     # Top bar, menus, sync status, phone tab bar
-│   ├── seed.js                            # Default seed data and option lists
-│   ├── app.js                             # Views, forms, state, SYNC module
-│   ├── smoke-test.js                      # Headless check of every page (needs jsdom)
-│   └── shell_tail.html                    # HTML footer closing tags
-├── apps-script/
-│   └── Code.gs                            # Google Apps Script two-way sync backend
-├── build.js                               # Node.js build script
-├── build.sh                               # Shell wrapper for build.js
-├── index.html                             # Root copy of production build
-├── package.json                           # Build scripts and metadata
-├── vercel.json                            # Vercel deployment configuration
-├── SETUP_GOOGLE_SHEET.md                  # Complete Google Sheets setup guide
-└── README.md
+│   ├── engine.js        # Rules: lifecycle, progress, health, notifications
+│   ├── app.js           # Screens, forms, permissions shown to the user, sync
+│   ├── seed.js          # Data used by the tests. Not published
+│   ├── styles.css       # Light and dark themes
+│   └── shell_*.html     # Page frame
+├── apps-script/Code.gs  # Server: sign-in, permissions, validation, audit log
+├── assets/              # Official logos, favicons, app icons
+├── tests/               # Rules, server and browser tests
+├── docs/                # Audit, architecture, permissions, workflow, tests
+├── dist/                # Built site, deployed by Vercel
+└── build.js
 ```
 
 ---
