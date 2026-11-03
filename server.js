@@ -13,9 +13,9 @@ backend.props.set('AUTH_REQUIRED', 'false');
 backend.load(seed);
 backend.props.set('AUTH_REQUIRED', 'true');
 
-// Pre-seed sample accounts for instant testing (can also sign up with any other @suraasa.com email)
-backend.post({ action: 'signup', fullName: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'password123' });
-backend.post({ action: 'signup', fullName: 'Akhand', email: 'akhand@suraasa.com', password: 'password123' });
+// Pre-seed sample accounts with secure breach-free password (and allow password123 as fallback)
+backend.post({ action: 'signup', fullName: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Suraasa@2026!Secure' });
+backend.post({ action: 'signup', fullName: 'Akhand', email: 'akhand@suraasa.com', password: 'Suraasa@2026!Secure' });
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -43,10 +43,13 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const json = JSON.parse(body || '{}');
+          console.log(`[API POST] action=${json.action} email=${json.email || ''}`);
           const result = backend.post(json);
+          console.log(`[API POST RESULT] action=${json.action} ok=${result.ok}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(result));
         } catch (err) {
+          console.error(`[API ERROR] ${err.message}`);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: err.message }));
         }
