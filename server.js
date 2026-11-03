@@ -1,12 +1,59 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { createBackend } = require('./tests/mock-gas');
 
 const PORT = process.env.PORT || 3000;
 const HTML_FILE = path.join(__dirname, 'dist', 'Suraasa_Sales_Control_Tower.html');
 
+// Initialize local mock backend running apps-script/Code.gs
+const seed = new Function(fs.readFileSync(path.join(__dirname, 'src', 'seed.js'), 'utf8') + ';return buildSeed();')();
+const backend = createBackend({ props: { AUTH_REQUIRED: 'true', AUTH_DOMAIN: 'suraasa.com' } });
+backend.props.set('AUTH_REQUIRED', 'false');
+backend.load(seed);
+backend.props.set('AUTH_REQUIRED', 'true');
+
+// Pre-seed sample accounts for instant testing (can also sign up with any other @suraasa.com email)
+backend.post({ action: 'signup', fullName: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'password123' });
+backend.post({ action: 'signup', fullName: 'Akhand', email: 'akhand@suraasa.com', password: 'password123' });
+
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Local API handler for authentication, tasks, sync & RBAC
+  if (req.url.startsWith('/api')) {
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    if (req.method === 'GET') {
+      const u = new URL(req.url, 'http://localhost:' + PORT);
+      const action = u.searchParams.get('action') || 'ping';
+      const result = backend.get(action);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const json = JSON.parse(body || '{}');
+          const result = backend.post(json);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+  }
   
   if (req.url === '/' || req.url === '/index.html' || req.url.startsWith('/?')) {
     fs.readFile(HTML_FILE, (err, data) => {

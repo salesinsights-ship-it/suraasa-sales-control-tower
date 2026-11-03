@@ -67,7 +67,7 @@
   const isManagementEmail = e => MANAGEMENT_EMAILS.includes(String(e || '').trim().toLowerCase());
   const isManagementRole = r => r === 'admin' || r === 'management' || r === 'Administrator';
   const isManagementUser = () => isManagementRole(ME.role) || !!ME.isManagement || isManagementEmail(ME.email);
-  const ME = { role: 'Administrator', email: '', name: '', open: true, isManagement: true }; // who is using the site
+  const ME = { role: 'employee', email: '', name: '', open: false, isManagement: false }; // who is using the site
   const UI = {
     view: 'overview',
     projectId: null,
@@ -2149,7 +2149,9 @@
 
     const lightLogo = $('.brand .logo-l') ? $('.brand .logo-l').src : '';
     const darkLogo = $('.brand .logo-d') ? $('.brand .logo-d').src : '';
-    const errHtml = msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '';
+    const isSuccess = msg && (msg.toLowerCase().includes('success') || msg.toLowerCase().includes('token:') || msg.toLowerCase().includes('sent'));
+    const msgClass = isSuccess ? 'auth-success' : 'auth-err';
+    const errHtml = msg ? '<div class="' + msgClass + '" role="alert">' + esc(msg) + '</div>' : '';
 
     let formHtml = '';
     if (currentAuthMode === 'signin') {
@@ -2227,6 +2229,8 @@
       formSignIn.onsubmit = async () => {
         const email = box.querySelector('#si-email').value.trim();
         const password = box.querySelector('#si-pw').value;
+        if (!email) return showSignIn('signin', 'Please enter your official company email.');
+        if (!password) return showSignIn('signin', 'Please enter your password.');
         const btn = box.querySelector('#btn-do-signin');
         btn.disabled = true; btn.textContent = 'Signing in...';
         const res = await SYNC.authLogin({ email, password });
@@ -2240,6 +2244,9 @@
         const email = box.querySelector('#su-email').value.trim();
         const password = box.querySelector('#su-pw').value;
         const confPw = box.querySelector('#su-conf-pw').value;
+        if (!fullName) return showSignIn('signup', 'Please enter your full name.');
+        if (!email) return showSignIn('signup', 'Please enter your official company email.');
+        if (!email.toLowerCase().endsWith('@suraasa.com')) return showSignIn('signup', 'Please use your official @suraasa.com email address.');
         if (password !== confPw) return showSignIn('signup', 'Passwords do not match.');
         if (password.length < 6) return showSignIn('signup', 'Password must be at least 6 characters.');
         const btn = box.querySelector('#btn-do-signup');
@@ -3195,8 +3202,33 @@
       if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
     },
+    get apiUrl() {
+      if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+        return '/api';
+      }
+      return this.config.url;
+    },
     init() {
-      try { this.session = localStorage.getItem('sct_session') || ''; this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null'); this.version = this.config.baseVersion; } catch (e) { this.base = null; }
+      try {
+        this.session = localStorage.getItem('sct_session') || '';
+        const uStr = localStorage.getItem('sct_user');
+        if (uStr && this.session) {
+          const u = JSON.parse(uStr);
+          ME.email = u.email || '';
+          ME.name = u.name || '';
+          ME.role = u.role || 'employee';
+          ME.isManagement = isManagementRole(u.role) || isManagementEmail(u.email);
+          UI.me = ME.name;
+        } else if (!this.session) {
+          ME.email = '';
+          ME.name = '';
+          ME.role = 'employee';
+          ME.isManagement = false;
+          UI.me = '';
+        }
+        this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
+        this.version = this.config.baseVersion;
+      } catch (e) { this.base = null; }
       setInterval(() => this.poll(), 30000);
       window.addEventListener('focus', () => this.poll());
       window.addEventListener('online', () => this.flush());
@@ -3205,22 +3237,47 @@
     pending() { return !!(this.base && S && diffOps(this.base, S).length); },
     persistBase() { try { localStorage.setItem(BASE_KEY, JSON.stringify(this.base)); } catch (e) { /* the Sheet still has the data */ } },
     async request(body) {
-      const res = await fetch(this.config.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ session: this.session, actorName: UI.me || '' }, body)) });
+      const target = this.apiUrl;
+      const res = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ session: this.session, actorName: UI.me || '' }, body)) });
       return res.json();
     },
     async get(action) {
-      const u = this.config.url, sep = u.includes('?') ? '&' : '?';
+      const u = this.apiUrl, sep = u.includes('?') ? '&' : '?';
       const res = await fetch(u + sep + 'action=' + action + '&_=' + Date.now());
       return res.json();
     },
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
-    needSignIn(msg) { this.session = ''; try { localStorage.removeItem('sct_session'); } catch (e) { /* private window */ } this.checking = false; showSignIn('signin', msg); },
+    needSignIn(msg) {
+      this.session = '';
+      ME.email = '';
+      ME.name = '';
+      ME.role = 'employee';
+      ME.isManagement = false;
+      ME.open = false;
+      UI.me = '';
+      try {
+        localStorage.removeItem('sct_session');
+        localStorage.removeItem('sct_user');
+      } catch (e) { /* private window */ }
+      this.checking = false;
+      showSignIn('signin', msg);
+    },
     async authLogin(payload) {
       try {
         const r = await this.request(Object.assign({ action: 'login' }, payload));
         if (!r.ok) return r;
         this.session = r.session;
-        try { localStorage.setItem('sct_session', r.session); } catch (e) {}
+        try {
+          localStorage.setItem('sct_session', r.session);
+          if (r.user) {
+            localStorage.setItem('sct_user', JSON.stringify({
+              email: r.user.email,
+              name: r.user.name || r.user.full_name,
+              role: r.user.role,
+              isManagement: !!r.user.isManagement
+            }));
+          }
+        } catch (e) {}
         if (r.user) {
           ME.email = r.user.email;
           ME.name = r.user.name || r.user.full_name;
@@ -3229,8 +3286,10 @@
           UI.me = ME.name;
           try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
         }
-        $('#signin').hidden = true;
-        await this.pull(false);
+        const box = $('#signin');
+        if (box) box.hidden = true;
+        render();
+        try { await this.pull(false); } catch (e) {}
         render();
         return { ok: true };
       } catch (e) {
@@ -3242,7 +3301,17 @@
         const r = await this.request(Object.assign({ action: 'signup' }, payload));
         if (!r.ok) return r;
         this.session = r.session;
-        try { localStorage.setItem('sct_session', r.session); } catch (e) {}
+        try {
+          localStorage.setItem('sct_session', r.session);
+          if (r.user) {
+            localStorage.setItem('sct_user', JSON.stringify({
+              email: r.user.email,
+              name: r.user.name || r.user.full_name,
+              role: r.user.role,
+              isManagement: !!r.user.isManagement
+            }));
+          }
+        } catch (e) {}
         if (r.user) {
           ME.email = r.user.email;
           ME.name = r.user.name || r.user.full_name;
@@ -3251,8 +3320,10 @@
           UI.me = ME.name;
           try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
         }
-        $('#signin').hidden = true;
-        await this.pull(false);
+        const box = $('#signin');
+        if (box) box.hidden = true;
+        render();
+        try { await this.pull(false); } catch (e) {}
         render();
         return { ok: true };
       } catch (e) {
@@ -3279,30 +3350,42 @@
           ME.role = r.user.role; ME.isManagement = !!r.user.isManagement;
           UI.me = ME.name;
         }
-        $('#signin').hidden = true;
+        const box = $('#signin');
+        if (box) box.hidden = true;
         await this.pull(true);
-      } catch (e) { showSignIn('signin', 'Could not reach the Sheet. Check your connection and try again.'); }
+      } catch (e) { showSignIn('signin', 'Could not reach the server. Check your connection and try again.'); }
     },
     async signOut() {
-      if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the server yet. Sign out and lose them?')) return;
       try { await this.request({ action: 'logout' }); } catch (e) {}
-      this.needSignIn('');
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_session'); } catch (e) { /* private window */ }
+      this.session = '';
+      ME.email = '';
+      ME.name = '';
+      ME.role = 'employee';
+      ME.isManagement = false;
+      ME.open = false;
+      UI.me = '';
+      try {
+        localStorage.removeItem(KEY);
+        localStorage.removeItem(BASE_KEY);
+        localStorage.removeItem('sct_me');
+        localStorage.removeItem('sct_user');
+        localStorage.removeItem('sct_session');
+      } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
-    // On opening the site, get the Sheet's data before anyone can edit a stale copy.
+    // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
-      if (!this.config.enabled || !this.config.url) return;
+      if (!this.config.enabled || !this.apiUrl) return;
       this.checking = true; this.setStatus('syncing');
       try {
         const p = await this.get('ping');
         this.api = p.api || 0;
-        this.auth = p.auth || { required: false };
-        ME.open = !this.auth.required;
-        if (this.auth.required && !this.session) return this.needSignIn('');
+        this.auth = p.auth || { required: true };
+        if (!this.session) return this.needSignIn('');
         await this.pull(true);
-      } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
+      } catch (e) { this.setStatus('error', 'Could not reach the server. Changes stay in this browser until it is back.'); }
       this.checking = false; this.updateUI();
       if (!this.base) render();
     },
@@ -4099,9 +4182,14 @@
   // ---------- boot ----------
   initTheme();
   load();
-  try { UI.me = localStorage.getItem('sct_me') || ''; } catch (e) { /* private window */ }
   SYNC.init();
-  render();
-  SYNC.boot();
-  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render };
+  if (!SYNC.session) {
+    showSignIn('signin');
+  } else {
+    const box = $('#signin');
+    if (box) box.hidden = true;
+    render();
+    SYNC.boot();
+  }
+  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, showSignIn };
 })();

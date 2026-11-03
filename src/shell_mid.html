@@ -45,7 +45,37 @@
   </div>
   <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
 </div>
-<div id="signin" class="signin" hidden></div>
+<div id="signin" class="signin">
+  <div class="signin-card">
+    <div class="brand-header">
+      <img class="logo-l" src="{{LOGO_LIGHT}}" alt="Suraasa">
+      <img class="logo-d" src="{{LOGO_DARK}}" alt="Suraasa">
+      <h1>Control Tower</h1>
+      <p class="auth-sub">Sales Operations & Execution Dashboard</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab on" data-auth-tab="signin">Sign In</button>
+      <button class="auth-tab" data-auth-tab="signup">Sign Up</button>
+    </div>
+    <form class="auth-form" id="form-signin" onsubmit="return false;">
+      <div class="auth-field"><label for="si-email">Official Suraasa Email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="email" required></div>
+      <div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password" required></div>
+      <button type="submit" class="auth-btn" id="btn-do-signin">Sign In</button>
+      <div class="auth-links">
+        <button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>
+        <button type="button" class="auth-link" data-auth-tab="signup">Create account</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  try {
+    if (localStorage.getItem('sct_session')) {
+      var _sBox = document.getElementById('signin');
+      if (_sBox) _sBox.hidden = true;
+    }
+  } catch (e) {}
+</script>
 <div id="modal-root"></div>
 <div class="tip" id="tip" role="tooltip" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
