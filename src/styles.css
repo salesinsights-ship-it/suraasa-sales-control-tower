@@ -893,6 +893,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
   color: #0f172a !important;
   overflow-y: auto;
 }
+.signin.off,
 .signin[hidden] {
   display: none !important;
 }

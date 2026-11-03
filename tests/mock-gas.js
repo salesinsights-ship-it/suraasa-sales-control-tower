@@ -83,7 +83,7 @@ function createBackend(opts = {}) {
   const parse = r => JSON.parse(r.text);
   return {
     ss, props, cache, ctx, tokens,
-    get: params => parse(ctx.doGet({ parameter: params })),
+    get: params => parse(ctx.doGet({ parameter: typeof params === 'string' ? { action: params } : (params || {}) })),
     post: body => parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } })),
     load(state) { const r = parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'push', force: true, state }) } })); if (!r.ok) throw new Error(r.error); return r; },
     addUser(u) { ss.getSheetByName('Users').getRange(ss.getSheetByName('Users').getLastRow() + 1, 1, 1, 6).setValues([[u.email, u.name, u.role, u.active === false ? 'FALSE' : 'TRUE', 'test', '']]); },

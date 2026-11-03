@@ -72,7 +72,11 @@
   try {
     if (localStorage.getItem('sct_session')) {
       var _sBox = document.getElementById('signin');
-      if (_sBox) _sBox.hidden = true;
+      if (_sBox) {
+        _sBox.hidden = true;
+        _sBox.classList.add('off');
+        _sBox.style.display = 'none';
+      }
     }
   } catch (e) {}
 </script>

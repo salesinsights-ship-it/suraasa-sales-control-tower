@@ -51,7 +51,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       const u = new URL(req.url, 'http://localhost:' + PORT);
       const action = u.searchParams.get('action') || 'ping';
-      const result = backend.get(action);
+      const result = backend.get({ action });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
       return;

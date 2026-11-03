@@ -2140,12 +2140,22 @@
 
   // ---------- authentication system ----------
   let currentAuthMode = 'signin';
+  function hideSignIn() {
+    const box = $('#signin');
+    if (box) {
+      box.hidden = true;
+      box.classList.add('off');
+      box.style.setProperty('display', 'none', 'important');
+    }
+  }
   function showSignIn(mode, msg) {
     if (typeof mode !== 'string') { msg = mode; mode = currentAuthMode || 'signin'; }
     currentAuthMode = mode || 'signin';
     const box = $('#signin');
     if (!box) return;
     box.hidden = false;
+    box.classList.remove('off');
+    box.style.removeProperty('display');
 
     const lightLogo = $('.brand .logo-l') ? $('.brand .logo-l').src : '';
     const darkLogo = $('.brand .logo-d') ? $('.brand .logo-d').src : '';
@@ -2226,20 +2236,27 @@
 
     const formSignIn = box.querySelector('#form-signin');
     if (formSignIn) {
-      formSignIn.onsubmit = async () => {
+      formSignIn.onsubmit = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
         const email = box.querySelector('#si-email').value.trim();
         const password = box.querySelector('#si-pw').value;
         if (!email) return showSignIn('signin', 'Please enter your official company email.');
         if (!password) return showSignIn('signin', 'Please enter your password.');
         const btn = box.querySelector('#btn-do-signin');
-        btn.disabled = true; btn.textContent = 'Signing in...';
+        if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
         const res = await SYNC.authLogin({ email, password });
-        if (!res.ok) showSignIn('signin', res.error || 'Failed to sign in.');
+        if (!res.ok) {
+          showSignIn('signin', res.error || 'Failed to sign in.');
+        } else {
+          hideSignIn();
+          render();
+        }
       };
     }
     const formSignUp = box.querySelector('#form-signup');
     if (formSignUp) {
-      formSignUp.onsubmit = async () => {
+      formSignUp.onsubmit = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
         const fullName = box.querySelector('#su-name').value.trim();
         const email = box.querySelector('#su-email').value.trim();
         const password = box.querySelector('#su-pw').value;
@@ -2250,9 +2267,14 @@
         if (password !== confPw) return showSignIn('signup', 'Passwords do not match.');
         if (password.length < 6) return showSignIn('signup', 'Password must be at least 6 characters.');
         const btn = box.querySelector('#btn-do-signup');
-        btn.disabled = true; btn.textContent = 'Creating account...';
+        if (btn) { btn.disabled = true; btn.textContent = 'Creating account...'; }
         const res = await SYNC.authSignUp({ fullName, email, password });
-        if (!res.ok) showSignIn('signup', res.error || 'Failed to create account.');
+        if (!res.ok) {
+          showSignIn('signup', res.error || 'Failed to create account.');
+        } else {
+          hideSignIn();
+          render();
+        }
       };
     }
     const formForgot = box.querySelector('#form-forgot');
@@ -3197,7 +3219,7 @@
   }
 
   const SYNC = {
-    api: 0, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
+    api: 3, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
     get config() {
       if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
@@ -3286,8 +3308,7 @@
           UI.me = ME.name;
           try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
         }
-        const box = $('#signin');
-        if (box) box.hidden = true;
+        hideSignIn();
         render();
         try { await this.pull(false); } catch (e) {}
         render();
@@ -3320,8 +3341,7 @@
           UI.me = ME.name;
           try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
         }
-        const box = $('#signin');
-        if (box) box.hidden = true;
+        hideSignIn();
         render();
         try { await this.pull(false); } catch (e) {}
         render();
@@ -3449,33 +3469,39 @@
       return Object.keys(set).length ? Object.assign({}, o, { set, base }) : null;
     },
     async pull(silent, drop) {
-      if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
+      if (!this.apiUrl) { toast('The server is not connected.', true); return; }
       if (this.busy) { this.again = true; return; }
       this.setStatus('syncing');
       try {
-        const data = this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull');
-        if (data.auth === true) return this.needSignIn(data.error);
+        const data = this.session ? await this.request({ action: 'pull' }) : (this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull'));
+        if (data.auth === true) {
+          if (!this.session) return this.needSignIn(data.error);
+          return;
+        }
         if (data.error && !data.ok) throw new Error(data.error);
         const state = data.state || data;
-        if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The Sheet sent something unexpected.');
+        if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The server sent something unexpected.');
         if (data.me) {
           ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || data.me.full_name || '';
           ME.isManagement = !!data.me.isManagement;
-          if (this.auth.required || !ME.open) { UI.me = ME.name; }
+          UI.me = ME.name;
         }
         if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
         const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
         this.config.lastSync = nowIso();
         this.setStatus('connected');
+        this.config.error = null;
         save(false);
-        if (!silent) toast('Got the latest from the Google Sheet');
+        if (!silent) toast('Got the latest data');
         if (left) this.onLocalChange();
         this.dailySnapshot();
       } catch (err) {
-        console.error('Sheet pull error:', err);
-        this.setStatus('error', 'Could not get the latest from the Google Sheet (' + err.message + ').');
-        if (!silent) toast('Could not get the latest from the Google Sheet', true);
+        console.error('Pull error:', err);
+        this.setStatus('error', 'Could not get the latest data (' + err.message + ').');
+        if (!silent) toast('Could not get the latest data', true);
       }
+      this.updateUI();
+      render();
     },
     afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
     onLocalChange() {
