@@ -16,20 +16,20 @@ backend.props.set('AUTH_REQUIRED', 'true');
 // Pre-seed all official accounts with unique, breach-free, memorable passwords
 const DEFAULT_ACCOUNTS = [
   // 5 Management Users
-  { name: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Suraasa@Ankit2026!' },
-  { name: 'Manish Pandey', email: 'manish@suraasa.com', password: 'Suraasa@Manish2026!' },
-  { name: 'Rishabh Khanna', email: 'rk@suraasa.com', password: 'Suraasa@Rishabh2026!' },
-  { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', password: 'Suraasa@Shrayansh2026!' },
-  { name: 'Divya', email: 'divya@suraasa.com', password: 'Suraasa@Divya2026!' },
+  { name: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Sur@Ankit#3915', legacyPw: 'Suraasa@Ankit2026!' },
+  { name: 'Manish Pandey', email: 'manish@suraasa.com', password: 'Sur@Manish#5193', legacyPw: 'Suraasa@Manish2026!' },
+  { name: 'Rishabh Khanna', email: 'rk@suraasa.com', password: 'Sur@Rishabh#7264', legacyPw: 'Suraasa@Rishabh2026!' },
+  { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', password: 'Sur@Shrayansh#4821', legacyPw: 'Suraasa@Shrayansh2026!' },
+  { name: 'Divya', email: 'divya@suraasa.com', password: 'Sur@Divya#8402', legacyPw: 'Suraasa@Divya2026!' },
 
   // 7 Regular Employees
-  { name: 'Akhand Mishra', email: 'akhand@suraasa.com', password: 'Suraasa@Akhand2026!' },
-  { name: 'Atishay', email: 'aj@suraasa.com', password: 'Suraasa@Atishay2026!' },
-  { name: 'Sales Operations', email: 'salesinsights@suraasa.com', password: 'Suraasa@SalesOps2026!' },
-  { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', password: 'Suraasa@Somesh2026!' },
-  { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', password: 'Suraasa@Deepansh2026!' },
-  { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', password: 'Suraasa@Anisha2026!' },
-  { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', password: 'Suraasa@Anurakta2026!' }
+  { name: 'Akhand Mishra', email: 'akhand@suraasa.com', password: 'Sur@Akhand#9082', legacyPw: 'Suraasa@Akhand2026!' },
+  { name: 'Atishay', email: 'aj@suraasa.com', password: 'Sur@Atishay#6317', legacyPw: 'Suraasa@Atishay2026!' },
+  { name: 'Sales Operations', email: 'salesinsights@suraasa.com', password: 'Sur@SalesOps#2940', legacyPw: 'Suraasa@SalesOps2026!' },
+  { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', password: 'Sur@Somesh#1853', legacyPw: 'Suraasa@Somesh2026!' },
+  { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', password: 'Sur@Deepansh#7492', legacyPw: 'Suraasa@Deepansh2026!' },
+  { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', password: 'Sur@Anisha#3826', legacyPw: 'Suraasa@Anisha2026!' },
+  { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', password: 'Sur@Anurakta#9154', legacyPw: 'Suraasa@Anurakta2026!' }
 ];
 
 DEFAULT_ACCOUNTS.forEach(acc => {

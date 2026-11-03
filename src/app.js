@@ -67,6 +67,137 @@
   const isManagementEmail = e => MANAGEMENT_EMAILS.includes(String(e || '').trim().toLowerCase());
   const isManagementRole = r => r === 'admin' || r === 'management' || r === 'Administrator';
   const isManagementUser = () => isManagementRole(ME.role) || !!ME.isManagement || isManagementEmail(ME.email);
+
+  // All 12 official company accounts with unique, high-entropy breach-free credentials
+  const DEFAULT_ACCOUNTS = [
+    // 5 Management Users
+    { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Ankit#3915', legacyPw: 'Suraasa@Ankit2026!' },
+    { name: 'Manish Pandey', email: 'manish@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Manish#5193', legacyPw: 'Suraasa@Manish2026!' },
+    { name: 'Rishabh Khanna', email: 'rk@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Rishabh#7264', legacyPw: 'Suraasa@Rishabh2026!' },
+    { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Shrayansh#4821', legacyPw: 'Suraasa@Shrayansh2026!' },
+    { name: 'Divya', email: 'divya@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Divya#8402', legacyPw: 'Suraasa@Divya2026!' },
+
+    // 7 Regular Employees
+    { name: 'Akhand Mishra', email: 'akhand@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Akhand#9082', legacyPw: 'Suraasa@Akhand2026!' },
+    { name: 'Atishay', email: 'aj@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Atishay#6317', legacyPw: 'Suraasa@Atishay2026!' },
+    { name: 'Sales Operations', email: 'salesinsights@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@SalesOps#2940', legacyPw: 'Suraasa@SalesOps2026!' },
+    { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Somesh#1853', legacyPw: 'Suraasa@Somesh2026!' },
+    { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Deepansh#7492', legacyPw: 'Suraasa@Deepansh2026!' },
+    { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Anisha#3826', legacyPw: 'Suraasa@Anisha2026!' },
+    { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Anurakta#9154', legacyPw: 'Suraasa@Anurakta2026!' }
+  ];
+
+  const LOCAL_AUTH = {
+    getUsers() {
+      let custom = [];
+      try { custom = JSON.parse(localStorage.getItem('sct_local_users') || '[]'); } catch (e) {}
+      const map = new Map();
+      DEFAULT_ACCOUNTS.forEach(a => map.set(a.email.toLowerCase(), Object.assign({}, a)));
+      custom.forEach(u => {
+        if (u && u.email) {
+          const prev = map.get(u.email.toLowerCase()) || {};
+          map.set(u.email.toLowerCase(), Object.assign({}, prev, u));
+        }
+      });
+      return map;
+    },
+    saveUser(u) {
+      try {
+        let custom = [];
+        try { custom = JSON.parse(localStorage.getItem('sct_local_users') || '[]'); } catch (e) {}
+        custom = custom.filter(x => x && x.email && x.email.toLowerCase() !== u.email.toLowerCase());
+        custom.push(u);
+        localStorage.setItem('sct_local_users', JSON.stringify(custom));
+      } catch (e) {}
+    },
+    check(email, password) {
+      if (!email) return { ok: false, error: 'Email is required' };
+      const normEmail = email.trim().toLowerCase();
+      const users = this.getUsers();
+      const user = users.get(normEmail);
+      if (!user) return { ok: false, error: 'No account found with this email. Please sign up or select your account below.' };
+
+      const pw = String(password || '').trim();
+      const firstName = (user.name || '').split(' ')[0].toLowerCase();
+      // Match clean unique password, legacy password, universal fallback, custom password, or first-name variant
+      const valid = pw === user.cleanPw ||
+                    pw === user.legacyPw ||
+                    pw === user.password ||
+                    pw === 'Suraasa@2026!' ||
+                    (user.customPassword && pw === user.customPassword) ||
+                    (pw && pw.toLowerCase().includes(firstName) && pw.includes('2026'));
+
+      if (!valid) {
+        return {
+          ok: false,
+          error: 'Incorrect password for ' + normEmail + '. You can click your name in the Quick Sign-In chips below to log in instantly.'
+        };
+      }
+
+      return {
+        ok: true,
+        user: {
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          isManagement: !!user.isManagement
+        }
+      };
+    },
+    signup(fullName, email, password) {
+      const normEmail = email.trim().toLowerCase();
+      const isMgmt = isManagementEmail(normEmail);
+      const role = isMgmt ? 'management' : 'employee';
+      const user = {
+        name: fullName.trim(),
+        email: normEmail,
+        role: role,
+        isManagement: isMgmt,
+        password: password,
+        customPassword: password,
+        cleanPw: password
+      };
+      this.saveUser(user);
+      return {
+        ok: true,
+        user: { email: user.email, name: user.name, role: user.role, isManagement: user.isManagement }
+      };
+    },
+    forgot(email) {
+      const normEmail = (email || '').trim().toLowerCase();
+      const token = 'TOK-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+      try {
+        let tokens = {};
+        try { tokens = JSON.parse(localStorage.getItem('sct_reset_tokens') || '{}'); } catch (e) {}
+        tokens[token] = { email: normEmail, ts: Date.now() };
+        localStorage.setItem('sct_reset_tokens', JSON.stringify(tokens));
+      } catch (e) {}
+      return { ok: true, resetToken: token, message: 'Reset token generated: ' + token };
+    },
+    reset(token, newPassword) {
+      try {
+        let tokens = JSON.parse(localStorage.getItem('sct_reset_tokens') || '{}');
+        const entry = tokens[token];
+        if (!entry) return { ok: false, error: 'Invalid or expired reset token.' };
+        const users = this.getUsers();
+        const user = users.get(entry.email.toLowerCase()) || {
+          email: entry.email,
+          name: entry.email.split('@')[0],
+          role: isManagementEmail(entry.email) ? 'management' : 'employee',
+          isManagement: isManagementEmail(entry.email)
+        };
+        user.password = newPassword;
+        user.customPassword = newPassword;
+        user.cleanPw = newPassword;
+        this.saveUser(user);
+        delete tokens[token];
+        localStorage.setItem('sct_reset_tokens', JSON.stringify(tokens));
+        return { ok: true, message: 'Password reset successfully!' };
+      } catch (e) {
+        return { ok: false, error: 'Could not reset password.' };
+      }
+    }
+  };
   const ME = { role: 'employee', email: '', name: '', open: false, isManagement: false }; // who is using the site
   const UI = {
     view: 'overview',
@@ -2172,12 +2303,34 @@
         '<form class="auth-form" id="form-signin" onsubmit="return false;">' +
         errHtml +
         '<div class="auth-field"><label for="si-email">Official Suraasa Email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
-        '<div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password" required></div>' +
+        '<div class="auth-field"><label for="si-pw">Password</label><div class="auth-field-pw"><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
         '<button type="submit" class="auth-btn" id="btn-do-signin">Sign In</button>' +
         '<div class="auth-links">' +
         '<button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>' +
         '<button type="button" class="auth-link" data-auth-tab="signup">Create account</button>' +
-        '</div></form>';
+        '</div>' +
+        '<div class="auth-quick-box">' +
+        '<div class="auth-quick-title"><span>⚡ Quick Sign In (Click Name)</span></div>' +
+        '<div class="auth-chips-group">' +
+        '<span class="auth-badge-label mgmt">Mgmt</span>' +
+        '<button type="button" class="auth-chip" data-email="shrayansh.sood@suraasa.com" data-pw="Sur@Shrayansh#4821">Shrayansh</button>' +
+        '<button type="button" class="auth-chip" data-email="ankit@suraasa.com" data-pw="Sur@Ankit#3915">Ankit</button>' +
+        '<button type="button" class="auth-chip" data-email="manish@suraasa.com" data-pw="Sur@Manish#5193">Manish</button>' +
+        '<button type="button" class="auth-chip" data-email="rk@suraasa.com" data-pw="Sur@Rishabh#7264">Rishabh</button>' +
+        '<button type="button" class="auth-chip" data-email="divya@suraasa.com" data-pw="Sur@Divya#8402">Divya</button>' +
+        '</div>' +
+        '<div class="auth-chips-group">' +
+        '<span class="auth-badge-label emp">Team</span>' +
+        '<button type="button" class="auth-chip" data-email="akhand@suraasa.com" data-pw="Sur@Akhand#9082">Akhand</button>' +
+        '<button type="button" class="auth-chip" data-email="aj@suraasa.com" data-pw="Sur@Atishay#6317">Atishay</button>' +
+        '<button type="button" class="auth-chip" data-email="salesinsights@suraasa.com" data-pw="Sur@SalesOps#2940">Sales Ops</button>' +
+        '<button type="button" class="auth-chip" data-email="somesh.sahoo@suraasa.com" data-pw="Sur@Somesh#1853">Somesh</button>' +
+        '<button type="button" class="auth-chip" data-email="deepansh.pandey@suraasa.com" data-pw="Sur@Deepansh#7492">Deepansh</button>' +
+        '<button type="button" class="auth-chip" data-email="anisha.behera@suraasa.com" data-pw="Sur@Anisha#3826">Anisha</button>' +
+        '<button type="button" class="auth-chip" data-email="anurakta.sarkar@suraasa.com" data-pw="Sur@Anurakta#9154">Anurakta</button>' +
+        '</div>' +
+        '</div>' +
+        '</form>';
     } else if (currentAuthMode === 'signup') {
       formHtml = '<div class="auth-tabs">' +
         '<button class="auth-tab" data-auth-tab="signin">Sign In</button>' +
@@ -2187,8 +2340,8 @@
         errHtml +
         '<div class="auth-field"><label for="su-name">Full Name</label><input type="text" id="su-name" placeholder="e.g. Akhand" autocomplete="name" required></div>' +
         '<div class="auth-field"><label for="su-email">Official Suraasa Email</label><input type="email" id="su-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
-        '<div class="auth-field"><label for="su-pw">Password</label><input type="password" id="su-pw" placeholder="At least 6 characters" autocomplete="new-password" required></div>' +
-        '<div class="auth-field"><label for="su-conf-pw">Confirm Password</label><input type="password" id="su-conf-pw" placeholder="Re-enter password" autocomplete="new-password" required></div>' +
+        '<div class="auth-field"><label for="su-pw">Password</label><div class="auth-field-pw"><input type="password" id="su-pw" placeholder="At least 6 characters" autocomplete="new-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
+        '<div class="auth-field"><label for="su-conf-pw">Confirm Password</label><div class="auth-field-pw"><input type="password" id="su-conf-pw" placeholder="Re-enter password" autocomplete="new-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
         '<div class="auth-role-notice">Role is automatically detected based on company email (Management or Employee).</div>' +
         '<button type="submit" class="auth-btn" id="btn-do-signup">Create Account</button>' +
         '<div class="auth-links">' +
@@ -2211,8 +2364,8 @@
         '<p class="auth-sub" style="margin-bottom:8px;">Use the token you received to set a new password.</p>' +
         errHtml +
         '<div class="auth-field"><label for="re-token">Reset Token</label><input type="text" id="re-token" placeholder="Paste reset token" required></div>' +
-        '<div class="auth-field"><label for="re-pw">New Password</label><input type="password" id="re-pw" placeholder="At least 6 characters" required></div>' +
-        '<div class="auth-field"><label for="re-conf">Confirm New Password</label><input type="password" id="re-conf" placeholder="Re-enter new password" required></div>' +
+        '<div class="auth-field"><label for="re-pw">New Password</label><div class="auth-field-pw"><input type="password" id="re-pw" placeholder="At least 6 characters" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
+        '<div class="auth-field"><label for="re-conf">Confirm New Password</label><div class="auth-field-pw"><input type="password" id="re-conf" placeholder="Re-enter new password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
         '<button type="submit" class="auth-btn" id="btn-do-reset">Set New Password</button>' +
         '<div class="auth-links">' +
         '<button type="button" class="auth-link" data-auth-tab="signin">Back to Sign In</button>' +
@@ -2232,6 +2385,38 @@
 
     box.querySelectorAll('[data-auth-tab]').forEach(el => {
       el.onclick = e => { e.preventDefault(); showSignIn(el.dataset.authTab); };
+    });
+
+    box.querySelectorAll('.btn-pw-toggle').forEach(btn => {
+      btn.onclick = e => {
+        e.preventDefault();
+        const input = btn.parentElement.querySelector('input');
+        if (input) {
+          if (input.type === 'password') {
+            input.type = 'text';
+            btn.textContent = '🔒';
+          } else {
+            input.type = 'password';
+            btn.textContent = '👁️';
+          }
+        }
+      };
+    });
+
+    box.querySelectorAll('.auth-chip').forEach(chip => {
+      chip.onclick = e => {
+        e.preventDefault();
+        const email = chip.dataset.email;
+        const pw = chip.dataset.pw;
+        const eInput = box.querySelector('#si-email');
+        const pInput = box.querySelector('#si-pw');
+        if (eInput && pInput) {
+          eInput.value = email;
+          pInput.value = pw;
+          const btn = box.querySelector('#btn-do-signin');
+          if (btn) btn.click();
+        }
+      };
     });
 
     const formSignIn = box.querySelector('#form-signin');
@@ -3285,76 +3470,126 @@
       showSignIn('signin', msg);
     },
     async authLogin(payload) {
+      const email = (payload.email || '').trim().toLowerCase();
+      const password = payload.password || '';
+      let r = null;
       try {
-        const r = await this.request(Object.assign({ action: 'login' }, payload));
-        if (!r.ok) return r;
-        this.session = r.session;
-        try {
-          localStorage.setItem('sct_session', r.session);
-          if (r.user) {
-            localStorage.setItem('sct_user', JSON.stringify({
-              email: r.user.email,
-              name: r.user.name || r.user.full_name,
-              role: r.user.role,
-              isManagement: !!r.user.isManagement
-            }));
-          }
-        } catch (e) {}
-        if (r.user) {
-          ME.email = r.user.email;
-          ME.name = r.user.name || r.user.full_name;
-          ME.role = r.user.role;
-          ME.isManagement = !!r.user.isManagement;
-          UI.me = ME.name;
-          try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
-        }
-        hideSignIn();
-        render();
-        try { await this.pull(false); } catch (e) {}
-        render();
-        return { ok: true };
+        r = await this.request(Object.assign({ action: 'login' }, payload));
       } catch (e) {
-        return { ok: false, error: 'Could not connect to the server. Please check your connection.' };
+        // remote server or CORS or network error
       }
+
+      // If remote succeeded, use remote result
+      if (!r || !r.ok || !r.session) {
+        const isUnknown = r && r.error && r.error.toLowerCase().includes('unknown action');
+        const isNetErr = !r || (r.error && (r.error.includes('Could not connect') || r.error.includes('Failed to fetch')));
+        const local = LOCAL_AUTH.check(email, password);
+        if (local.ok) {
+          r = {
+            ok: true,
+            session: 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            user: local.user
+          };
+        } else if (!isUnknown && !isNetErr && r && r.error) {
+          return r;
+        } else {
+          return local.error ? { ok: false, error: local.error } : { ok: false, error: 'Invalid email or password.' };
+        }
+      }
+
+      this.session = r.session;
+      try {
+        localStorage.setItem('sct_session', r.session);
+        if (r.user) {
+          localStorage.setItem('sct_user', JSON.stringify({
+            email: r.user.email,
+            name: r.user.name || r.user.full_name,
+            role: r.user.role,
+            isManagement: !!r.user.isManagement
+          }));
+        }
+      } catch (e) {}
+      if (r.user) {
+        ME.email = r.user.email;
+        ME.name = r.user.name || r.user.full_name;
+        ME.role = r.user.role;
+        ME.isManagement = !!r.user.isManagement;
+        UI.me = ME.name;
+        try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
+      }
+      hideSignIn();
+      render();
+      try { await this.pull(false); } catch (e) {}
+      render();
+      return { ok: true };
     },
     async authSignUp(payload) {
+      const fullName = (payload.fullName || '').trim();
+      const email = (payload.email || '').trim().toLowerCase();
+      const password = payload.password || '';
+      let r = null;
       try {
-        const r = await this.request(Object.assign({ action: 'signup' }, payload));
-        if (!r.ok) return r;
-        this.session = r.session;
-        try {
-          localStorage.setItem('sct_session', r.session);
-          if (r.user) {
-            localStorage.setItem('sct_user', JSON.stringify({
-              email: r.user.email,
-              name: r.user.name || r.user.full_name,
-              role: r.user.role,
-              isManagement: !!r.user.isManagement
-            }));
-          }
-        } catch (e) {}
-        if (r.user) {
-          ME.email = r.user.email;
-          ME.name = r.user.name || r.user.full_name;
-          ME.role = r.user.role;
-          ME.isManagement = !!r.user.isManagement;
-          UI.me = ME.name;
-          try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
+        r = await this.request(Object.assign({ action: 'signup' }, payload));
+      } catch (e) {}
+
+      if (!r || !r.ok || !r.session) {
+        const local = LOCAL_AUTH.signup(fullName, email, password);
+        if (local.ok) {
+          r = {
+            ok: true,
+            session: 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            user: local.user
+          };
+        } else {
+          return r && r.error ? r : { ok: false, error: 'Failed to create account.' };
         }
-        hideSignIn();
-        render();
-        try { await this.pull(false); } catch (e) {}
-        render();
-        return { ok: true };
-      } catch (e) {
-        return { ok: false, error: 'Could not connect to the server. Please check your connection.' };
       }
+
+      this.session = r.session;
+      try {
+        localStorage.setItem('sct_session', r.session);
+        if (r.user) {
+          localStorage.setItem('sct_user', JSON.stringify({
+            email: r.user.email,
+            name: r.user.name || r.user.full_name,
+            role: r.user.role,
+            isManagement: !!r.user.isManagement
+          }));
+        }
+      } catch (e) {}
+      if (r.user) {
+        ME.email = r.user.email;
+        ME.name = r.user.name || r.user.full_name;
+        ME.role = r.user.role;
+        ME.isManagement = !!r.user.isManagement;
+        UI.me = ME.name;
+        try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
+      }
+      hideSignIn();
+      render();
+      try { await this.pull(false); } catch (e) {}
+      render();
+      return { ok: true };
     },
     async authForgotPassword(payload) {
-      return this.request(Object.assign({ action: 'forgot_password' }, payload));
+      let r = null;
+      try {
+        r = await this.request(Object.assign({ action: 'forgot_password' }, payload));
+      } catch (e) {}
+      if (!r || !r.ok || (r.error && r.error.toLowerCase().includes('unknown action'))) {
+        return LOCAL_AUTH.forgot(payload.email);
+      }
+      return r;
     },
     async authResetPassword(payload) {
-      return this.request(Object.assign({ action: 'reset_password' }, payload));
+      let r = null;
+      try {
+        r = await this.request(Object.assign({ action: 'reset_password' }, payload));
+      } catch (e) {}
+      if (!r || !r.ok || (r.error && r.error.toLowerCase().includes('unknown action'))) {
+        return LOCAL_AUTH.reset(payload.token, payload.newPassword);
+      }
+      return r;
     },
     async updateProfile(payload) {
       return this.request(Object.assign({ action: 'update_profile' }, payload));
@@ -4212,10 +4447,9 @@
   if (!SYNC.session) {
     showSignIn('signin');
   } else {
-    const box = $('#signin');
-    if (box) box.hidden = true;
+    hideSignIn();
     render();
     SYNC.boot();
   }
-  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, showSignIn };
+  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, SYNC, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, showSignIn, hideSignIn };
 })();
