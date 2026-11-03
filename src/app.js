@@ -4159,7 +4159,7 @@
   function initTheme() {
     let saved = '';
     try { saved = localStorage.getItem('sct_theme') || ''; } catch (e) { /* private window */ }
-    if (!saved) saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    if (!saved) saved = 'light';
     document.documentElement.setAttribute('data-theme', saved);
     themeLabel();
   }
