@@ -34,7 +34,6 @@
   --line: #e2e8f0;
   --line-2: #cbd5e1;
   --accent: #225ba5;
-  
   --accent-ink: #1d4f90;
   --on-accent: #ffffff;
   --primary: #0f172a;
@@ -901,6 +900,291 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
   .r { break-inside: avoid; }
 }
 
+
+/* ── Authentication & RBAC System Styles ── */
+.signin {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--sheet);
+  overflow-y: auto;
+}
+.signin[hidden] {
+  display: none;
+}
+.signin-card {
+  width: min(440px, 100%);
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+.signin-card .brand-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.signin-card .brand-header img {
+  height: 42px;
+  width: auto;
+}
+.signin-card h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+.signin-card p.auth-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+.auth-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+}
+.auth-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .15s ease;
+}
+.auth-tab.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.auth-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.auth-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s ease;
+}
+.auth-field input:focus {
+  border-color: var(--accent);
+}
+.auth-field .hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.auth-btn {
+  margin-top: 4px;
+  padding: 11px 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.auth-btn:hover {
+  background: var(--accent-ink);
+}
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.auth-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
+}
+.auth-err {
+  padding: 10px 12px;
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  color: var(--red);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.auth-success {
+  padding: 10px 12px;
+  background: var(--green-bg);
+  border: 1px solid var(--green);
+  color: var(--green);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.auth-role-notice {
+  padding: 8px 10px;
+  background: var(--blue-bg);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--accent-ink);
+  line-height: 1.4;
+}
+
+/* ── Employee & Management Dashboards ── */
+.emp-welcome-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: linear-gradient(135deg, var(--tint) 0%, var(--sheet) 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.emp-welcome-text h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.02em;
+  margin-bottom: 6px;
+}
+.emp-welcome-text p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+.emp-role-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  border-radius: 12px;
+  background: var(--blue-bg);
+  color: var(--accent);
+  margin-left: 8px;
+}
+.emp-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: all .12s ease;
+}
+.emp-profile-btn:hover {
+  background: var(--tint);
+  border-color: var(--line-2);
+}
+.mgmt-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--tint);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.mgmt-search {
+  flex: 1;
+  min-width: 240px;
+  position: relative;
+}
+.mgmt-search input {
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: 13px;
+}
+.mgmt-search svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.mgmt-emp-select {
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.dash-quick-status {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.dash-quick-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--sheet);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.dash-quick-btn:hover {
+  background: var(--tint-2);
+}
+.dash-quick-btn.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+
 </style>
 </head>
 <body>
@@ -1261,7 +1545,17 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   };
 
   let S = null; // State object
-  const ME = { role: 'Administrator', email: '', name: '', open: true }; // who is using the site
+  const MANAGEMENT_EMAILS = [
+    'ankit@suraasa.com',
+    'manish@suraasa.com',
+    'rk@suraasa.com',
+    'shrayansh.sood@suraasa.com',
+    'divya@suraasa.com'
+  ];
+  const isManagementEmail = e => MANAGEMENT_EMAILS.includes(String(e || '').trim().toLowerCase());
+  const isManagementRole = r => r === 'admin' || r === 'management' || r === 'Administrator';
+  const isManagementUser = () => isManagementRole(ME.role) || !!ME.isManagement || isManagementEmail(ME.email);
+  const ME = { role: 'Administrator', email: '', name: '', open: true, isManagement: true }; // who is using the site
   const UI = {
     view: 'overview',
     projectId: null,
@@ -1435,6 +1729,9 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   const ms = (p, id) => (p.milestones || []).find(m => m.id === id);
 
   function people() {
+    if (!isManagementUser() && !ME.open) {
+      return [ME.name || UI.me].filter(Boolean);
+    }
     const list = [];
     const set = new Set();
     // 1. Follow S.roles exact order first
@@ -1718,14 +2015,24 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const unread = myNotifications().filter(n => !read.has(n.id)).length;
     const badge = { decisions: st.decisions, weekly: missing, notifications: unread };
     const item = n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span>' + (badge[n[0]] ? '<span class="count">' + badge[n[0]] + '</span>' : '') + '</button>';
-    const main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
-    const lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
-    $('#nav').innerHTML = main.map(item).join('') + '<div class="nav-sep"></div>' + lower.map(item).join('');
-    const tabs = [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']];
+    
+    let main, lower;
+    if (isManagementUser() || ME.open) {
+      main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
+      lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
+    } else {
+      main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Notifications']];
+      lower = [];
+    }
+    $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '');
+    
+    const tabs = (isManagementUser() || ME.open) ?
+      [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
+      [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Alerts']];
     const others = NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower);
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
-      '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>';
+      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>' : '');
     $('#bell').innerHTML = ico('notifications') + (unread ? '<span class="count">' + unread + '</span>' : '');
     $('#bell').setAttribute('aria-label', 'Notifications' + (unread ? ', ' + unread + ' unread' : ''));
   }
@@ -1733,11 +2040,19 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   function renderMe() {
     document.body.classList.toggle('ro', !canWrite());
     $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : ico('myprojects');
-    $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Choose your name');
+    $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Profile');
     const open = $('#menu-me').classList.contains('open');
     const list = people();
-    $('#menu-me').innerHTML = (ME.open ? '<label class="fsel stack"><span>I am</span><select id="me" data-act="set-me"><option value="">Everyone</option>' + list.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>' : '<div class="me-c"><b>' + esc(UI.me) + '</b><span class="quiet">' + esc(ME.role) + '</span><span class="quiet">' + esc(ME.email) + '</span></div>') +
-      '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' + (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
+    let accountInfo = '';
+    if (ME.open) {
+      accountInfo = '<label class="fsel stack"><span>I am</span><select id="me" data-act="set-me"><option value="">Everyone</option>' + list.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>';
+    } else {
+      accountInfo = '<div class="me-c"><b>' + esc(ME.name || UI.me) + '</b><span class="quiet">' + esc(ME.role) + (isManagementUser() ? ' (Management)' : ' (Employee)') + '</span><span class="quiet">' + esc(ME.email) + '</span></div>' +
+        '<button data-act="open-profile">My Profile</button>';
+    }
+    $('#menu-me').innerHTML = accountInfo +
+      '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' +
+      (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
     if (open) $('#menu-me').classList.add('open');
   }
 
@@ -1954,6 +2269,152 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   }
 
   function vOverview(st, aq) {
+    if (!isManagementUser() && !ME.open) return vEmployeeDashboard();
+    return vManagementDashboard(st, aq);
+  }
+
+  function vEmployeeDashboard() {
+    const meName = ME.name || UI.me || 'Employee';
+    const myTasks = liveTasks().filter(t => !ENGINE.isCancelled(t));
+    const pendingTasks = myTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
+    const inProgressTasks = myTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+    const completedTasks = liveTasks().filter(t => t.status === 'Completed');
+
+    const recentAudit = (S.audit || []).filter(a => {
+      return a.actorEmail === ME.email || (a.taskId && myTasks.some(t => t.id === a.taskId));
+    }).slice(0, 6);
+
+    const taskItems = myTasks.map(t => {
+      const isDone = t.status === 'Completed';
+      const isIP = t.status === 'In Progress';
+      return '<div class="r" data-id="' + esc(t.id) + '" style="cursor:default;">' +
+        '<span class="r-main">' +
+        '<button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' +
+        '<span class="r-s">' + esc(P(t.projectId) ? P(t.projectId).name : t.projectId) + ' &bull; Due: ' + when(t.due, isDone) + '</span>' +
+        '</span>' +
+        '<span class="r-who"><span class="pill ' + statusTone(t.status) + '">' + esc(t.status) + '</span></span>' +
+        '<span class="r-p">' + pillPrio(t.priority) + '</span>' +
+        '<div class="dash-quick-status no-print">' +
+        (!isDone ? '<button class="dash-quick-btn ' + (isIP ? 'active' : '') + '" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="In Progress">' + (isIP ? 'In Progress' : 'Start') + '</button>' : '') +
+        (!isDone ? '<button class="dash-quick-btn" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="Completed">Complete</button>' : '<span class="pill green" style="font-size:11px;">Done</span>') +
+        '<button class="dash-quick-btn" data-act="open-task" data-id="' + esc(t.id) + '">Update</button>' +
+        '</div></div>';
+    }).join('');
+
+    return '<div class="dash">' +
+      '<div class="emp-welcome-hero">' +
+      '<div class="emp-welcome-text">' +
+      '<h1>Welcome, ' + esc(meName) + '</h1>' +
+      '<p>' + esc(ME.email) + ' <span class="emp-role-badge">Employee</span></p>' +
+      '</div>' +
+      '<button class="emp-profile-btn" data-act="open-profile">' +
+      ico('myprojects') +
+      '<span>View & Edit Profile</span>' +
+      '</button>' +
+      '</div>' +
+      '<div class="stats">' +
+      stat('My Pending Tasks', pendingTasks.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
+      stat('My In-Progress Tasks', inProgressTasks.length, '', 'Active & under review', 'nav', 'data-v="tasks"') +
+      stat('My Completed Tasks', completedTasks.length, '', pct(completedTasks.length, myTasks.length + completedTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(completedTasks.length, myTasks.length + completedTasks.length), 'green']) +
+      stat('Total Assigned Tasks', myTasks.length + completedTasks.length, '', 'Assigned exclusively to you', 'nav', 'data-v="tasks"') +
+      '</div>' +
+      '<div class="dash-g">' +
+      '<section class="panel">' +
+      '<div class="s-h"><h2>My Assigned Tasks (' + myTasks.length + ')</h2><button class="btn sm primary no-print" data-act="nav" data-v="tasks">View in Tasks List</button></div>' +
+      (myTasks.length ? '<div class="rows">' + taskItems + '</div>' : emptyLine('No open tasks', 'You are all caught up! New tasks will appear here when assigned to you.')) +
+      '</section>' +
+      '<section class="panel">' +
+      '<div class="s-h"><h2>My Recent Activity & History</h2></div>' +
+      (recentAudit.length ? '<ul class="tl">' + recentAudit.map(a => '<li><time>' + esc(shortTime(a.ts)) + '</time><span>' + esc(a.text) + '</span></li>').join('') + '</ul>' : '<p class="quiet">No activity recorded yet for your tasks.</p>') +
+      '<h3 style="margin-top:20px;">Profile & Account</h3>' +
+      '<div class="facts-l">' +
+      '<button class="fl" data-act="open-profile"><span>Account Name</span><b>' + esc(meName) + '</b></button>' +
+      '<button class="fl" data-act="open-profile"><span>Account Email</span><b>' + esc(ME.email) + '</b></button>' +
+      '<button class="fl" data-act="open-profile"><span>Access Role</span><b>Employee (Secured RBAC)</b></button>' +
+      '</div></section></div></div>';
+  }
+
+  function vManagementDashboard(st, aq) {
+    const allTasks = liveTasks().filter(t => !ENGINE.isCancelled(t));
+    const allDone = liveTasks().filter(t => t.status === 'Completed');
+    const allPending = allTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
+    const allInProgress = allTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+
+    const empSet = new Set();
+    liveTasks().forEach(t => { if (t.owner && !isTBD(t.owner)) empSet.add(t.owner); });
+    (S.users || []).forEach(u => { if (u.name) empSet.add(u.name); });
+    const empList = Array.from(empSet).sort();
+
+    const filterEmp = UI.mgmtEmpFilter || '';
+    const searchQ = (UI.mgmtSearchQ || '').toLowerCase().trim();
+
+    let displayTasks = allTasks;
+    if (filterEmp) {
+      displayTasks = displayTasks.filter(t => isMine(t.owner, filterEmp) || isMine(t.accountable, filterEmp) || String(t.owner).toLowerCase().includes(filterEmp.toLowerCase()));
+    }
+    if (searchQ) {
+      displayTasks = displayTasks.filter(t => {
+        return (t.name || '').toLowerCase().includes(searchQ) ||
+               (t.desc || '').toLowerCase().includes(searchQ) ||
+               (t.owner || '').toLowerCase().includes(searchQ) ||
+               (t.id || '').toLowerCase().includes(searchQ);
+      });
+    }
+
+    const taskRows = displayTasks.slice(0, 15).map(t => {
+      const isDone = t.status === 'Completed';
+      return '<div class="r" data-act="open-task" data-id="' + esc(t.id) + '">' +
+        '<span class="r-main"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' +
+        '<span class="r-s">' + esc(P(t.projectId) ? P(t.projectId).name : t.projectId) + ' &bull; Due: ' + when(t.due, isDone) + '</span></span>' +
+        '<span class="r-who">' + who(t.owner) + '</span>' +
+        '<span class="r-who"><span class="pill ' + statusTone(t.status) + '">' + esc(t.status) + '</span></span>' +
+        '<span class="r-p">' + pillPrio(t.priority) + '</span></div>';
+    }).join('');
+
+    return '<div class="dash">' +
+      '<div class="dash-h"><div><h1>Sales Management Control Tower</h1>' +
+      '<p class="quiet">Executive Oversight &bull; ' + new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</p></div>' +
+      '<button class="emp-profile-btn" data-act="open-profile">' + ico('myprojects') + '<span>' + esc(ME.name || 'Management') + ' (Profile)</span></button></div>' +
+      '<div class="stats">' +
+      stat('Total Tasks', allTasks.length + allDone.length, '', 'Across all active projects', 'nav', 'data-v="tasks"') +
+      stat('Pending Tasks', allPending.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
+      stat('In-Progress Tasks', allInProgress.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(allInProgress.length, allTasks.length), 'blue']) +
+      stat('Completed Tasks', allDone.length, '', pct(allDone.length, allTasks.length + allDone.length) + '% complete', 'nav', 'data-v="tasks"', [pct(allDone.length, allTasks.length + allDone.length), 'green']) +
+      stat('Total Employees', empList.length, '', 'Tracked task assignees', 'go-unassigned') +
+      '</div>' +
+      '<div class="mgmt-controls no-print">' +
+      '<div class="mgmt-search"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.5-4.5"/></svg>' +
+      '<input id="mgmt-search-q" type="search" placeholder="Search tasks across all employees by title, description, or owner..." value="' + esc(UI.mgmtSearchQ || '') + '"></div>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink-2);">' +
+      '<span>Employee:</span>' +
+      '<select class="mgmt-emp-select" id="mgmt-emp-filter">' +
+      '<option value="">All Employees (' + empList.length + ')</option>' +
+      empList.map(emp => '<option value="' + esc(emp) + '" ' + (filterEmp === emp ? 'selected' : '') + '>' + esc(emp) + '</option>').join('') +
+      '</select></label></div>' +
+      '<div class="dash-g">' +
+      '<section class="panel">' +
+      '<div class="s-h"><h2>All Employee Tasks (' + displayTasks.length + (filterEmp ? ' for ' + esc(filterEmp) : '') + ')</h2><button class="linkbtn" data-act="nav" data-v="tasks">View Full Tasks Grid</button></div>' +
+      (displayTasks.length ? '<div class="rows">' + taskRows + '</div>' : emptyLine('No tasks matching filter', 'Try clearing your employee filter or search keywords.')) +
+      (displayTasks.length > 15 ? '<button class="linkbtn more" data-act="nav" data-v="tasks" style="margin-top:12px;">See all ' + displayTasks.length + ' tasks</button>' : '') +
+      '</section>' +
+      '<section class="panel">' +
+      '<div class="s-h"><h2>Team Performance Analytics</h2></div>' +
+      '<h3>Tasks per Employee</h3>' +
+      '<div class="facts-l">' +
+      empList.slice(0, 8).map(emp => {
+        const count = allTasks.filter(t => String(t.owner).includes(emp)).length;
+        return '<button class="fl" data-act="filter-emp-quick" data-emp="' + esc(emp) + '"><span>' + esc(emp) + '</span><b>' + count + ' active</b></button>';
+      }).join('') +
+      '</div>' +
+      '<h3 style="margin-top:20px;">Execution Breakdown</h3>' +
+      '<div class="facts-l">' +
+      '<div class="fl"><span>Completion Rate</span><b>' + pct(allDone.length, allTasks.length + allDone.length) + '%</b></div>' +
+      '<div class="fl"><span>Blocked / Slipping</span><b>' + allTasks.filter(t => t.status === 'Blocked').length + ' blocked</b></div>' +
+      '<div class="fl"><span>In Review</span><b>' + allTasks.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)).length + ' review</b></div>' +
+      '</div></section></div></div>';
+  }
+
+  function vOverviewLegacy(st, aq) {
     if (taskOnly() && UI.me) return vHomeTask();
     const me = UI.me;
     const mineT = t => !me || isMine(t.owner) || isMine(t.accountable);
@@ -2277,7 +2738,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const filters = showF ? '<div class="filters">' +
       filterSel('tproject', 'Project', S.projects.map(p => [p.id, p.name])) +
       filterSel('tprio', 'Priority', opt('priorities').map(p => [p, p])) +
-      filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p]))) +
+      (!isManagementUser() && !ME.open ? '' : filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p])))) +
       (ff.tweek ? '<span class="quiet">Week of ' + fmtShort(ff.tweek) + '</span>' : '') +
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
 
@@ -2670,7 +3131,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   const sameName = (field, name) => !!name && !/^\s*tbd/i.test(String(field || '')) && String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === String(name).trim().toLowerCase());
   const isMine = v => sameName(v, UI.me);
   const ownsP = p => !!p && (isMine(p.owner) || isMine(p.accountable));
-  const isAdmin = () => ME.role === 'Administrator';
+  const isAdmin = () => isManagementUser();
   const canWrite = () => ME.role !== 'Viewer';
   const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
   const canManageT = t => canManageP(P(t.projectId));
@@ -3165,20 +3626,281 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     });
   }
 
-  // ---------- sign-in ----------
-  function showSignIn(msg) {
+  // ---------- authentication system ----------
+  let currentAuthMode = 'signin';
+  function showSignIn(mode, msg) {
+    if (typeof mode !== 'string') { msg = mode; mode = currentAuthMode || 'signin'; }
+    currentAuthMode = mode || 'signin';
     const box = $('#signin');
+    if (!box) return;
     box.hidden = false;
-    box.innerHTML = '<div class="signin-c"><img class="logo-l" src="' + $('.brand .logo-l').src + '" alt="Suraasa"><img class="logo-d" src="' + $('.brand .logo-d').src + '" alt="Suraasa"><h1>Control Tower</h1><p class="quiet">Sign in with your Suraasa Google account.</p><div id="gsi"></div>' + (msg ? '<p class="ferr" role="alert">' + esc(msg) + '</p>' : '') + '</div>';
-    const start = () => {
-      google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
-      google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
+
+    const lightLogo = $('.brand .logo-l') ? $('.brand .logo-l').src : '';
+    const darkLogo = $('.brand .logo-d') ? $('.brand .logo-d').src : '';
+    const errHtml = msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '';
+
+    let formHtml = '';
+    if (currentAuthMode === 'signin') {
+      formHtml = '<div class="auth-tabs">' +
+        '<button class="auth-tab on" data-auth-tab="signin">Sign In</button>' +
+        '<button class="auth-tab" data-auth-tab="signup">Sign Up</button>' +
+        '</div>' +
+        '<form class="auth-form" id="form-signin" onsubmit="return false;">' +
+        errHtml +
+        '<div class="auth-field"><label for="si-email">Official Suraasa Email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
+        '<div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password" required></div>' +
+        '<button type="submit" class="auth-btn" id="btn-do-signin">Sign In</button>' +
+        '<div class="auth-links">' +
+        '<button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>' +
+        '<button type="button" class="auth-link" data-auth-tab="signup">Create account</button>' +
+        '</div></form>';
+    } else if (currentAuthMode === 'signup') {
+      formHtml = '<div class="auth-tabs">' +
+        '<button class="auth-tab" data-auth-tab="signin">Sign In</button>' +
+        '<button class="auth-tab on" data-auth-tab="signup">Sign Up</button>' +
+        '</div>' +
+        '<form class="auth-form" id="form-signup" onsubmit="return false;">' +
+        errHtml +
+        '<div class="auth-field"><label for="su-name">Full Name</label><input type="text" id="su-name" placeholder="e.g. Akhand" autocomplete="name" required></div>' +
+        '<div class="auth-field"><label for="su-email">Official Suraasa Email</label><input type="email" id="su-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
+        '<div class="auth-field"><label for="su-pw">Password</label><input type="password" id="su-pw" placeholder="At least 6 characters" autocomplete="new-password" required></div>' +
+        '<div class="auth-field"><label for="su-conf-pw">Confirm Password</label><input type="password" id="su-conf-pw" placeholder="Re-enter password" autocomplete="new-password" required></div>' +
+        '<div class="auth-role-notice">Role is automatically detected based on company email (Management or Employee).</div>' +
+        '<button type="submit" class="auth-btn" id="btn-do-signup">Create Account</button>' +
+        '<div class="auth-links">' +
+        '<button type="button" class="auth-link" data-auth-tab="signin">Already have an account? Sign In</button>' +
+        '</div></form>';
+    } else if (currentAuthMode === 'forgot') {
+      formHtml = '<form class="auth-form" id="form-forgot" onsubmit="return false;">' +
+        '<h2 style="font-size:16px;font-weight:700;margin:0 0 4px 0;">Reset Password</h2>' +
+        '<p class="auth-sub" style="margin-bottom:8px;">Enter your company email to receive reset instructions.</p>' +
+        errHtml +
+        '<div class="auth-field"><label for="fo-email">Official Suraasa Email</label><input type="email" id="fo-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
+        '<button type="submit" class="auth-btn" id="btn-do-forgot">Send Reset Instructions</button>' +
+        '<div class="auth-links">' +
+        '<button type="button" class="auth-link" data-auth-tab="signin">Back to Sign In</button>' +
+        '<button type="button" class="auth-link" data-auth-tab="reset">Have a token? Reset</button>' +
+        '</div></form>';
+    } else if (currentAuthMode === 'reset') {
+      formHtml = '<form class="auth-form" id="form-reset" onsubmit="return false;">' +
+        '<h2 style="font-size:16px;font-weight:700;margin:0 0 4px 0;">Enter New Password</h2>' +
+        '<p class="auth-sub" style="margin-bottom:8px;">Use the token you received to set a new password.</p>' +
+        errHtml +
+        '<div class="auth-field"><label for="re-token">Reset Token</label><input type="text" id="re-token" placeholder="Paste reset token" required></div>' +
+        '<div class="auth-field"><label for="re-pw">New Password</label><input type="password" id="re-pw" placeholder="At least 6 characters" required></div>' +
+        '<div class="auth-field"><label for="re-conf">Confirm New Password</label><input type="password" id="re-conf" placeholder="Re-enter new password" required></div>' +
+        '<button type="submit" class="auth-btn" id="btn-do-reset">Set New Password</button>' +
+        '<div class="auth-links">' +
+        '<button type="button" class="auth-link" data-auth-tab="signin">Back to Sign In</button>' +
+        '</div></form>';
+    }
+
+    box.innerHTML = '<div class="signin-card">' +
+      '<div class="brand-header">' +
+      (lightLogo ? '<img class="logo-l" src="' + lightLogo + '" alt="Suraasa">' : '') +
+      (darkLogo ? '<img class="logo-d" src="' + darkLogo + '" alt="Suraasa">' : '') +
+      '<h1>Control Tower</h1>' +
+      '<p class="auth-sub">Sales Operations & Execution Dashboard</p>' +
+      '</div>' +
+      formHtml +
+      (SYNC.auth && SYNC.auth.clientId ? '<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;text-align:center;"><p class="quiet" style="font-size:12px;margin-bottom:8px;">Or sign in with Google Workspace</p><div id="gsi" style="display:flex;justify-content:center;"></div></div>' : '') +
+      '</div>';
+
+    box.querySelectorAll('[data-auth-tab]').forEach(el => {
+      el.onclick = e => { e.preventDefault(); showSignIn(el.dataset.authTab); };
+    });
+
+    const formSignIn = box.querySelector('#form-signin');
+    if (formSignIn) {
+      formSignIn.onsubmit = async () => {
+        const email = box.querySelector('#si-email').value.trim();
+        const password = box.querySelector('#si-pw').value;
+        const btn = box.querySelector('#btn-do-signin');
+        btn.disabled = true; btn.textContent = 'Signing in...';
+        const res = await SYNC.authLogin({ email, password });
+        if (!res.ok) showSignIn('signin', res.error || 'Failed to sign in.');
+      };
+    }
+    const formSignUp = box.querySelector('#form-signup');
+    if (formSignUp) {
+      formSignUp.onsubmit = async () => {
+        const fullName = box.querySelector('#su-name').value.trim();
+        const email = box.querySelector('#su-email').value.trim();
+        const password = box.querySelector('#su-pw').value;
+        const confPw = box.querySelector('#su-conf-pw').value;
+        if (password !== confPw) return showSignIn('signup', 'Passwords do not match.');
+        if (password.length < 6) return showSignIn('signup', 'Password must be at least 6 characters.');
+        const btn = box.querySelector('#btn-do-signup');
+        btn.disabled = true; btn.textContent = 'Creating account...';
+        const res = await SYNC.authSignUp({ fullName, email, password });
+        if (!res.ok) showSignIn('signup', res.error || 'Failed to create account.');
+      };
+    }
+    const formForgot = box.querySelector('#form-forgot');
+    if (formForgot) {
+      formForgot.onsubmit = async () => {
+        const email = box.querySelector('#fo-email').value.trim();
+        const btn = box.querySelector('#btn-do-forgot');
+        btn.disabled = true; btn.textContent = 'Sending...';
+        const res = await SYNC.authForgotPassword({ email });
+        if (res.ok) {
+          if (res.resetToken) {
+            showSignIn('reset', 'Reset token: ' + res.resetToken + '. Please enter your new password.');
+            const tInput = box.querySelector('#re-token'); if (tInput) tInput.value = res.resetToken;
+          } else {
+            showSignIn('signin', res.message || 'Reset instructions sent. Please sign in after resetting.');
+          }
+        } else showSignIn('forgot', res.error || 'Failed to process request.');
+      };
+    }
+    const formReset = box.querySelector('#form-reset');
+    if (formReset) {
+      formReset.onsubmit = async () => {
+        const token = box.querySelector('#re-token').value.trim();
+        const newPassword = box.querySelector('#re-pw').value;
+        const conf = box.querySelector('#re-conf').value;
+        if (newPassword !== conf) return showSignIn('reset', 'Passwords do not match.');
+        const btn = box.querySelector('#btn-do-reset');
+        btn.disabled = true; btn.textContent = 'Updating password...';
+        const res = await SYNC.authResetPassword({ token, newPassword });
+        if (res.ok) showSignIn('signin', 'Password reset successfully! Please sign in.');
+        else showSignIn('reset', res.error || 'Failed to reset password.');
+      };
+    }
+
+    if (SYNC.auth && SYNC.auth.clientId && $('#gsi')) {
+      const startGsi = () => {
+        try {
+          google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
+          google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
+        } catch (e) {}
+      };
+      if (window.google && window.google.accounts) startGsi();
+      else {
+        const s = document.createElement('script');
+        s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = startGsi;
+        document.head.appendChild(s);
+      }
+    }
+  }
+
+
+  // ---------- profile privacy modal ----------
+  function openProfileModal() {
+    if ($('#modal')) closeModal();
+    const modal = document.createElement('div');
+    modal.id = 'modal';
+    modal.className = 'modal-scrim';
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pf-title" style="width:min(460px,100%);">
+        <div class="modal-h">
+          <h2 id="pf-title">My Profile</h2>
+          <button class="iconbtn" data-act="modal-close" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-b" style="display:flex;flex-direction:column;gap:12px;">
+          <div class="f full">
+            <label>Official Company Email</label>
+            <input type="email" value="${esc(ME.email || '')}" readonly disabled style="background:var(--tint);cursor:not-allowed;">
+            <div class="hint">Unique company identity used for authorization and security.</div>
+          </div>
+          <div class="f full">
+            <label>Account Role</label>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+              <span class="pill ${isManagementUser() ? 'blue' : 'green'}">${esc(ME.role || 'employee')}</span>
+              <span class="quiet" style="font-size:12px;">${isManagementUser() ? 'Management User (Full task oversight)' : 'Employee (Private personal task access)'}</span>
+            </div>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--line);margin:8px 0;">
+          <form id="pf-form" onsubmit="return false;" style="display:flex;flex-direction:column;gap:12px;">
+            <div class="f full">
+              <label for="pf-name">Full Name</label>
+              <input id="pf-name" type="text" value="${esc(ME.name || UI.me || '')}" required>
+            </div>
+            <h3 style="font-size:14px;font-weight:700;margin:10px 0 0 0;">Change Password</h3>
+            <div class="f full">
+              <label for="pf-cur-pw">Current Password</label>
+              <input id="pf-cur-pw" type="password" placeholder="Required only if changing password">
+            </div>
+            <div class="f full">
+              <label for="pf-new-pw">New Password</label>
+              <input id="pf-new-pw" type="password" placeholder="Minimum 6 characters">
+            </div>
+            <div class="f full">
+              <label for="pf-conf-pw">Confirm New Password</label>
+              <input id="pf-conf-pw" type="password" placeholder="Re-enter new password">
+            </div>
+            <div id="pf-err" class="ferr" style="display:none;margin-top:6px;" role="alert"></div>
+            <div class="btnrow" style="margin-top:16px;">
+              <button type="submit" class="btn primary" id="pf-save-btn">Save Profile Changes</button>
+              <button type="button" class="btn" data-act="modal-close">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    $('#modal-root').appendChild(modal);
+
+    const form = modal.querySelector('#pf-form');
+    form.onsubmit = async () => {
+      const fullName = modal.querySelector('#pf-name').value.trim();
+      const curPw = modal.querySelector('#pf-cur-pw').value;
+      const newPw = modal.querySelector('#pf-new-pw').value;
+      const confPw = modal.querySelector('#pf-conf-pw').value;
+      const errBox = modal.querySelector('#pf-err');
+      errBox.style.display = 'none';
+
+      if (!fullName) {
+        errBox.textContent = 'Please enter your full name.';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (newPw) {
+        if (newPw.length < 6) {
+          errBox.textContent = 'New password must be at least 6 characters.';
+          errBox.style.display = 'block';
+          return;
+        }
+        if (newPw !== confPw) {
+          errBox.textContent = 'New passwords do not match.';
+          errBox.style.display = 'block';
+          return;
+        }
+        if (!curPw) {
+          errBox.textContent = 'Please enter your current password to set a new password.';
+          errBox.style.display = 'block';
+          return;
+        }
+      }
+
+      const saveBtn = modal.querySelector('#pf-save-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      try {
+        const res = await SYNC.updateProfile({
+          fullName,
+          currentPassword: curPw,
+          newPassword: newPw
+        });
+        if (!res.ok) {
+          errBox.textContent = res.error || 'Failed to update profile.';
+          errBox.style.display = 'block';
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Profile Changes';
+          return;
+        }
+        ME.name = fullName;
+        UI.me = fullName;
+        try { localStorage.setItem('sct_me', fullName); } catch (e) {}
+        closeModal();
+        toast('Profile updated successfully!');
+        render();
+      } catch (err) {
+        errBox.textContent = 'Network error. Please try again.';
+        errBox.style.display = 'block';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Profile Changes';
+      }
     };
-    if (window.google && window.google.accounts) return start();
-    const s = document.createElement('script');
-    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = start;
-    s.onerror = () => { $('#gsi').textContent = 'Could not load Google sign-in. Check your connection and refresh.'; };
-    document.head.appendChild(s);
   }
 
   // ---------- forms ----------
@@ -3980,21 +4702,80 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       return res.json();
     },
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
-    needSignIn(msg) { this.session = ''; try { localStorage.removeItem('sct_session'); } catch (e) { /* private window */ } this.checking = false; showSignIn(msg); },
+    needSignIn(msg) { this.session = ''; try { localStorage.removeItem('sct_session'); } catch (e) { /* private window */ } this.checking = false; showSignIn('signin', msg); },
+    async authLogin(payload) {
+      try {
+        const r = await this.request(Object.assign({ action: 'login' }, payload));
+        if (!r.ok) return r;
+        this.session = r.session;
+        try { localStorage.setItem('sct_session', r.session); } catch (e) {}
+        if (r.user) {
+          ME.email = r.user.email;
+          ME.name = r.user.name || r.user.full_name;
+          ME.role = r.user.role;
+          ME.isManagement = !!r.user.isManagement;
+          UI.me = ME.name;
+          try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
+        }
+        $('#signin').hidden = true;
+        await this.pull(false);
+        render();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: 'Could not connect to the server. Please check your connection.' };
+      }
+    },
+    async authSignUp(payload) {
+      try {
+        const r = await this.request(Object.assign({ action: 'signup' }, payload));
+        if (!r.ok) return r;
+        this.session = r.session;
+        try { localStorage.setItem('sct_session', r.session); } catch (e) {}
+        if (r.user) {
+          ME.email = r.user.email;
+          ME.name = r.user.name || r.user.full_name;
+          ME.role = r.user.role;
+          ME.isManagement = !!r.user.isManagement;
+          UI.me = ME.name;
+          try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
+        }
+        $('#signin').hidden = true;
+        await this.pull(false);
+        render();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: 'Could not connect to the server. Please check your connection.' };
+      }
+    },
+    async authForgotPassword(payload) {
+      return this.request(Object.assign({ action: 'forgot_password' }, payload));
+    },
+    async authResetPassword(payload) {
+      return this.request(Object.assign({ action: 'reset_password' }, payload));
+    },
+    async updateProfile(payload) {
+      return this.request(Object.assign({ action: 'update_profile' }, payload));
+    },
     async login(idToken) {
       try {
         const r = await this.request({ action: 'login', idToken });
-        if (!r.ok) return showSignIn(r.error);
+        if (!r.ok) return showSignIn('signin', r.error);
         this.session = r.session;
         try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
+        if (r.user) {
+          ME.email = r.user.email; ME.name = r.user.name || r.user.full_name;
+          ME.role = r.user.role; ME.isManagement = !!r.user.isManagement;
+          UI.me = ME.name;
+        }
         $('#signin').hidden = true;
         await this.pull(true);
-      } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
+      } catch (e) { showSignIn('signin', 'Could not reach the Sheet. Check your connection and try again.'); }
     },
-    signOut() {
+    async signOut() {
       if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      try { await this.request({ action: 'logout' }); } catch (e) {}
       this.needSignIn('');
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); } catch (e) { /* private window */ }
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_session'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
@@ -4083,8 +4864,9 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         const state = data.state || data;
         if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The Sheet sent something unexpected.');
         if (data.me) {
-          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || '';
-          if (this.auth.required) { UI.me = ME.name; ME.open = false; }
+          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || data.me.full_name || '';
+          ME.isManagement = !!data.me.isManagement;
+          if (this.auth.required || !ME.open) { UI.me = ME.name; }
         }
         if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
         const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
@@ -4236,6 +5018,10 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       if (!(hay + ' ' + t).toLowerCase().includes(q)) return;
       out.push({ kind, title, sub, act, attrs, score: t.startsWith(q) ? 0 : t.includes(q) ? 1 : 2 });
     };
+    if (!isManagementUser() && !ME.open) {
+      S.tasks.forEach(t => add(t.parent ? 'Subtask' : 'Task', t.name, pName(t.projectId), 'open-task', 'data-id="' + esc(t.id) + '"', t.id + ' ' + t.owner + ' ' + (t.desc || '') + ' ' + (t.deliverable || '') + ' ' + (t.notes || []).map(n => n.text).join(' ')));
+      return out.sort((a, b) => a.score - b.score);
+    }
     S.projects.forEach(p => add('Project', p.name, '', 'open', 'data-id="' + esc(p.id) + '"', p.id + ' ' + p.owner + ' ' + p.category + ' ' + p.objective));
     S.tasks.forEach(t => add(t.parent ? 'Subtask' : 'Task', t.name, pName(t.projectId), 'open-task', 'data-id="' + esc(t.id) + '"', t.id + ' ' + t.owner + ' ' + (t.desc || '') + ' ' + (t.deliverable || '') + ' ' + (t.notes || []).map(n => n.text).join(' ')));
     S.projects.forEach(p => (p.milestones || []).forEach(m => add('Milestone', m.name, p.name, 'open', 'data-id="' + esc(p.id) + '" data-tab="plan"', m.id)));
@@ -4606,6 +5392,12 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         commit('Restored ' + x.recordId);
       },
       'sign-out': () => SYNC.signOut(),
+      'open-profile': () => openProfileModal(),
+      'filter-emp-quick': () => { UI.mgmtEmpFilter = el.dataset.emp || ''; render(); },
+      'quick-status': () => {
+        const t = S.tasks.find(x => x.id === id);
+        if (t && el.dataset.to) setStatus(t, el.dataset.to);
+      },
       'find-person': () => { UI.filters = { towner: el.dataset.o }; UI.tasksTouched = true; go('tasks', { tab: 'pending' }); },
       'close-project': () => {
         const p = P(id), open = pTasks(id).filter(ENGINE.isOpen).length;
@@ -4660,12 +5452,22 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       const t = S.tasks.find(x => x.id === id);
       if (t) setStatus(t, el.value);
     }
+    if (e.target && e.target.id === 'mgmt-emp-filter') {
+      UI.mgmtEmpFilter = e.target.value;
+      render();
+    }
   });
 
   // Draft notes survive closing the panel by accident.
   document.addEventListener('input', e => {
     if (e.target.id === 'tu-text' && UI.taskId) { try { localStorage.setItem('sct_draft_' + UI.taskId, e.target.value); } catch (err) { /* private window */ } }
     if (e.target.id === 'audit-q') { UI.auditQ = e.target.value; render(); const q = $('#audit-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    if (e.target && e.target.id === 'mgmt-search-q') {
+      UI.mgmtSearchQ = e.target.value;
+      render();
+      const input = $('#mgmt-search-q');
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    }
   });
 
   // Board: drag a card to another column.
@@ -4789,7 +5591,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   SYNC.init();
   render();
   SYNC.boot();
-  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson };
+  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render };
 })();
 
 </script>

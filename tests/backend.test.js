@@ -462,5 +462,166 @@ test('every direct Sheet edit is logged, even inside the debounce window', () =>
   b.ctx.onEdit(e()); b.ctx.onEdit(e());
   assert.strictEqual(b.post({ action: 'pull' }).state.audit.filter(a => a.action === 'sheet_edit').length, 2);
 });
+test('automatic role detection on signup: 5 management emails get management, others get employee', () => {
+  const b = secured();
+  // 1. Management emails
+  const mgmtRes = b.post({ action: 'signup', email: 'ankit@suraasa.com', fullName: 'Ankit Khanna', password: 'password123' });
+  assert.ok(mgmtRes.ok, JSON.stringify(mgmtRes));
+  assert.strictEqual(mgmtRes.user.role, 'management');
+  assert.strictEqual(mgmtRes.user.isManagement, true);
+
+  const rkRes = b.post({ action: 'signup', email: 'rk@suraasa.com', fullName: 'Rishabh Khanna', password: 'password123' });
+  assert.ok(rkRes.ok);
+  assert.strictEqual(rkRes.user.role, 'management');
+  assert.strictEqual(rkRes.user.isManagement, true);
+
+  // 2. Regular employee emails
+  const empRes = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123', role: 'admin' });
+  assert.ok(empRes.ok);
+  // User cannot self-assign admin role! Role must be automatically detected as employee
+  assert.strictEqual(empRes.user.role, 'employee');
+  assert.strictEqual(empRes.user.isManagement, false);
+
+  const someshRes = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
+  assert.strictEqual(someshRes.user.role, 'employee');
+  assert.strictEqual(someshRes.user.isManagement, false);
+});
+
+test('email and password authentication and secure login verification', () => {
+  const b = secured();
+  b.post({ action: 'signup', email: 'deepansh@suraasa.com', fullName: 'Deepansh', password: 'securePassword456' });
+
+  // Correct login
+  const okLogin = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'securePassword456' });
+  assert.ok(okLogin.ok);
+  assert.ok(okLogin.session);
+  assert.strictEqual(okLogin.user.email, 'deepansh@suraasa.com');
+
+  // Wrong password
+  const badLogin = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'wrongPassword' });
+  assert.strictEqual(badLogin.ok, false);
+  assert.ok(badLogin.error);
+
+  // Non-existent email
+  const noUser = b.post({ action: 'login', email: 'nonexistent@suraasa.com', password: 'any' });
+  assert.strictEqual(noUser.ok, false);
+});
+
+test('regular employee receives ONLY their own tasks in pull; management receives all tasks', () => {
+  const b = secured();
+  const ad = session(b, 'admin@suraasa.com');
+  const allSt = b.post({ action: 'pull', session: ad }).state;
+
+  // Assign a task to Akhand
+  const t = allSt.tasks[0];
+  b.post({ action: 'apply', session: ad, ops: [{ c: 'tasks', id: t.id, set: { owner: 'Akhand' }, base: { owner: t.owner } }] });
+
+  // Akhand signs up and pulls state
+  const akhandSign = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123' });
+  const akhandPull = b.post({ action: 'pull', session: akhandSign.session });
+  assert.ok(akhandPull.ok);
+  assert.ok(akhandPull.state.tasks.length > 0);
+  // Every task returned to Akhand must belong to Akhand!
+  for (const task of akhandPull.state.tasks) {
+    assert.ok(task.owner === 'Akhand' || task.accountable === 'Akhand', 'Akhand must only see own tasks');
+  }
+  // Akhand cannot see user directory
+  assert.strictEqual(akhandPull.state.users, undefined);
+
+  // Management user (Manish Pandey) signs up and pulls state
+  const manishSign = b.post({ action: 'signup', email: 'manish@suraasa.com', fullName: 'Manish Pandey', password: 'password123' });
+  const manishPull = b.post({ action: 'pull', session: manishSign.session });
+  assert.ok(manishPull.ok);
+  // Management user sees all tasks across all employees
+  assert.strictEqual(manishPull.state.tasks.length, allSt.tasks.length);
+  assert.ok(Array.isArray(manishPull.state.users));
+});
+
+test('regular employee cannot modify another employees tasks', () => {
+  const b = secured();
+  const ad = session(b, 'admin@suraasa.com');
+  const allSt = b.post({ action: 'pull', session: ad }).state;
+  const someshTask = allSt.tasks[0];
+  const deepanshTask = allSt.tasks[1];
+
+  b.post({ action: 'apply', session: ad, ops: [
+    { c: 'tasks', id: someshTask.id, set: { owner: 'Somesh' }, base: { owner: someshTask.owner } },
+    { c: 'tasks', id: deepanshTask.id, set: { owner: 'Deepansh' }, base: { owner: deepanshTask.owner } }
+  ] });
+
+  const someshSign = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
+
+  // Somesh can update his own task
+  const someshUpdate = b.post({ action: 'apply', session: someshSign.session, ops: [
+    { c: 'tasks', id: someshTask.id, set: { progress: 50 }, base: { progress: someshTask.progress } }
+  ] });
+  assert.ok(someshUpdate.ok);
+
+  // Somesh attempts to modify Deepanshs task -> rejected!
+  const someshTamper = b.post({ action: 'apply', session: someshSign.session, ops: [
+    { c: 'tasks', id: deepanshTask.id, set: { progress: 80 }, base: { progress: deepanshTask.progress } }
+  ] });
+  assert.strictEqual(someshTamper.ok, false);
+  assert.strictEqual(someshTamper.rejected[0].code, 'denied');
+});
+
+test('profile privacy: user can view/update own profile only', () => {
+  const b = secured();
+  const akhand = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123' });
+
+  // Update own full name
+  const upName = b.post({ action: 'update_profile', session: akhand.session, fullName: 'Akhand Pratap' });
+  assert.ok(upName.ok);
+  assert.strictEqual(upName.user.full_name, 'Akhand Pratap');
+
+  // Change password with correct current password
+  const upPw = b.post({ action: 'update_profile', session: akhand.session, currentPassword: 'password123', newPassword: 'newPassword789' });
+  assert.ok(upPw.ok);
+
+  // Old password no longer works
+  const oldLogin = b.post({ action: 'login', email: 'akhand@suraasa.com', password: 'password123' });
+  assert.strictEqual(oldLogin.ok, false);
+
+  // New password works
+  const newLogin = b.post({ action: 'login', email: 'akhand@suraasa.com', password: 'newPassword789' });
+  assert.ok(newLogin.ok);
+});
+
+test('forgot password and password reset token flow', () => {
+  const b = secured();
+  b.post({ action: 'signup', email: 'deepansh@suraasa.com', fullName: 'Deepansh', password: 'initialPassword' });
+
+  // Request reset
+  const forgot = b.post({ action: 'forgot_password', email: 'deepansh@suraasa.com' });
+  assert.ok(forgot.ok);
+  assert.ok(forgot.resetToken);
+
+  // Reset with token
+  const reset = b.post({ action: 'reset_password', token: forgot.resetToken, newPassword: 'resetPassword123' });
+  assert.ok(reset.ok);
+
+  // Login with reset password
+  const login = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'resetPassword123' });
+  assert.ok(login.ok);
+});
+
+test('logout invalidates session token', () => {
+  const b = secured();
+  const log = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
+  assert.ok(log.ok);
+
+  // Pull works with valid session
+  assert.ok(b.post({ action: 'pull', session: log.session }).ok);
+
+  // Logout
+  const out = b.post({ action: 'logout', session: log.session });
+  assert.ok(out.ok);
+
+  // Pull fails after logout
+  const afterOut = b.post({ action: 'pull', session: log.session });
+  assert.strictEqual(afterOut.ok, false);
+  assert.strictEqual(afterOut.auth, true);
+});
+
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

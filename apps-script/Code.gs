@@ -260,13 +260,15 @@ function fullPull_(a) {
   var m = metaMap_();
   try { if (m.options) res.state.options = JSON.parse(m.options); } catch (x) {}
   res.state = scopeState_(res.state, a);
-  if (a.role === 'Administrator') {
-    res.state.users = users_();
+  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) {
+    res.state.users = users_().map(function (u) {
+      return { email: u.email, name: u.name, full_name: u.full_name || u.name, role: u.role, active: u.active };
+    });
     res.state.trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
       return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
     });
   }
-  res.me = { name: a.name || '', email: a.email || '', role: a.role };
+  res.me = publicUser_(a);
   res.auth = { required: authCfg_().required };
   return res;
 }
@@ -279,8 +281,13 @@ function doPost(e) {
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
+    if (action === 'signup') return json_(signup_(body));
+    if (action === 'forgot_password') return json_(forgotPassword_(body));
+    if (action === 'reset_password') return json_(resetPassword_(body));
+    if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
     if (!a) return json_(authError_());
+    if (action === 'update_profile') return json_(updateProfile_(body, a));
     lock.waitLock(25000); locked = true;
     if (action === 'pull') return json_(fullPull_(a));
     if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
@@ -485,8 +492,44 @@ function splitList_(v) {
 //  travel in each tab's _extra column.
 // ============================================================
 var USERS_SHEET = 'Users', AUDIT_SHEET = 'AuditLog', TRASH_SHEET = 'Trash', SNAP_SHEET = 'Snapshots';
-var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'];
-var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt'];
+var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer', 'admin', 'management', 'employee'];
+var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'id', 'full_name', 'password_hash', 'salt', 'created_at', 'updated_at', 'reset_token', 'reset_expires'];
+var MANAGEMENT_EMAILS = [
+  'ankit@suraasa.com',
+  'manish@suraasa.com',
+  'rk@suraasa.com',
+  'shrayansh.sood@suraasa.com',
+  'divya@suraasa.com'
+];
+
+function isManagementEmail_(email) {
+  return MANAGEMENT_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0;
+}
+
+function isManagementRole_(role) {
+  return role === 'admin' || role === 'management' || role === 'Administrator';
+}
+
+function isEmployeeRole_(role) {
+  return role === 'employee' || role === 'Task Owner' || role === 'Viewer';
+}
+
+function generateSalt_() {
+  return Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+}
+
+function hashPassword_(password, salt) {
+  var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(salt) + ':' + String(password), Utilities.Charset.UTF_8);
+  var hex = '';
+  for (var i = 0; i < raw.length; i++) {
+    var b = raw[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    if (h.length === 1) hex += '0';
+    hex += h;
+  }
+  return hex;
+}
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
@@ -526,6 +569,13 @@ function ensureSystemTabs_() {
       sh.setFrozenRows(1);
       sh.getRange(2, 1, Math.max(sh.getMaxRows() - 1, 1), t[1].length).setNumberFormat('@');
       if (t[0] !== USERS_SHEET) { try { sh.protect().setWarningOnly(true); } catch (x) { /* protection is a courtesy only */ } }
+    } else if (t[0] === USERS_SHEET) {
+      var lc = sh.getLastColumn();
+      if (lc > 0 && lc < USER_COLS.length) {
+        var needed = USER_COLS.slice(lc);
+        sh.getRange(1, lc + 1, 1, needed.length).setValues([needed]);
+        sh.getRange(1, 1, 1, USER_COLS.length).setFontWeight('bold').setBackground('#0f172a').setFontColor('#ffffff');
+      }
     }
   });
 }
@@ -535,7 +585,16 @@ function users_() {
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, USER_COLS.length).getValues().filter(function (r) { return r[0] !== ''; }).map(function (r) {
-    return { email: String(r[0]).trim().toLowerCase(), name: String(r[1]).trim(), role: ROLES.indexOf(String(r[2])) >= 0 ? String(r[2]) : 'Viewer', active: toBool_(r[3]), addedBy: String(r[4] || ''), addedAt: String(r[5] || '') };
+    var u = {};
+    USER_COLS.forEach(function (c, idx) {
+      u[c] = cell_(r[idx]);
+    });
+    u.email = String(u.email || '').trim().toLowerCase();
+    u.name = String(u.name || u.full_name || '').trim();
+    u.full_name = String(u.full_name || u.name || '').trim();
+    u.role = ROLES.indexOf(String(u.role)) >= 0 ? String(u.role) : (isManagementEmail_(u.email) ? 'management' : 'employee');
+    u.active = toBool_(u.active);
+    return u;
   });
 }
 function userByEmail_(email) {
@@ -544,32 +603,228 @@ function userByEmail_(email) {
 }
 function login_(body) {
   var cfg = authCfg_();
+  // 1. Email and password authentication
+  if (body.email && body.password) {
+    var email = String(body.email).trim().toLowerCase();
+    var u = userByEmail_(email);
+    if (!u) return { ok: false, auth: true, error: 'No account found with this email. Please sign up.' };
+    if (!u.active) return { ok: false, auth: true, denied: true, error: 'Your account is inactive. Please contact an administrator.' };
+    if (!u.password_hash || !u.salt) {
+      return { ok: false, auth: true, error: 'Password not set for this account. Please sign up or reset your password.' };
+    }
+    var computed = hashPassword_(body.password, u.salt);
+    if (computed !== u.password_hash) {
+      return { ok: false, auth: true, error: 'Incorrect email or password. Please try again.' };
+    }
+    var token = Utilities.getUuid();
+    CacheService.getScriptCache().put('sess:' + token, email, 21600);
+    return { ok: true, session: token, user: publicUser_(u) };
+  }
+
+  // 2. Google OAuth idToken (for Google Sign-In and tests)
+  if (body.idToken) {
+    var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
+    var t = JSON.parse(res.getContentText());
+    var gEmail = String(t.email || '').toLowerCase();
+    if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
+    if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
+    if (gEmail.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
+    if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
+    var gu = userByEmail_(gEmail);
+    if (!gu || !gu.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + gEmail + '.' };
+    var gToken = Utilities.getUuid();
+    CacheService.getScriptCache().put('sess:' + gToken, gEmail, 21600);
+    return { ok: true, session: gToken, user: publicUser_(gu) };
+  }
+
   if (!cfg.required) return { ok: true, open: true };
-  if (!body.idToken) return { ok: false, auth: true, error: 'Sign in with your Suraasa Google account.' };
-  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
-  if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
-  var t = JSON.parse(res.getContentText());
-  var email = String(t.email || '').toLowerCase();
-  if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
-  if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
-  if (email.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
-  if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
-  var u = userByEmail_(email);
-  if (!u || !u.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + email + '.' };
+  return { ok: false, auth: true, error: 'Please enter your email and password to sign in.' };
+}
+
+function signup_(body) {
+  var email = String(body.email || '').trim().toLowerCase();
+  var fullName = String(body.fullName || body.full_name || body.name || '').trim();
+  var password = String(body.password || '');
+
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { ok: false, error: 'Please enter a valid email address.' };
+  }
+  var domain = (authCfg_().domain || 'suraasa.com').toLowerCase();
+  if (email.split('@')[1] !== domain) {
+    return { ok: false, error: 'Please use your official @' + domain + ' company email address.' };
+  }
+  if (!fullName) {
+    return { ok: false, error: 'Please enter your full name.' };
+  }
+  if (!password || password.length < 6) {
+    return { ok: false, error: 'Password must be at least 6 characters long.' };
+  }
+
+  var existing = userByEmail_(email);
+  if (existing && existing.password_hash) {
+    return { ok: false, error: 'An account with this email already exists. Please sign in.' };
+  }
+
+  // Automatic Role Detection: 5 management emails get management, all other employees get employee
+  var role = isManagementEmail_(email) ? 'management' : 'employee';
+  if (existing && isManagementRole_(existing.role)) {
+    role = existing.role;
+  }
+
+  var salt = generateSalt_();
+  var hash = hashPassword_(password, salt);
+  var now = new Date().toISOString();
+
+  var userRec = {
+    id: (existing && existing.id) ? existing.id : Utilities.getUuid(),
+    email: email,
+    name: fullName,
+    full_name: fullName,
+    role: role,
+    active: true,
+    addedBy: (existing && existing.addedBy) ? existing.addedBy : 'signup',
+    addedAt: (existing && existing.addedAt) ? existing.addedAt : now,
+    password_hash: hash,
+    salt: salt,
+    created_at: (existing && existing.created_at) ? existing.created_at : now,
+    updated_at: now,
+    reset_token: '',
+    reset_expires: ''
+  };
+
+  writeUser_(existing, userRec);
+
   var token = Utilities.getUuid();
   CacheService.getScriptCache().put('sess:' + token, email, 21600);
-  return { ok: true, session: token, user: publicUser_(u) };
+  return { ok: true, session: token, user: publicUser_(userRec) };
 }
-function publicUser_(u) { return { email: u.email, name: u.name, role: u.role }; }
+
+function forgotPassword_(body) {
+  var email = String(body.email || '').trim().toLowerCase();
+  if (!email) return { ok: false, error: 'Please enter your email address.' };
+  var u = userByEmail_(email);
+  if (!u || !u.active) {
+    return { ok: true, message: 'If an active account exists for that email, password reset instructions have been generated.' };
+  }
+  var resetToken = Utilities.getUuid().replace(/-/g, '').slice(0, 32);
+  var expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
+  u.reset_token = resetToken;
+  u.reset_expires = expires;
+  u.updated_at = new Date().toISOString();
+  writeUser_(u, u);
+  return {
+    ok: true,
+    resetToken: resetToken,
+    message: 'Password reset token generated. Use it to set a new password.'
+  };
+}
+
+function resetPassword_(body) {
+  var email = String(body.email || '').trim().toLowerCase();
+  var token = String(body.token || body.resetToken || '').trim();
+  var newPassword = String(body.newPassword || body.password || '');
+
+  if (!newPassword || newPassword.length < 6) {
+    return { ok: false, error: 'New password must be at least 6 characters long.' };
+  }
+  if (!token) {
+    return { ok: false, error: 'Invalid or missing reset token.' };
+  }
+
+  var u = null;
+  if (email) {
+    u = userByEmail_(email);
+  } else {
+    u = users_().filter(function (x) { return x.reset_token === token; })[0] || null;
+  }
+
+  if (!u || u.reset_token !== token) {
+    return { ok: false, error: 'Invalid or expired reset token.' };
+  }
+
+  var nowIso = new Date().toISOString();
+  if (u.reset_expires && u.reset_expires < nowIso) {
+    return { ok: false, error: 'Password reset link has expired. Please request a new one.' };
+  }
+
+  var salt = generateSalt_();
+  var hash = hashPassword_(newPassword, salt);
+  u.salt = salt;
+  u.password_hash = hash;
+  u.reset_token = '';
+  u.reset_expires = '';
+  u.updated_at = nowIso;
+  writeUser_(u, u);
+
+  return { ok: true, message: 'Password reset successfully. You can now sign in.' };
+}
+
+function updateProfile_(body, a) {
+  if (!a || !a.email) return authError_();
+  var u = userByEmail_(a.email);
+  if (!u) return { ok: false, error: 'User profile not found.' };
+
+  var fullName = String(body.fullName || body.full_name || body.name || '').trim();
+  var currentPassword = String(body.currentPassword || body.current_password || '');
+  var newPassword = String(body.newPassword || body.new_password || '');
+
+  if (fullName) {
+    u.full_name = fullName;
+    u.name = fullName;
+  }
+
+  if (newPassword) {
+    if (newPassword.length < 6) {
+      return { ok: false, error: 'New password must be at least 6 characters long.' };
+    }
+    if (u.password_hash) {
+      if (!currentPassword || hashPassword_(currentPassword, u.salt) !== u.password_hash) {
+        return { ok: false, error: 'Current password is incorrect.' };
+      }
+    }
+    var salt = generateSalt_();
+    u.salt = salt;
+    u.password_hash = hashPassword_(newPassword, salt);
+  }
+
+  u.updated_at = new Date().toISOString();
+  writeUser_(u, u);
+  return { ok: true, user: publicUser_(u), message: 'Profile updated successfully.' };
+}
+
+function logout_(body) {
+  if (body && body.session) {
+    try {
+      CacheService.getScriptCache().remove('sess:' + body.session);
+    } catch (e) {}
+  }
+  return { ok: true };
+}
+
+function publicUser_(u) {
+  var isMgmt = isManagementRole_(u.role) || isManagementEmail_(u.email);
+  return {
+    email: u.email,
+    name: u.name || u.full_name || '',
+    full_name: u.full_name || u.name || '',
+    role: u.role,
+    isManagement: isMgmt
+  };
+}
+
 /** Returns who is calling. Role is read fresh on every request, so a role change applies at once. */
 function actor_(body) {
   var cfg = authCfg_();
-  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), role: 'Administrator' };
-  if (!body.session) return null;
-  var email = CacheService.getScriptCache().get('sess:' + body.session);
-  if (!email) return null;
-  var u = userByEmail_(email);
-  return u && u.active ? publicUser_(u) : null;
+  if (body.session) {
+    var email = CacheService.getScriptCache().get('sess:' + body.session);
+    if (email) {
+      var u = userByEmail_(email);
+      if (u && u.active) return publicUser_(u);
+    }
+  }
+  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), role: 'Administrator', isManagement: true };
+  return null;
 }
 function authError_() { return { ok: false, auth: true, error: 'Your session has ended. Sign in again.' }; }
 
@@ -581,22 +836,59 @@ function isMine_(field, name) {
 }
 function ownsProject_(p, a) { return !!p && (isMine_(p.owner, a.name) || isMine_(p.accountable, a.name)); }
 function canSeeProject_(p, tasks, a) {
-  if (a.role === 'Administrator' || !p.restricted) return true;
+  if (isManagementRole_(a.role) || !p.restricted) return true;
   if (ownsProject_(p, a) || isMine_(p.sponsor, a.name)) return true;
   if ((p.members || []).some(function (m) { return isMine_(m, a.name); })) return true;
   return tasks.some(function (t) { return t.projectId === p.id && isMine_(t.owner, a.name); });
 }
+
+function isTaskMine_(t, a) {
+  if (!t || !a) return false;
+  var email = String(a.email || '').trim().toLowerCase();
+  var name = String(a.name || '').trim().toLowerCase();
+  var full = String(a.full_name || '').trim().toLowerCase();
+  if (name && (isMine_(t.owner, name) || isMine_(t.accountable, name))) return true;
+  if (full && (isMine_(t.owner, full) || isMine_(t.accountable, full))) return true;
+  var ownerStr = String(t.owner || '').trim().toLowerCase();
+  var assignedStr = String(t.assigned_to || t.assignedTo || '').trim().toLowerCase();
+  if (email && (ownerStr === email || assignedStr === email)) return true;
+  return false;
+}
+
 function scopeState_(state, a) {
-  if (a.role === 'Administrator') return state;
+  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) return state;
   var seen = {};
   state.projects = state.projects.filter(function (p) { var ok = canSeeProject_(p, state.tasks, a); if (ok) seen[p.id] = true; return ok; });
-  ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
-    state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
-  });
+  if (a.role === 'employee') {
+    var myTasks = (state.tasks || []).filter(function (t) { return isTaskMine_(t, a); });
+    var myTaskIds = {};
+    myTasks.forEach(function (t) { myTaskIds[t.id] = true; });
+    var changed = true;
+    while (changed) {
+      changed = false;
+      (state.tasks || []).forEach(function (t) {
+        if (!myTaskIds[t.id] && t.parent && myTaskIds[t.parent]) {
+          myTaskIds[t.id] = true;
+          myTasks.push(t);
+          changed = true;
+        }
+      });
+    }
+    state.tasks = myTasks;
+  } else {
+    ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
+      state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
+    });
+  }
   var general = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
-  state.audit = (state.audit || []).filter(function (r) { return r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0; });
+  state.audit = (state.audit || []).filter(function (r) {
+    if (r.taskId) return (state.tasks || []).some(function (t) { return t.id === r.taskId; });
+    return r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0;
+  });
   state.snapshots = (state.snapshots || []).filter(function (r) { return seen[r.projectId]; });
-  state.activity = []; // the old free-text list names projects and has no project field to filter on
+  state.activity = [];
+  delete state.users;
+  delete state.trash;
   return state;
 }
 function changedFields_(cur, next) {
@@ -609,9 +901,17 @@ function changedFields_(cur, next) {
 }
 /** Returns a refusal message, or '' when allowed. Checked on the server for every record. */
 function deny_(a, coll, cur, next, st) {
-  if (a.role === 'Administrator') return '';
+  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) return '';
   if (a.role === 'Viewer') return 'Viewers cannot change anything.';
-  if (['governance', 'options', 'users', 'roles', 'programs'].indexOf(coll) >= 0) return 'Only an administrator can change this.';
+  if (['governance', 'options', 'roles', 'programs'].indexOf(coll) >= 0) return 'Only an administrator can change this.';
+  if (coll === 'users') {
+    if (cur && cur.email === a.email.toLowerCase() && next && next.email === a.email.toLowerCase()) {
+      if (cur.role !== next.role) return 'You cannot change your own role.';
+      if (cur.active !== next.active) return 'You cannot change your active status.';
+      return '';
+    }
+    return 'You can only view and edit your own profile.';
+  }
   var rec = next || cur;
   var byId = function (id) { return st.projects.filter(function (p) { return p.id === id; })[0]; };
   if (coll === 'projects') {
@@ -630,17 +930,29 @@ function deny_(a, coll, cur, next, st) {
     var off = changedFields_(cur, next).filter(function (f) { return f === 'owner' || f === 'responsible'; });
     return off.length ? 'Ask the project owner to reassign this.' : '';
   }
-  if (coll === 'tasks' && cur && next) {
-    if (!isMine_(cur.owner, a.name)) {
+  if (coll === 'tasks') {
+    var checkT = cur || next;
+    var isOwn = isTaskMine_(checkT, a) || (checkT && isMine_(checkT.owner, a.name));
+    if (!isOwn && !ownsProject_(proj, a)) {
       var cf = changedFields_(cur, next);
-      return cf.length === 1 && APPEND_ONLY.indexOf(cf[0]) >= 0 ? '' : 'Only the task owner or project owner can change this task.';
+      if (cf.length === 1 && APPEND_ONLY.indexOf(cf[0]) >= 0) return '';
+      return 'You do not have permission to modify another employee\'s tasks.';
     }
-    var bad = changedFields_(cur, next).filter(function (f) { return TASK_OWNER_FIELDS.indexOf(f) < 0; });
-    return bad.length ? 'Task owners cannot change ' + bad.join(', ') + '. Ask the project owner.' : '';
-  }
-  if (coll === 'tasks' && !cur && next && next.parent) {
-    var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
-    return parent && parent.projectId === next.projectId && isMine_(parent.owner, a.name) ? '' : 'You can add subtasks only to your own tasks.';
+    if (cur && next) {
+      if (!ownsProject_(proj, a)) {
+        var bad = changedFields_(cur, next).filter(function (f) { return TASK_OWNER_FIELDS.indexOf(f) < 0; });
+        return bad.length ? 'Task owners cannot change ' + bad.join(', ') + '. Ask the project owner.' : '';
+      }
+      return '';
+    }
+    if (!cur && next) {
+      if (next.parent) {
+        var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
+        return parent && parent.projectId === next.projectId && (isTaskMine_(parent, a) || isMine_(parent.owner, a.name) || ownsProject_(proj, a)) ? '' : 'You can add subtasks only to your own tasks.';
+      }
+      return (isOwn || ownsProject_(proj, a)) ? '' : 'You cannot assign tasks to another employee.';
+    }
+    return '';
   }
   if (coll === 'updates' && !cur) return '';
   return 'You do not have permission to change this.';
@@ -694,9 +1006,9 @@ function invalid_(coll, cur, next, st, a) {
       if (to === 'Cancelled' && !String(next.cancelReason || '').trim()) return 'Give a reason for cancelling.';
       if (to === 'Blocked' && !(next.blocker && String(next.blocker.text || '').trim())) return 'Say what is blocking this task.';
       var proj = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
-      if (to === 'Completed' && next.requiresReview && from !== 'In Review' && from !== 'Awaiting Approval' && a.role !== 'Administrator') return 'This task must go through review first.';
-      if (to === 'Completed' && next.requiresReview && a.role !== 'Administrator' && !ownsProject_(proj, a)) return 'A project owner must approve this task.';
-      if (to === 'Changes Requested' && a.role !== 'Administrator' && !ownsProject_(proj, a)) return 'Only a project owner can request changes.';
+      if (to === 'Completed' && next.requiresReview && from !== 'In Review' && from !== 'Awaiting Approval' && !isManagementRole_(a.role)) return 'This task must go through review first.';
+      if (to === 'Completed' && next.requiresReview && !isManagementRole_(a.role) && !ownsProject_(proj, a)) return 'A project owner must approve this task.';
+      if (to === 'Changes Requested' && !isManagementRole_(a.role) && !ownsProject_(proj, a)) return 'Only a project owner can request changes.';
     }
   }
   if (coll === 'users') {
@@ -865,8 +1177,8 @@ function apply_(body, a) {
       var uNext = op.del ? null : Object.assign({}, uCur || {}, op.rec || {}, { email: String(op.id).toLowerCase() });
       var ud = deny_(a, 'users', uCur, uNext, st) || invalid_('users', uCur, uNext, st, a);
       if (ud) return reject(ud, 'denied');
-      var admins = users.filter(function (u) { return u.active && u.role === 'Administrator' && u.email !== String(op.id).toLowerCase(); }).length;
-      if (authCfg_().required && !admins && (!uNext || !uNext.active || uNext.role !== 'Administrator')) return reject('There must always be at least one active administrator.', 'invalid');
+      var admins = users.filter(function (u) { return u.active && isManagementRole_(u.role) && u.email !== String(op.id).toLowerCase(); }).length;
+      if (authCfg_().required && !admins && (!uNext || !uNext.active || !isManagementRole_(uNext.role))) return reject('There must always be at least one active administrator.', 'invalid');
       if (uNext) { uNext.active = uNext.active !== false && String(uNext.active) !== 'false'; uNext.addedBy = uNext.addedBy || a.name; uNext.addedAt = uNext.addedAt || ts; }
       users = users.filter(function (u) { return u.email !== String(op.id).toLowerCase(); }).concat(uNext ? [uNext] : []);
       plan.push({ users: true, cur: uCur, next: uNext });
@@ -877,7 +1189,7 @@ function apply_(body, a) {
     var list = st[op.c] = st[op.c] || [];
     var idx = findIn_(list, idField, op.id);
     var cur = idx >= 0 ? list[idx] : null;
-    if (a.role !== 'Administrator' && cur) {
+    if (!isManagementRole_(a.role) && cur) {
       var pid = op.c === 'projects' ? cur.id : cur.projectId;
       var pr = st.projects.filter(function (p) { return p.id === pid; })[0];
       if (pr && !canSeeProject_(pr, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
@@ -910,7 +1222,7 @@ function apply_(body, a) {
       });
       if (conflict) return reject((FIELD_NAMES[conflict] || conflict) + ' was changed by ' + (cur.updatedBy || 'someone else') + '. Check the latest value.', 'conflict', conflict, cur[conflict]);
     }
-    if (a.role !== 'Administrator' && next.projectId) {
+    if (!isManagementRole_(a.role) && next.projectId) {
       var dest = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
       if (dest && !canSeeProject_(dest, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
     }
@@ -919,7 +1231,7 @@ function apply_(body, a) {
     var problem = '';
     if (cur) APPEND_ONLY.forEach(function (f) {
       var owner = op.c === 'projects' ? cur : st.projects.filter(function (p) { return p.id === cur.projectId; })[0];
-      problem = problem || (canon_(cur[f]) !== canon_(next[f]) ? noteProblem_(f, cur, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
+      problem = problem || (canon_(cur[f]) !== canon_(next[f]) ? noteProblem_(f, cur, next, a, isManagementRole_(a.role) || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
     });
     if (problem) return reject(problem, 'denied');
     if (schemaFor_(op.c) && oversize_(op.c, next)) return reject('This record has grown too long for the Sheet. Remove some notes or text and try again.', 'invalid');
@@ -992,7 +1304,7 @@ function apply_(body, a) {
   metaSet_({ version: String(v), updatedAt: ts, updatedBy: a.name || 'website' });
   if (failure) return { ok: false, version: v, error: 'Only part of this save reached the Sheet (' + String(failure.message || failure) + ').' };
   var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved };
-  res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return a.role === 'Administrator' || !o.projectId || o.entityType !== 'users'; });
+  res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return isManagementRole_(a.role) || !o.projectId || o.entityType !== 'users'; });
   try { cache.put('req:' + reqId, JSON.stringify(res), 600); } catch (x) { /* very large reply: skip the replay cache */ }
   return res;
 }
@@ -1112,7 +1424,7 @@ function enableSignIn() {
   var id = c.getResponseText().trim();
   if (!/\.apps\.googleusercontent\.com$/.test(id)) { ui.alert('That does not look like a Web client ID.'); return; }
   ensureSystemTabs_();
-  var admins = users_().filter(function (u) { return u.active && u.role === 'Administrator'; });
+  var admins = users_().filter(function (u) { return u.active && isManagementRole_(u.role); });
   if (!admins.length) { ui.alert('Add at least one active Administrator to the Users tab first, then run this again.'); return; }
   props_().setProperties({ AUTH_CLIENT_ID: id, AUTH_REQUIRED: 'true' });
   ui.alert('Sign-in is on. Only people listed in the Users tab can now open the site.');
