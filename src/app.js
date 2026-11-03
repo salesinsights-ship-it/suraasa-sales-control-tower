@@ -2309,27 +2309,6 @@
         '<button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>' +
         '<button type="button" class="auth-link" data-auth-tab="signup">Create account</button>' +
         '</div>' +
-        '<div class="auth-quick-box">' +
-        '<div class="auth-quick-title"><span>⚡ Quick Sign In (Click Name)</span></div>' +
-        '<div class="auth-chips-group">' +
-        '<span class="auth-badge-label mgmt">Mgmt</span>' +
-        '<button type="button" class="auth-chip" data-email="shrayansh.sood@suraasa.com" data-pw="Sur@Shrayansh#4821">Shrayansh</button>' +
-        '<button type="button" class="auth-chip" data-email="ankit@suraasa.com" data-pw="Sur@Ankit#3915">Ankit</button>' +
-        '<button type="button" class="auth-chip" data-email="manish@suraasa.com" data-pw="Sur@Manish#5193">Manish</button>' +
-        '<button type="button" class="auth-chip" data-email="rk@suraasa.com" data-pw="Sur@Rishabh#7264">Rishabh</button>' +
-        '<button type="button" class="auth-chip" data-email="divya@suraasa.com" data-pw="Sur@Divya#8402">Divya</button>' +
-        '</div>' +
-        '<div class="auth-chips-group">' +
-        '<span class="auth-badge-label emp">Team</span>' +
-        '<button type="button" class="auth-chip" data-email="akhand@suraasa.com" data-pw="Sur@Akhand#9082">Akhand</button>' +
-        '<button type="button" class="auth-chip" data-email="aj@suraasa.com" data-pw="Sur@Atishay#6317">Atishay</button>' +
-        '<button type="button" class="auth-chip" data-email="salesinsights@suraasa.com" data-pw="Sur@SalesOps#2940">Sales Ops</button>' +
-        '<button type="button" class="auth-chip" data-email="somesh.sahoo@suraasa.com" data-pw="Sur@Somesh#1853">Somesh</button>' +
-        '<button type="button" class="auth-chip" data-email="deepansh.pandey@suraasa.com" data-pw="Sur@Deepansh#7492">Deepansh</button>' +
-        '<button type="button" class="auth-chip" data-email="anisha.behera@suraasa.com" data-pw="Sur@Anisha#3826">Anisha</button>' +
-        '<button type="button" class="auth-chip" data-email="anurakta.sarkar@suraasa.com" data-pw="Sur@Anurakta#9154">Anurakta</button>' +
-        '</div>' +
-        '</div>' +
         '</form>';
     } else if (currentAuthMode === 'signup') {
       formHtml = '<div class="auth-tabs">' +
@@ -2399,22 +2378,6 @@
             input.type = 'password';
             btn.textContent = '👁️';
           }
-        }
-      };
-    });
-
-    box.querySelectorAll('.auth-chip').forEach(chip => {
-      chip.onclick = e => {
-        e.preventDefault();
-        const email = chip.dataset.email;
-        const pw = chip.dataset.pw;
-        const eInput = box.querySelector('#si-email');
-        const pInput = box.querySelector('#si-pw');
-        if (eInput && pInput) {
-          eInput.value = email;
-          pInput.value = pw;
-          const btn = box.querySelector('#btn-do-signin');
-          if (btn) btn.click();
         }
       };
     });

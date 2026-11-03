@@ -1119,73 +1119,6 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
   background: #f1f5f9;
 }
 
-/* Quick Sign-In helper */
-.auth-quick-box {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed #e2e8f0;
-  text-align: left;
-}
-.auth-quick-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;
-  margin-bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.auth-chips-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.auth-badge-label {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  min-width: 48px;
-  text-align: center;
-}
-.auth-badge-label.mgmt {
-  background: #eff6ff !important;
-  color: #1d4ed8 !important;
-  border: 1px solid #bfdbfe !important;
-}
-.auth-badge-label.emp {
-  background: #f8fafc !important;
-  color: #475569 !important;
-  border: 1px solid #cbd5e1 !important;
-}
-.auth-chip {
-  font-size: 11px;
-  font-weight: 500;
-  background: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
-  border-radius: 6px;
-  padding: 3px 8px;
-  color: #1e293b !important;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.auth-chip:hover {
-  background: #e2e8f0 !important;
-  border-color: #94a3b8 !important;
-  color: #0f172a !important;
-  transform: translateY(-1px);
-}
-.auth-chip:active {
-  background: #cbd5e1 !important;
-  transform: translateY(0);
-}
-
 
 
 /* ── Employee & Management Dashboards ── */
@@ -3956,27 +3889,6 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         '<button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>' +
         '<button type="button" class="auth-link" data-auth-tab="signup">Create account</button>' +
         '</div>' +
-        '<div class="auth-quick-box">' +
-        '<div class="auth-quick-title"><span>⚡ Quick Sign In (Click Name)</span></div>' +
-        '<div class="auth-chips-group">' +
-        '<span class="auth-badge-label mgmt">Mgmt</span>' +
-        '<button type="button" class="auth-chip" data-email="shrayansh.sood@suraasa.com" data-pw="Sur@Shrayansh#4821">Shrayansh</button>' +
-        '<button type="button" class="auth-chip" data-email="ankit@suraasa.com" data-pw="Sur@Ankit#3915">Ankit</button>' +
-        '<button type="button" class="auth-chip" data-email="manish@suraasa.com" data-pw="Sur@Manish#5193">Manish</button>' +
-        '<button type="button" class="auth-chip" data-email="rk@suraasa.com" data-pw="Sur@Rishabh#7264">Rishabh</button>' +
-        '<button type="button" class="auth-chip" data-email="divya@suraasa.com" data-pw="Sur@Divya#8402">Divya</button>' +
-        '</div>' +
-        '<div class="auth-chips-group">' +
-        '<span class="auth-badge-label emp">Team</span>' +
-        '<button type="button" class="auth-chip" data-email="akhand@suraasa.com" data-pw="Sur@Akhand#9082">Akhand</button>' +
-        '<button type="button" class="auth-chip" data-email="aj@suraasa.com" data-pw="Sur@Atishay#6317">Atishay</button>' +
-        '<button type="button" class="auth-chip" data-email="salesinsights@suraasa.com" data-pw="Sur@SalesOps#2940">Sales Ops</button>' +
-        '<button type="button" class="auth-chip" data-email="somesh.sahoo@suraasa.com" data-pw="Sur@Somesh#1853">Somesh</button>' +
-        '<button type="button" class="auth-chip" data-email="deepansh.pandey@suraasa.com" data-pw="Sur@Deepansh#7492">Deepansh</button>' +
-        '<button type="button" class="auth-chip" data-email="anisha.behera@suraasa.com" data-pw="Sur@Anisha#3826">Anisha</button>' +
-        '<button type="button" class="auth-chip" data-email="anurakta.sarkar@suraasa.com" data-pw="Sur@Anurakta#9154">Anurakta</button>' +
-        '</div>' +
-        '</div>' +
         '</form>';
     } else if (currentAuthMode === 'signup') {
       formHtml = '<div class="auth-tabs">' +
@@ -4046,22 +3958,6 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
             input.type = 'password';
             btn.textContent = '👁️';
           }
-        }
-      };
-    });
-
-    box.querySelectorAll('.auth-chip').forEach(chip => {
-      chip.onclick = e => {
-        e.preventDefault();
-        const email = chip.dataset.email;
-        const pw = chip.dataset.pw;
-        const eInput = box.querySelector('#si-email');
-        const pInput = box.querySelector('#si-pw');
-        if (eInput && pInput) {
-          eInput.value = email;
-          pInput.value = pw;
-          const btn = box.querySelector('#btn-do-signin');
-          if (btn) btn.click();
         }
       };
     });
