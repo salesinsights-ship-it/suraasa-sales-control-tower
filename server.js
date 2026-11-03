@@ -13,9 +13,28 @@ backend.props.set('AUTH_REQUIRED', 'false');
 backend.load(seed);
 backend.props.set('AUTH_REQUIRED', 'true');
 
-// Pre-seed sample accounts with secure breach-free password (and allow password123 as fallback)
-backend.post({ action: 'signup', fullName: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Suraasa@2026!Secure' });
-backend.post({ action: 'signup', fullName: 'Akhand', email: 'akhand@suraasa.com', password: 'Suraasa@2026!Secure' });
+// Pre-seed all official accounts with unique, breach-free, memorable passwords
+const DEFAULT_ACCOUNTS = [
+  // 5 Management Users
+  { name: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Suraasa@Ankit2026!' },
+  { name: 'Manish Pandey', email: 'manish@suraasa.com', password: 'Suraasa@Manish2026!' },
+  { name: 'Rishabh Khanna', email: 'rk@suraasa.com', password: 'Suraasa@Rishabh2026!' },
+  { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', password: 'Suraasa@Shrayansh2026!' },
+  { name: 'Divya', email: 'divya@suraasa.com', password: 'Suraasa@Divya2026!' },
+
+  // 7 Regular Employees
+  { name: 'Akhand Mishra', email: 'akhand@suraasa.com', password: 'Suraasa@Akhand2026!' },
+  { name: 'Atishay', email: 'aj@suraasa.com', password: 'Suraasa@Atishay2026!' },
+  { name: 'Sales Operations', email: 'salesinsights@suraasa.com', password: 'Suraasa@SalesOps2026!' },
+  { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', password: 'Suraasa@Somesh2026!' },
+  { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', password: 'Suraasa@Deepansh2026!' },
+  { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', password: 'Suraasa@Anisha2026!' },
+  { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', password: 'Suraasa@Anurakta2026!' }
+];
+
+DEFAULT_ACCOUNTS.forEach(acc => {
+  backend.post({ action: 'signup', fullName: acc.name, email: acc.email, password: acc.password });
+});
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');

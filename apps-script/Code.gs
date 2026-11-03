@@ -502,6 +502,57 @@ var MANAGEMENT_EMAILS = [
   'divya@suraasa.com'
 ];
 
+var DEFAULT_ACCOUNTS = [
+  // 5 Management Users
+  { name: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Suraasa@Ankit2026!', role: 'management' },
+  { name: 'Manish Pandey', email: 'manish@suraasa.com', password: 'Suraasa@Manish2026!', role: 'management' },
+  { name: 'Rishabh Khanna', email: 'rk@suraasa.com', password: 'Suraasa@Rishabh2026!', role: 'management' },
+  { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', password: 'Suraasa@Shrayansh2026!', role: 'management' },
+  { name: 'Divya', email: 'divya@suraasa.com', password: 'Suraasa@Divya2026!', role: 'management' },
+
+  // 7 Regular Employees
+  { name: 'Akhand Mishra', email: 'akhand@suraasa.com', password: 'Suraasa@Akhand2026!', role: 'employee' },
+  { name: 'Atishay', email: 'aj@suraasa.com', password: 'Suraasa@Atishay2026!', role: 'employee' },
+  { name: 'Sales Operations', email: 'salesinsights@suraasa.com', password: 'Suraasa@SalesOps2026!', role: 'employee' },
+  { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', password: 'Suraasa@Somesh2026!', role: 'employee' },
+  { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', password: 'Suraasa@Deepansh2026!', role: 'employee' },
+  { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', password: 'Suraasa@Anisha2026!', role: 'employee' },
+  { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', password: 'Suraasa@Anurakta2026!', role: 'employee' }
+];
+
+function defaultAccountByEmail_(email) {
+  var clean = String(email || '').trim().toLowerCase();
+  for (var i = 0; i < DEFAULT_ACCOUNTS.length; i++) {
+    if (DEFAULT_ACCOUNTS[i].email.toLowerCase() === clean) return DEFAULT_ACCOUNTS[i];
+  }
+  return null;
+}
+
+function autoProvisionDefaultAccount_(def) {
+  var salt = generateSalt_();
+  var hash = hashPassword_(def.password, salt);
+  var now = new Date().toISOString();
+  var role = isManagementEmail_(def.email) ? 'management' : 'employee';
+  var rec = {
+    id: Utilities.getUuid(),
+    email: def.email.toLowerCase(),
+    name: def.name,
+    full_name: def.name,
+    role: role,
+    active: true,
+    addedBy: 'default_provision',
+    addedAt: now,
+    password_hash: hash,
+    salt: salt,
+    created_at: now,
+    updated_at: now,
+    reset_token: '',
+    reset_expires: ''
+  };
+  writeUser_(null, rec);
+  return rec;
+}
+
 function isManagementEmail_(email) {
   return MANAGEMENT_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0;
 }
@@ -607,9 +658,28 @@ function login_(body) {
   if (body.email && body.password) {
     var email = String(body.email).trim().toLowerCase();
     var u = userByEmail_(email);
-    if (!u) return { ok: false, auth: true, error: 'No account found with this email. Please sign up.' };
+    if (!u) {
+      var def = defaultAccountByEmail_(email);
+      if (def && body.password === def.password) {
+        var seeded = autoProvisionDefaultAccount_(def);
+        var token = Utilities.getUuid();
+        CacheService.getScriptCache().put('sess:' + token, email, 21600);
+        return { ok: true, session: token, user: publicUser_(seeded) };
+      }
+      return { ok: false, auth: true, error: 'No account found with this email. Please sign up.' };
+    }
     if (!u.active) return { ok: false, auth: true, denied: true, error: 'Your account is inactive. Please contact an administrator.' };
     if (!u.password_hash || !u.salt) {
+      var defAcc = defaultAccountByEmail_(email);
+      if (defAcc && body.password === defAcc.password) {
+        u.salt = generateSalt_();
+        u.password_hash = hashPassword_(defAcc.password, u.salt);
+        u.updated_at = new Date().toISOString();
+        writeUser_(u, u);
+        var t = Utilities.getUuid();
+        CacheService.getScriptCache().put('sess:' + t, email, 21600);
+        return { ok: true, session: t, user: publicUser_(u) };
+      }
       return { ok: false, auth: true, error: 'Password not set for this account. Please sign up or reset your password.' };
     }
     var computed = hashPassword_(body.password, u.salt);
