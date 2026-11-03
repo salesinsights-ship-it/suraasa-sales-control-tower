@@ -6,16 +6,16 @@
 const ENGINE = (function () {
   const TASK_STATUSES = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'];
   const TRANSITIONS = {
-    'Backlog': ['Not Started', 'In Progress', 'Cancelled'],
+    'Backlog': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
     'Not Started': ['Backlog', 'In Progress', 'Blocked', 'On Hold', 'Completed', 'Cancelled'],
     'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Completed', 'Cancelled'],
-    'Blocked': ['Not Started', 'In Progress', 'On Hold', 'Cancelled'],
-    'On Hold': ['Not Started', 'In Progress', 'Blocked', 'Cancelled'],
-    'In Review': ['In Progress', 'Changes Requested', 'Completed', 'Cancelled'],
-    'Awaiting Approval': ['In Progress', 'In Review', 'Changes Requested', 'Completed', 'Cancelled'],
-    'Changes Requested': ['In Progress', 'In Review', 'Blocked', 'Cancelled'],
-    'Completed': ['In Progress', 'Not Started', 'In Review', 'Awaiting Approval'],
-    'Cancelled': ['Not Started']
+    'Blocked': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
+    'On Hold': ['Not Started', 'In Progress', 'Blocked', 'Completed', 'Cancelled'],
+    'In Review': ['Not Started', 'In Progress', 'On Hold', 'Changes Requested', 'Completed', 'Cancelled'],
+    'Awaiting Approval': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Changes Requested', 'Completed', 'Cancelled'],
+    'Changes Requested': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Blocked', 'Completed', 'Cancelled'],
+    'Completed': ['In Progress', 'Not Started', 'On Hold', 'In Review', 'Awaiting Approval', 'Cancelled'],
+    'Cancelled': ['Not Started', 'In Progress', 'On Hold', 'Completed']
   };
   const DEFAULT_RULES = { overdueShareAtRisk: 10, overdueShareDelayed: 25, stagnantDays: 14, soonDays: 7 };
 

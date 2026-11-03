@@ -611,13 +611,17 @@
     o = o || {};
     const done = t.status === 'Completed';
     const canWork = canWorkT(t);
+    const inPlanOrTasks = (UI.view === 'tasks' || (UI.view === 'project' && UI.ptab === 'plan')) && UI.view !== 'home' && !o.noDel;
+    const canDel = canManageT(t);
+    const delBtn = inPlanOrTasks ? (canDel ? '<button class="btn icon ghost task-del-btn" data-act="del-task-row" data-id="' + esc(t.id) + '" title="Delete task" aria-label="Delete task" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>' : '<span class="task-del-space"></span>') : '';
     return '<div class="r r-task' + (done ? ' is-done' : '') + (t.status === 'Cancelled' ? ' is-cancelled' : '') + (t.parent ? ' is-sub' : '') + '" data-act="open-task" data-id="' + esc(t.id) + '">' +
       (UI.bulkOn ? '<input class="tick pick" type="checkbox" data-act="bulk-pick" data-id="' + esc(t.id) + '" ' + (UI.bulk.has(t.id) ? 'checked' : '') + ' aria-label="Select: ' + esc(t.name) + '">' : '<input class="tick" type="checkbox" data-act="task-done" data-id="' + esc(t.id) + '" ' + (done ? 'checked' : '') + (canWork ? '' : ' disabled') + ' aria-label="Mark done: ' + esc(t.name) + '">') +
       '<span class="r-main"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' + (o.noProject ? '' : '<span class="r-s">' + esc(pName(t.projectId)) + '</span>') + '</span>' +
       '<span class="r-p">' + pillPrio(t.priority) + '</span>' +
       '<span class="r-who">' + who(t.owner) + '</span>' +
       '<span class="r-when">' + when(t.due, done) + '</span>' +
-      '<span class="r-st">' + (canWork ? '<select class="st" aria-label="Status of ' + esc(t.name) + '" data-act="task-status" data-id="' + esc(t.id) + '">' + statusOptions(t) + '</select>' : pillStatus(t.status)) + '</span></div>';
+      '<span class="r-st">' + (canWork ? '<select class="st" aria-label="Status of ' + esc(t.name) + '" data-act="task-status" data-id="' + esc(t.id) + '">' + statusOptions(t) + '</select>' : pillStatus(t.status)) + '</span>' +
+      delBtn + '</div>';
   }
 
   function decisionRow(d, o) {
@@ -1023,6 +1027,7 @@
     const F = {
       all: () => true, my: t => UI.me && (isMine(t.owner) || isMine(t.accountable)) && ENGINE.isOpen(t),
       overdue: taskOverdue, week: wk, pending: ENGINE.isOpen, completed: t => t.status === 'Completed', cancelled: ENGINE.isCancelled, blocked: t => t.status === 'Blocked', review: t => ['In Review', 'Awaiting Approval'].includes(t.status),
+      parked: t => t.status === 'On Hold', dropped: ENGINE.isCancelled,
       approval: t => (t.status === 'Awaiting Approval' || t.status === 'In Review' || t.kind === 'Decision') && ENGINE.isOpen(t),
       unassigned: t => isTBD(t.owner) && ENGINE.isOpen(t)
     };
@@ -1033,6 +1038,8 @@
     const chips = [['pending', 'Open'], ['my', 'Mine'], ['week', 'Due this week']];
     if (S.tasks.some(taskOverdue)) chips.splice(1, 0, ['overdue', 'Late']);
     if (base.some(F.blocked)) chips.push(['blocked', 'Blocked']);
+    if (base.some(F.parked)) chips.push(['parked', 'Parked']);
+    if (base.some(F.dropped)) chips.push(['dropped', 'Dropped']);
     chips.push(['approval', 'Needs approval'], ['unassigned', 'No owner'], ['completed', 'Done']);
     const list = base.filter(F[f] || F.pending).sort((a, b) => (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
 
@@ -1083,7 +1090,7 @@
       </div>
       ${filters}
       ${f === 'my' && !UI.me ? '<p class="whoami"><label>See your tasks: <select data-act="set-me" aria-label="Choose your name"><option value="">Choose your name</option>' + people().map(p => '<option>' + esc(p) + '</option>').join('') + '</select></label></p>' : ''}
-      ${UI.bulkOn && UI.tview === 'list' ? '<div class="bulk-bar"><span><b>' + UI.bulk.size + '</b> selected</span><button class="linkbtn" data-act="bulk-all" data-ids="' + esc(list.map(t => t.id).join(',')) + '">Select all ' + list.length + '</button><button class="linkbtn" data-act="bulk-none">Clear</button><button class="btn sm primary" data-act="bulk-edit"' + (UI.bulk.size ? '' : ' disabled') + '>Edit selected</button></div>' : ''}
+      ${UI.bulkOn && UI.tview === 'list' ? '<div class="bulk-bar"><span><b>' + UI.bulk.size + '</b> selected</span><button class="linkbtn" data-act="bulk-all" data-ids="' + esc(list.map(t => t.id).join(',')) + '">Select all ' + list.length + '</button><button class="linkbtn" data-act="bulk-none">Clear</button><button class="btn sm primary" data-act="bulk-edit"' + (UI.bulk.size ? '' : ' disabled') + '>Edit selected</button><button class="btn sm danger" data-act="bulk-del"' + (UI.bulk.size ? '' : ' disabled') + '>Delete selected</button></div>' : ''}
       ${body}
       <p class="quiet foot">Names in italics are proposed, not confirmed. Open a task to update it.</p>`;
   }
@@ -1486,6 +1493,24 @@
   }
 
   // ---------- task status ----------
+  // ---------- stage & status mapping ----------
+  const STAGES = ['Not yet started', 'Moved ahead', 'Completed', 'Parked', 'Dropped'];
+  function statusToStage(s) {
+    if (s === 'Completed') return 'Completed';
+    if (s === 'On Hold') return 'Parked';
+    if (s === 'Cancelled') return 'Dropped';
+    if (s === 'Backlog' || s === 'Not Started') return 'Not yet started';
+    return 'Moved ahead';
+  }
+  function stageToStatus(stage) {
+    if (stage === 'Not yet started') return 'Not Started';
+    if (stage === 'Moved ahead') return 'In Progress';
+    if (stage === 'Completed') return 'Completed';
+    if (stage === 'Parked') return 'On Hold';
+    if (stage === 'Dropped') return 'Cancelled';
+    return 'Not Started';
+  }
+
   function statusOptions(t) {
     const list = [t.status].concat(ENGINE.nextStatuses(t.status).filter(s => s !== t.status));
     return list.map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + esc(s) + '</option>').join('');
@@ -1500,10 +1525,116 @@
     if (was === 'Blocked' && to !== 'Blocked' && t.blocker) { addNote(t, 'blocker', 'Blocker resolved: ' + t.blocker.text); t.blocker = null; }
     if (to === 'Cancelled') { t.cancelReason = text; addNote(t, 'update', 'Cancelled: ' + text); }
     if (to === 'Completed') { t.progress = 100; t.completedAt = todayStr(); }
-    else if (was === 'Completed') { t.completedAt = ''; if (+t.progress >= 100) t.progress = 90; }
+    else if (was === 'Completed') {
+      t.completedAt = '';
+      t.progress = (to === 'Not Started' || to === 'Backlog') ? 0 : 90;
+    }
     t.status = to;
     stampTask(t);
   }
+  function deleteTasks(list) {
+    if (!list || !list.length) return;
+    const allowed = list.filter(canManageT);
+    const skipped = list.length - allowed.length;
+    if (!allowed.length) {
+      toast('You can only delete tasks in projects you own.', true);
+      return;
+    }
+
+    // Include subtasks at every level (recursive)
+    const allIds = new Set(allowed.map(t => t.id));
+    let queue = [...allIds];
+    while (queue.length > 0) {
+      const parentId = queue.shift();
+      const children = S.tasks.filter(t => t.parent === parentId);
+      for (const child of children) {
+        if (!allIds.has(child.id)) {
+          allIds.add(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+
+    const allTasksToDelete = S.tasks.filter(t => allIds.has(t.id));
+    const subtasksCount = allTasksToDelete.length - allowed.length;
+
+    // Refuse more than 25 tasks at once
+    if (allTasksToDelete.length > 25) {
+      toast('Cannot delete ' + allTasksToDelete.length + ' tasks at once. The server limits deletes to at most 25 tasks.', true);
+      return;
+    }
+
+    // Check tasks waiting on these
+    const otherWaiting = S.tasks.filter(t => !allIds.has(t.id) && (t.dependsOn || []).some(depId => allIds.has(depId)));
+    const waitingCount = otherWaiting.length;
+
+    let confirmMsg = '';
+    if (allowed.length === 1) {
+      const t = allowed[0];
+      confirmMsg = 'Delete task ' + t.id + ' "' + t.name + '"?';
+    } else {
+      confirmMsg = 'Delete ' + plural(allowed.length, 'task') + ' (' + allowed.slice(0, 3).map(t => '"' + t.name + '"').join(', ') + (allowed.length > 3 ? ', ...' : '') + ')?';
+    }
+    const details = [];
+    if (subtasksCount > 0) details.push(plural(subtasksCount, 'subtask') + ' will also be deleted');
+    if (waitingCount > 0) details.push(plural(waitingCount, 'other task') + ' ' + (waitingCount === 1 ? 'waits' : 'wait') + ' on ' + (allowed.length === 1 && subtasksCount === 0 ? 'it' : 'them'));
+    if (skipped > 0) details.push(plural(skipped, 'task') + ' in other projects will be skipped');
+    if (details.length) confirmMsg += '\n\n' + details.join('.\n') + '.';
+
+    if (!confirm(confirmMsg)) return;
+
+    if (deleteTasks._timer) {
+      clearTimeout(deleteTasks._timer);
+      deleteTasks._timer = null;
+      save(true);
+    }
+
+    const savedTasks = JSON.parse(JSON.stringify(S.tasks));
+
+    // Remove deleted tasks
+    S.tasks = S.tasks.filter(t => !allIds.has(t.id));
+
+    // Remove deleted IDs from dependsOn list of every remaining task
+    S.tasks.forEach(t => {
+      if (t.dependsOn && t.dependsOn.some(id => allIds.has(id))) {
+        t.dependsOn = t.dependsOn.filter(id => !allIds.has(id));
+        stampTask(t);
+      }
+    });
+
+    // Clear deleted tasks from current selection and close task panel
+    allIds.forEach(id => UI.bulk.delete(id));
+    if (UI.taskId && allIds.has(UI.taskId)) {
+      UI.taskId = null;
+    }
+    closeModal();
+
+    // Save locally first with save(false)
+    save(false);
+    render();
+
+    // 6-second timer to call save(true)
+    deleteTasks._timer = setTimeout(() => {
+      deleteTasks._timer = null;
+      log('Deleted ' + plural(allTasksToDelete.length, 'task') + (allowed.length === 1 ? ' (' + allowed[0].id + ')' : ''));
+      save(true);
+    }, 6000);
+
+    const undo = () => {
+      if (deleteTasks._timer) {
+        clearTimeout(deleteTasks._timer);
+        deleteTasks._timer = null;
+      }
+      S.tasks = savedTasks;
+      save(false);
+      render();
+      toast('Task deletion undone');
+    };
+
+    const toastMsg = (allowed.length === 1 ? 'Task "' + allowed[0].name + '" deleted' : plural(allTasksToDelete.length, 'task') + ' deleted') + (skipped > 0 ? ' (' + skipped + ' skipped)' : '');
+    toast(toastMsg, false, undo);
+  }
+
   function refresh() { render(); if (UI.taskId && $('#modal')) renderTaskPanel(); }
   function setStatus(t, to) {
     if (t.status === to) return;
@@ -1582,7 +1713,7 @@
     const notes = (t.notes || []).slice().reverse();
     const m = p ? ms(p, t.ms) : null;
     const draft = (() => { try { return localStorage.getItem('sct_draft_' + t.id) || ''; } catch (e) { return ''; } })();
-    const facts = [['Owner', who(t.owner)], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority)], ['Collaborators', (t.collaborators || []).map(esc).join(', ')]].filter(x => x[1]);
+    const facts = [['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority)], ['Collaborators', (t.collaborators || []).map(esc).join(', ')]].filter(x => x[1]);
     const noteTypes = [['update', 'Progress update'], ['comment', 'Comment'], ['question', 'Question for the project owner'], ['decision', 'Decision']];
     const xr = t.extensionRequest;
     const review = (work && ENGINE.isOpen(t) && !xr && !manage ? '<button class="btn" data-act="tk-ext-ask">Ask for more time</button>' : '') +
@@ -1599,7 +1730,9 @@
       (t.criteria ? '<section class="ts"><h3>Done when</h3><p>' + esc(t.criteria) + '</p></section>' : '') +
       (t.desc ? '<section class="ts"><h3>Details</h3><p>' + esc(t.desc) + '</p></section>' : '') +
       '<section class="ts"><h3>Progress <span class="mini">' + (mode === 'Manual' ? 'updated by hand' : 'calculated from ' + mode.toLowerCase()) + '</span></h3><div class="pbar"><span class="prog big"><i style="width:' + pctV + '%"></i></span><b>' + pctV + '%</b></div></section>' +
-      (work ? '<section class="ts upd-box"><h3>Update this task</h3><textarea id="tu-text" rows="3" aria-label="What changed?" placeholder="What changed?">' + esc(draft) + '</textarea><div class="tu-row">' +
+      (work ? '<section class="ts upd-box"><h3>Update this task</h3><textarea id="tu-text" rows="3" aria-label="What changed?" placeholder="What changed?">' + esc(draft) + '</textarea>' +
+        '<div class="tu-row"><label class="fsel"><span>Stage</span><select id="tu-stage">' + STAGES.map(s => '<option value="' + esc(s) + '"' + (statusToStage(t.status) === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('') + '</select></label></div>' +
+        '<div class="tu-row">' +
         '<label class="fsel"><span>Type</span><select id="tu-type">' + noteTypes.map(n => '<option value="' + n[0] + '">' + n[1] + '</option>').join('') + '</select></label>' +
         '<label class="fsel"><span>Status</span><select id="tu-status">' + statusOptions(t) + '</select></label>' +
         (mode === 'Manual' && t.status !== 'Completed' ? '<label class="fsel"><span>Progress</span><select id="tu-progress">' + [0, 10, 20, 30, 40, 50, 60, 70, 80, 90].concat(+t.progress % 10 ? [+t.progress] : []).sort((a, b) => a - b).map(v => '<option ' + (v === +t.progress ? 'selected' : '') + ' value="' + v + '">' + v + '%</option>').join('') + '</select></label>' : '') +
@@ -1613,7 +1746,7 @@
       '<section class="ts"><h3>Links and files</h3>' + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
       '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
       '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
-      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
     const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
     $('#modal-root').innerHTML = h;
     $('#modal-root')._dirty = false;
@@ -1655,7 +1788,7 @@
   }
 
   // ---------- tasks: board and calendar ----------
-  const BOARD = ['Not Started', 'In Progress', 'Blocked', 'In Review', 'Changes Requested', 'Completed'];
+  const BOARD = ['Not Started', 'In Progress', 'Blocked', 'On Hold', 'In Review', 'Changes Requested', 'Completed'];
   function taskCard(t) {
     return '<article class="card-t" draggable="' + canWorkT(t) + '" data-drag="' + esc(t.id) + '" data-act="open-task" data-id="' + esc(t.id) + '"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button><span class="r-s">' + esc(pName(t.projectId)) + '</span><span class="card-m">' + pillPrio(t.priority) + when(t.due, t.status === 'Completed') + '</span></article>';
   }
@@ -2205,6 +2338,7 @@
       { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
       { k: 'due', label: 'Due date', type: 'date' },
       { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'stage', label: 'Stage', type: 'select', options: STAGES },
       { k: 'status', label: 'Status', type: 'select', options: opt('taskStatuses') },
       { k: 'deliverable', label: 'Expected outcome', full: true },
       { k: 'criteria', label: 'Done when', full: true },
@@ -2223,35 +2357,46 @@
       { k: 'parent', label: 'Parent task ID', type: 'datalist', options: S.tasks.map(x => x.id), more: true },
       { k: 'id', label: 'Task ID', req: true, more: true, readonly: true }
     ]);
-    const extra = isNew ? '' : '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete</button><button class="btn ghost" data-act="add-subtask" data-id="' + esc(t.id) + '">Add subtask</button>';
-    const vals = Object.assign({ weight: 1 }, t, { requiresReview: String(!!t.requiresReview), collaborators: listToStr(t.collaborators), reason: '' });
+    const extra = isNew ? '' : '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button><button class="btn ghost" data-act="add-subtask" data-id="' + esc(t.id) + '">Add subtask</button>';
+    const vals = Object.assign({ weight: 1, stage: statusToStage(t.status) }, t, { requiresReview: String(!!t.requiresReview), collaborators: listToStr(t.collaborators), reason: '' });
     openForm(isNew ? (parent ? 'New subtask' : 'New task') : 'Edit task', f, vals, o => {
       o.requiresReview = o.requiresReview === 'true';
       o.collaborators = strToList(o.collaborators);
       o.weight = +o.weight || 1;
+      const stage = o.stage; delete o.stage;
       const reason = o.reason; delete o.reason;
+      if (stage && statusToStage(o.status) !== stage) o.status = stageToStatus(stage);
       if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
       if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
+      if (o.status === 'Cancelled') {
+        if (!reason && !t.cancelReason) { $('#ferr').textContent = 'Give a reason for cancelling.'; return false; }
+        if (reason) o.cancelReason = reason;
+      }
+      if (o.status === 'Completed' && t.requiresReview && !canManageT(t)) { $('#ferr').textContent = 'A project owner must approve this task.'; return false; }
       if (isNew && S.tasks.some(x => x.id === o.id)) { $('#ferr').textContent = 'Task ID already exists.'; return false; }
       if (o.parent && o.parent === o.id) { $('#ferr').textContent = 'A task cannot be its own parent.'; return false; }
       if (o.status !== t.status && !isNew) {
-        const problem = ENGINE.moveProblem(t, o.status, { admin: isAdmin() });
+        const problem = ENGINE.moveProblem(t, o.status, { admin: isAdmin(), cancelReason: reason });
         if (problem) { $('#ferr').textContent = problem; return false; }
       }
-      if (o.status === 'Completed') o.progress = 100;
+      if (o.status === 'Completed') {
+        o.progress = 100;
+        if (isNew || t.status !== 'Completed') o.completedAt = todayStr();
+      } else if (!isNew && t.status === 'Completed' && o.status !== 'Completed') {
+        o.completedAt = '';
+        o.progress = (o.status === 'Not Started' || o.status === 'Backlog') ? 0 : 90;
+      }
       if (isNew) {
         const nt = Object.assign({}, base, o);
-        nt.progress = 0;
+        if (nt.status !== 'Completed') nt.progress = 0;
         if (nt.due) nt.originalDue = nt.due;
         nt.createdAt = nowIso(); nt.createdBy = UI.me || 'Website';
-        if (nt.status === 'Completed') nt.completedAt = todayStr();
         S.tasks.push(nt);
         commit('Added task ' + nt.id + ' "' + nt.name + '" to ' + nt.projectId);
       } else {
         const ch = ['status', 'owner', 'due', 'priority', 'progress'].filter(k => String(t[k]) !== String(o[k])).map(k => k + ': ' + (t[k] || '—') + ' → ' + (o[k] || '—'));
-        if (o.status === 'Completed' && t.status !== 'Completed') o.completedAt = todayStr();
         if (t.due && o.due !== t.due && !t.originalDue) o.originalDue = t.due;
-        if (reason) addNote(t, 'update', (o.due !== t.due ? 'Due date moved from ' + (t.due || 'none') + ' to ' + (o.due || 'none') : 'Owner changed from ' + t.owner + ' to ' + o.owner) + '. Reason: ' + reason);
+        if (reason) addNote(t, 'update', (o.status === 'Cancelled' ? 'Cancelled: ' + reason : o.due !== t.due ? 'Due date moved from ' + (t.due || 'none') + ' to ' + (o.due || 'none') : 'Owner changed from ' + t.owner + ' to ' + o.owner) + '. Reason: ' + reason);
         Object.assign(t, o);
         stampTask(t);
         commit('Updated task ' + t.id + (ch.length ? ' (' + ch.join('; ') + ')' : ''));
@@ -2491,12 +2636,12 @@
       return;
     }
     const stamp = todayStr();
-    const taskCols = ['id', 'projectId', 'name', 'owner', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
-    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks(), taskCols), 'text/csv');
+    const taskCols = ['id', 'projectId', 'name', 'owner', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
+    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(t => Object.assign({ stage: statusToStage(t.status) }, t)), taskCols), 'text/csv');
     if (what === 'activity') download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
-    if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
+    if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ stage: statusToStage(t.status), project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
     if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags']), 'text/csv');
-    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks, ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', r => taskOverdue(r) ? 'OVERDUE' : '']), 'text/csv');
+    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(t => Object.assign({ stage: statusToStage(t.status) }, t)), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', r => taskOverdue(r) ? 'OVERDUE' : '']), 'text/csv');
     if (what === 'risks') download('risks_' + stamp + '.csv', csv(S.risks, ['id', 'projectId', 'desc', 'impact', 'probability', 'mitigation', 'owner', 'deadline', 'status', 'source']), 'text/csv');
     if (what === 'dependencies') download('dependencies_' + stamp + '.csv', csv(S.dependencies, ['id', 'projectId', 'desc', 'responsible', 'externalOwner', 'status', 'requiredBy', 'escalation']), 'text/csv');
     if (what === 'decisions') download('decisions_' + stamp + '.csv', csv(S.decisions, ['id', 'projectId', 'decision', 'owner', 'raised', 'requiredBy', 'impact', 'status', 'final', 'source']), 'text/csv');
@@ -3021,10 +3166,16 @@
       'edit-task': () => { UI.taskId = null; taskForm(S.tasks.find(t => t.id === id)); },
       'add-subtask': () => { const t = S.tasks.find(x => x.id === id); UI.taskId = null; taskForm(null, t.projectId, t.id); },
       'del-task': () => {
-        const t = S.tasks.find(x => x.id === id); const subs = S.tasks.filter(x => x.parent === id).length;
-        if (!confirm('Delete task ' + t.id + ' "' + t.name + '"' + (subs ? ' and its ' + subs + ' subtask(s)' : '') + '?')) return;
-        S.tasks = S.tasks.filter(x => x.id !== id && x.parent !== id);
-        commit('Deleted task ' + t.id + ' from ' + t.projectId);
+        const t = S.tasks.find(x => x.id === id);
+        if (t) deleteTasks([t]);
+      },
+      'del-task-row': () => {
+        const t = S.tasks.find(x => x.id === id);
+        if (t) deleteTasks([t]);
+      },
+      'bulk-del': () => {
+        const list = [...UI.bulk].map(tid => S.tasks.find(t => t.id === tid)).filter(Boolean);
+        if (list.length) deleteTasks(list);
       },
 
       // Milestones & Workstreams
@@ -3322,6 +3473,29 @@
     e.preventDefault();
     const t = S.tasks.find(x => x.id === e.dataTransfer.getData('text/plain'));
     if (t) setStatus(t, col.dataset.drop);
+  });
+
+  // Stage & Status synchronization
+  document.addEventListener('change', e => {
+    if (e.target.id === 'tu-stage') {
+      const stSel = $('#tu-status');
+      if (stSel) {
+        stSel.value = stageToStatus(e.target.value);
+        if ($('#tu-progress')) $('#tu-progress').closest('label').style.display = stSel.value === 'Completed' ? 'none' : '';
+      }
+    } else if (e.target.id === 'tu-status') {
+      const stgSel = $('#tu-stage');
+      if (stgSel) {
+        stgSel.value = statusToStage(e.target.value);
+        if ($('#tu-progress')) $('#tu-progress').closest('label').style.display = e.target.value === 'Completed' ? 'none' : '';
+      }
+    } else if (e.target.name === 'stage' && e.target.closest('#mform')) {
+      const stSel = $('#mform [name="status"]');
+      if (stSel) stSel.value = stageToStatus(e.target.value);
+    } else if (e.target.name === 'status' && e.target.closest('#mform')) {
+      const stgSel = $('#mform [name="stage"]');
+      if (stgSel) stgSel.value = statusToStage(e.target.value);
+    }
   });
 
   // Keep the milestone and workstream choices in step with the chosen project.

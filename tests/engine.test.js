@@ -26,6 +26,7 @@ test('valid and invalid status moves', () => {
   assert.ok(E.moveProblem(T('a'), 'Blocked')); assert.strictEqual(E.moveProblem(T('a'), 'Blocked', { blockerText: 'y' }), '');
   assert.ok(E.moveProblem(T('a', { status: 'In Progress', requiresReview: true }), 'Completed'));
   assert.strictEqual(E.moveProblem(T('a', { status: 'In Review', requiresReview: true }), 'Completed'), '');
+  assert.strictEqual(E.moveProblem(T('a', { status: 'On Hold' }), 'Completed'), '');
 });
 test('every status in the list has defined moves', () => E.TASK_STATUSES.forEach(s => assert.ok(E.TRANSITIONS[s], s)));
 test('a single low-priority overdue task among many is not Delayed', () => { const ts = [T('a', { due: '2026-11-01', status: 'In Progress' })].concat([...Array(9)].map((_, i) => T('t' + i, { status: 'In Progress', due: '2026-12-20' }))); const h = H({}, ts); assert.strictEqual(h.level, 'At risk'); assert.ok(/1 of 10/.test(h.reasons[0])); });
