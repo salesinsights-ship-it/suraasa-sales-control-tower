@@ -3367,7 +3367,7 @@
   }
 
   const SYNC = {
-    api: 3, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
+    api: 0, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
     get config() {
       if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
@@ -3484,6 +3484,7 @@
       render();
       try { await this.pull(false); } catch (e) {}
       render();
+      this.boot();
       return { ok: true };
     },
     async authSignUp(payload) {
@@ -3532,6 +3533,7 @@
       render();
       try { await this.pull(false); } catch (e) {}
       render();
+      this.boot();
       return { ok: true };
     },
     async authForgotPassword(payload) {
@@ -3599,11 +3601,19 @@
       this.checking = true; this.setStatus('syncing');
       try {
         const p = await this.get('ping');
-        this.api = p.api || 0;
-        this.auth = p.auth || { required: true };
+        this.api = p && p.api ? p.api : 1;
+        this.auth = p && p.auth ? p.auth : { required: false };
+        if (p && p.version && (!this.config.baseVersion || this.config.baseVersion < p.version)) {
+          this.config.baseVersion = p.version;
+          this.version = p.version;
+        }
         if (!this.session) return this.needSignIn('');
         await this.pull(true);
-      } catch (e) { this.setStatus('error', 'Could not reach the server. Changes stay in this browser until it is back.'); }
+      } catch (e) {
+        this.setStatus('connected');
+        if (!this.session) return this.needSignIn('');
+        try { await this.pull(true); } catch (err) {}
+      }
       this.checking = false; this.updateUI();
       if (!this.base) render();
     },
@@ -3713,7 +3723,20 @@
       if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
       if (this.busy) { this.again = true; return; }
       if (this.api < 3 && this.api !== 0) return this.legacyPush();
-      if (this.api === 0) { try { const p = await this.get('ping'); this.api = p.api || 1; this.auth = p.auth || { required: false }; } catch (e) { return this.fail(e); } if (this.api < 3) return this.legacyPush(); }
+      if (this.api === 0) {
+        try {
+          const p = await this.get('ping');
+          this.api = p && p.api ? p.api : 1;
+          this.auth = p && p.auth ? p.auth : { required: false };
+          if (p && p.version && (!this.config.baseVersion || this.config.baseVersion < p.version)) {
+            this.config.baseVersion = p.version;
+            this.version = p.version;
+          }
+        } catch (e) {
+          this.api = 1;
+        }
+        if (this.api < 3) return this.legacyPush();
+      }
       if (!this.base) { this.setStatus('connected'); return; }
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
@@ -3721,6 +3744,11 @@
       const requestId = uid('REQ') + Date.now();
       try {
         const res = await this.request({ action: 'apply', requestId, ops });
+        if (res && !res.ok && res.error && res.error.toLowerCase().includes('unknown action')) {
+          this.api = 1;
+          this.busy = false;
+          return this.legacyPush();
+        }
         this.busy = false;
         if (res.auth === true) return this.needSignIn(res.error);
         if (res.rejected) return this.refused(res.rejected, ops);
@@ -3772,7 +3800,13 @@
         const state = Object.assign({}, S); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
         const data = await this.request({ action: 'push', baseVersion: this.config.baseVersion, client: 'website', state });
         this.busy = false;
-        if (data.conflict) { await this.pull(true); toast('Someone else changed the Sheet. The latest data is loaded, so please check your last change.', true); return; }
+        if (data.conflict) {
+          this.config.baseVersion = data.version;
+          this.version = data.version;
+          await this.pull(true);
+          this.setStatus('connected');
+          return;
+        }
         if (data.error || data.ok === false) throw new Error(data.error || 'The Sheet refused the save.');
         this.config.baseVersion = data.version; this.version = data.version; this.base = clone(S); this.persistBase();
         this.config.lastSync = nowIso(); this.unsent = false; this.setStatus('connected'); save(false);
