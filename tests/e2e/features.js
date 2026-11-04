@@ -38,7 +38,7 @@ const fill = async (p, k, v) => { const el = p.locator('#modal [name="' + k + '"
   // saved views, bulk
   {
     const b = backend(false); const p = await page(br, b); const ctx = p.context();
-    await p.evaluate(() => { const s = document.querySelector('#me'); s.value = 'Head of Sales'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    await p.evaluate(() => SCT.actAs('Head of Sales'));
     await p.click('#nav [data-v="tasks"]'); await wait(p);
     await p.click('[data-act="tfilter"][data-f="unassigned"]'); await wait(p);
     await p.click('[data-act="view-save"]'); await wait(p);

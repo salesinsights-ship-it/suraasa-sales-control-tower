@@ -1,21 +1,25 @@
 # Test cases and results
 
-Deliverable 13. Run on 2 November 2026 on the final build.
+Deliverable 13. Run on 4 November 2026 on version 2.5.0, on a copy of the live data from 3 November.
 
-**184 checks, 0 failed**, plus 72 layout checks with no problems.
+**355 checks, 0 failed**, plus 72 layout checks with no problems.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
-| `tests/engine.test.js` | 29 | The rules, directly |
-| `tests/backend.test.js` | 51 | The real `Code.gs` on a simulated Sheet |
+| `tests/engine.test.js` | 31 | The rules, directly |
+| `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other new features, in Chromium |
-| `tests/e2e/signin.js` | 12 | Sign-in, in Chromium, with Google simulated |
+| `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
+| `tests/e2e/login.js` | 67 | The sign-in on the page with the old and the new script: every menu section, saving, emails, employee limits, phone |
+| `tests/e2e/roles.js` | 23 | What each role sees and can do, with sign-in on, and the home page numbers |
+| `tests/e2e/stage.js` | 28 | The Stage dropdown: panel, edit form, filters, board, rights |
+| `tests/e2e/delete.js` | 30 | Deleting tasks: row, panel, selection, undo, rights, links, phone |
 | `tests/e2e/conflicts.js` | 9 | Two browsers at once: conflicts, duplicate IDs, offline work, comment delete, import |
 | `tests/e2e/compat.js` | 5 | Old script with new site, new script with old site's saves |
 | `tests/e2e/sweep.js` | 72 | 12 screens × phone, tablet, desktop × light, dark: horizontal overflow and script errors |
 
-Rules and server suites also pass on the built-in data. The browser journeys were run on both a copy of the live data and the built-in data.
+Everything here ran on a copy of the live data.
 
 ## What these tests do not show
 
@@ -28,7 +32,7 @@ The simulation was made stricter after the review below: it now enforces Google'
 
 ## Independent review
 
-A separate reviewer, who had not seen the work, read the server and sync code before release and reported 13 confirmed problems. Every one is fixed and now has a test. The review's own probe script was rerun after the fixes, and each attack it demonstrated now fails. The fixes themselves have not had a second independent review.
+A separate reviewer, who had not seen the work, read the server and sync code before release and reported 13 confirmed problems. Every one is fixed and now has a test. The review's own probe script was rerun after the fixes, and each attack it demonstrated now fails. A second separate review then covered the code added afterwards, and found 13 more confirmed problems, listed in the changelog. All are fixed, with tests for the ones that can be tested automatically. Those last fixes have not been reviewed again.
 
 | Finding | Risk | Fix |
 |---|---|---|
@@ -212,8 +216,105 @@ Also fixed: two people taking the same new ID now both keep their record; direct
 | stays signed in on reload | Pass |
 | sign out returns to the sign-in screen | Pass |
 | session gone after sign out | Pass |
+| editing browser storage gets nowhere | Pass |
 | no copy of the work left in this browser | Pass |
 | no page errors | Pass |
+
+## Roles
+
+| Check | Result |
+|---|---|
+| Administrator: total tasks is right | Pass |
+| Administrator: the numbers add up | Pass |
+| Administrator: employees are single people | Pass |
+| Administrator: the employee filter works and is exact | Pass |
+| Administrator: completion rate is right | Pass |
+| Administrator: has Administration | Pass |
+| Administrator: full New menu | Pass |
+| Employee: home shows only their tasks | Pass |
+| Employee: short menu | Pass |
+| Employee: New offers only what they can do | Pass |
+| Employee: role shown is the server's | Pass |
+| Employee: quick buttons only on own tasks | Pass |
+| Employee: can add their own task | Pass |
+| Profile opens with no password fields | Pass |
+| Profile closes | Pass |
+| no page errors | Pass |
+| Employee on a phone: no extra menu | Pass |
+| Script unreachable on return: the page is not blank | Pass |
+| Project Owner: sees projects, not Administration | Pass |
+| Project Owner: can plan | Pass |
+| Viewer: no write controls | Pass |
+| Viewer: no delete, no tick | Pass |
+| An expired session goes back to sign-in | Pass |
+
+## Stage
+
+| Check | Result |
+|---|---|
+| the five stages are offered, in order | Pass |
+| it starts on the task's real stage | Pass |
+| choosing a stage moves the Status dropdown with it | Pass |
+| choosing a status moves the Stage dropdown with it | Pass |
+| Moved ahead saves as In Progress | Pass |
+| the panel shows the new stage | Pass |
+| Parked saves as On Hold | Pass |
+| a parked task can go straight to Completed, at 100% | Pass |
+| Not yet started clears the finish date and progress | Pass |
+| Dropped needs a reason | Pass |
+| Dropped saves as Cancelled with the reason | Pass |
+| dropped tasks have a place to be found | Pass |
+| and show there | Pass |
+| a dropped task can be brought back | Pass |
+| parked tasks have their own filter | Pass |
+| the board has a column for them | Pass |
+| the edit form has the same row | Pass |
+| and it moves Status too | Pass |
+| the form saves the stage | Pass |
+| the form asks why it was dropped | Pass |
+| and records it | Pass |
+| stage is not stored as a second field | Pass |
+| a new task can start at a stage | Pass |
+| every change is in the audit log | Pass |
+| no page errors | Pass |
+| a task needing review cannot skip it through Stage | Pass |
+| the task owner can use the stages | Pass |
+| a viewer sees the stage but cannot change it | Pass |
+
+## Deleting tasks
+
+| Check | Result |
+|---|---|
+| cancel leaves the task alone | Pass |
+| the question names the task | Pass |
+| the panel does not open and the row goes | Pass |
+| nothing reaches the Sheet during the Undo window | Pass |
+| undo brings it back, untouched | Pass |
+| after the Undo window it leaves the Sheet | Pass |
+| recorded in the audit log | Pass |
+| kept in Deleted items | Pass |
+| can be restored from Deleted items | Pass |
+| no page errors | Pass |
+| test tasks set up | Pass |
+| the question mentions subtasks and waiting tasks | Pass |
+| the panel closes with no error | Pass |
+| undo restores subtasks and links | Pass |
+| subtasks at every level go too | Pass |
+| waiting tasks lose only the deleted link | Pass |
+| a task that waited on it can still be saved | Pass |
+| no page errors | Pass |
+| no row buttons while selecting | Pass |
+| Delete selected starts disabled | Pass |
+| two selected tasks deleted | Pass |
+| selection is cleared | Pass |
+| more than 25 at once is refused | Pass |
+| a task owner sees no delete on rows | Pass |
+| or in the panel | Pass |
+| the server refuses a task owner | Pass |
+| a viewer sees no delete | Pass |
+| the server refuses a viewer | Pass |
+| phone: no tiny row button | Pass |
+| phone: delete is in the panel | Pass |
 
 ## Two browsers at once
 
@@ -272,6 +373,8 @@ Also fixed: two people taking the same new ID now both keep their record; direct
 | project owners hear about time requests and questions; owners hear about late dependencies | Pass |
 | many late tasks become one line, not a storm | Pass |
 | one late low-priority task never makes a project Delayed, even if it is the only open one | Pass |
+| every status has a stage, and each stage sets one status | Pass |
+| every stage can be reached from every status | Pass |
 | every record survives a round trip through the Sheet | Pass |
 | pull reports API 3 and adds system tabs without touching data tabs | Pass |
 | ping does not reveal the Sheet address or name | Pass |
@@ -323,6 +426,15 @@ Also fixed: two people taking the same new ID now both keep their record; direct
 | a project owner cannot approve their own task on someone else's project | Pass |
 | a save that would delete many records is refused | Pass |
 | every direct Sheet edit is logged, even inside the debounce window | Pass |
+| employees get only their own tasks and what belongs to those projects | Pass |
+| an employee can add a task for themselves, not for someone else | Pass |
+| management and employee are accepted as role names in the Users tab | Pass |
+| nothing is returned, and nothing can be saved, without a real session | Pass |
+| a conflict reply never reveals a task the person may not touch | Pass |
+| priority must be a real priority | Pass |
+| employees get only a name for projects they have no tasks in | Pass |
+| employees cannot comment on or update projects outside their work | Pass |
+| an employee cannot write progress history | Pass |
 
 ## How to run
 

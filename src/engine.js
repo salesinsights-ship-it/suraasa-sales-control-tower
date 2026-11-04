@@ -17,6 +17,10 @@ const ENGINE = (function () {
     'Completed': ['In Progress', 'Not Started', 'On Hold', 'In Review', 'Awaiting Approval', 'Cancelled'],
     'Cancelled': ['Not Started', 'In Progress', 'On Hold', 'Completed']
   };
+  // The simple view of a task. Each stage is a way of setting the status, so the two can never disagree.
+  const STAGE_STATUS = { 'Not yet started': 'Not Started', 'Moved ahead': 'In Progress', 'Completed': 'Completed', 'Parked': 'On Hold', 'Dropped': 'Cancelled' };
+  const STAGES = Object.keys(STAGE_STATUS);
+  const stageOf = status => (status === 'Backlog' || status === 'Not Started' || !status ? 'Not yet started' : status === 'Completed' ? 'Completed' : status === 'On Hold' ? 'Parked' : status === 'Cancelled' ? 'Dropped' : 'Moved ahead');
   const DEFAULT_RULES = { overdueShareAtRisk: 10, overdueShareDelayed: 25, stagnantDays: 14, soonDays: 7 };
 
   const dayNum = s => Math.floor(new Date(s + 'T00:00:00').getTime() / 86400000);
@@ -241,6 +245,6 @@ const ENGINE = (function () {
     return out.filter(n => (seen.has(n.id) ? false : seen.add(n.id))).sort((a, b) => ({ red: 0, amber: 1, info: 2 }[a.level] - { red: 0, amber: 1, info: 2 }[b.level]) || String(b.ts).localeCompare(String(a.ts)));
   }
 
-  return { TASK_STATUSES, TRANSITIONS, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
+  return { TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
 })();
 if (typeof module !== 'undefined') module.exports = ENGINE;

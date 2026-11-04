@@ -169,7 +169,8 @@ test('a task owner can update their task but not its scope, owner or dates', () 
     const r = b.post({ action: 'apply', session: s, ops: [{ c: 'tasks', id: t.id, set: { [f]: v }, base: { [f]: t[f] } }] });
     assert.ok(!r.ok && r.rejected[0].code === 'denied', f);
   }
-  const other = st.tasks.find(x => x.owner === 'Head of Sales');
+  const other = b.post({ action: 'pull', session: session(b, 'admin@suraasa.com') }).state.tasks.find(x => x.owner === 'Head of Sales');
+  assert.ok(!st.tasks.some(x => x.id === other.id), 'other people\'s tasks are not sent to an employee');
   assert.ok(!b.post({ action: 'apply', session: s, ops: [{ c: 'tasks', id: other.id, set: { progress: 10 }, base: { progress: other.progress } }] }).ok);
 });
 test('a project owner manages their own projects only', () => {
@@ -462,166 +463,148 @@ test('every direct Sheet edit is logged, even inside the debounce window', () =>
   b.ctx.onEdit(e()); b.ctx.onEdit(e());
   assert.strictEqual(b.post({ action: 'pull' }).state.audit.filter(a => a.action === 'sheet_edit').length, 2);
 });
-test('automatic role detection on signup: 5 management emails get management, others get employee', () => {
-  const b = secured();
-  // 1. Management emails
-  const mgmtRes = b.post({ action: 'signup', email: 'ankit@suraasa.com', fullName: 'Ankit Khanna', password: 'password123' });
-  assert.ok(mgmtRes.ok, JSON.stringify(mgmtRes));
-  assert.strictEqual(mgmtRes.user.role, 'management');
-  assert.strictEqual(mgmtRes.user.isManagement, true);
-
-  const rkRes = b.post({ action: 'signup', email: 'rk@suraasa.com', fullName: 'Rishabh Khanna', password: 'password123' });
-  assert.ok(rkRes.ok);
-  assert.strictEqual(rkRes.user.role, 'management');
-  assert.strictEqual(rkRes.user.isManagement, true);
-
-  // 2. Regular employee emails
-  const empRes = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123', role: 'admin' });
-  assert.ok(empRes.ok);
-  // User cannot self-assign admin role! Role must be automatically detected as employee
-  assert.strictEqual(empRes.user.role, 'employee');
-  assert.strictEqual(empRes.user.isManagement, false);
-
-  const someshRes = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
-  assert.strictEqual(someshRes.user.role, 'employee');
-  assert.strictEqual(someshRes.user.isManagement, false);
+test('employees get only their own tasks and what belongs to those projects', () => {
+  const b = secured(); const ad = session(b, 'admin@suraasa.com'); const s = session(b, 'ak@suraasa.com');
+  const all = b.post({ action: 'pull', session: ad }).state, st = b.post({ action: 'pull', session: s }).state;
+  const own = all.tasks.filter(t => /(^|,\s*)AK(\s*,|$)/.test(t.owner || '') || /(^|,\s*)AK(\s*,|$)/.test(t.accountable || ''));
+  assert.strictEqual(st.tasks.length, own.length);
+  const pids = new Set(own.map(t => t.projectId));
+  ['risks', 'dependencies', 'updates'].forEach(k => assert.ok(st[k].every(r => pids.has(r.projectId)), k));
+  assert.ok(st.tasks.length < all.tasks.length && !st.users && !st.trash);
 });
-
-test('email and password authentication and secure login verification', () => {
-  const b = secured();
-  b.post({ action: 'signup', email: 'deepansh@suraasa.com', fullName: 'Deepansh', password: 'securePassword456' });
-
-  // Correct login
-  const okLogin = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'securePassword456' });
-  assert.ok(okLogin.ok);
-  assert.ok(okLogin.session);
-  assert.strictEqual(okLogin.user.email, 'deepansh@suraasa.com');
-
-  // Wrong password
-  const badLogin = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'wrongPassword' });
-  assert.strictEqual(badLogin.ok, false);
-  assert.ok(badLogin.error);
-
-  // Non-existent email
-  const noUser = b.post({ action: 'login', email: 'nonexistent@suraasa.com', password: 'any' });
-  assert.strictEqual(noUser.ok, false);
+test('an employee can add a task for themselves, not for someone else', () => {
+  const b = secured(); const s = session(b, 'ak@suraasa.com'); const pid = b.post({ action: 'pull', session: s }).state.projects[0].id;
+  const add = (id, owner) => b.post({ action: 'apply', session: s, ops: [{ c: 'tasks', id, create: true, rec: { id, name: id, projectId: pid, owner, status: 'Not Started' } }] });
+  assert.ok(add('E1', 'AK').ok); assert.ok(!add('E2', 'Head of Sales').ok);
 });
-
-test('regular employee receives ONLY their own tasks in pull; management receives all tasks', () => {
-  const b = secured();
-  const ad = session(b, 'admin@suraasa.com');
-  const allSt = b.post({ action: 'pull', session: ad }).state;
-
-  // Assign a task to Akhand
-  const t = allSt.tasks[0];
-  b.post({ action: 'apply', session: ad, ops: [{ c: 'tasks', id: t.id, set: { owner: 'Akhand' }, base: { owner: t.owner } }] });
-
-  // Akhand signs up and pulls state
-  const akhandSign = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123' });
-  const akhandPull = b.post({ action: 'pull', session: akhandSign.session });
-  assert.ok(akhandPull.ok);
-  assert.ok(akhandPull.state.tasks.length > 0);
-  // Every task returned to Akhand must belong to Akhand!
-  for (const task of akhandPull.state.tasks) {
-    assert.ok(task.owner === 'Akhand' || task.accountable === 'Akhand', 'Akhand must only see own tasks');
+test('management and employee are accepted as role names in the Users tab', () => {
+  const b = secured(); b.addUser({ email: 'm@suraasa.com', name: 'M', role: 'management' }); b.addUser({ email: 'e@suraasa.com', name: 'E', role: 'Employee' });
+  assert.strictEqual(b.post({ action: 'pull', session: session(b, 'm@suraasa.com') }).me.role, 'Administrator');
+  assert.strictEqual(b.post({ action: 'pull', session: session(b, 'e@suraasa.com') }).me.role, 'Task Owner');
+});
+test('nothing is returned, and nothing can be saved, without a real session', () => {
+  const b = secured(); const t = b.post({ action: 'pull', session: session(b, 'admin@suraasa.com') }).state.tasks[0];
+  ['', 'sess_123_fake', 's1'].forEach(x => {
+    assert.ok(!b.post({ action: 'pull', session: x }).state);
+    assert.ok(!b.post({ action: 'apply', session: x, ops: [{ c: 'tasks', id: t.id, del: true }] }).ok);
+    assert.ok(!b.post({ action: 'push', session: x, state: {} }).ok);
+  });
+  assert.ok(!b.get({ action: 'pull' }).state);
+  assert.ok(!JSON.stringify(b.get({ action: 'ping' })).includes('spreadsheets'));
+});
+test('a conflict reply never reveals a task the person may not touch', () => {
+  const b = secured(); const ad = session(b, 'admin@suraasa.com'); const s = session(b, 'ak@suraasa.com');
+  const t = b.post({ action: 'pull', session: ad }).state.tasks.find(x => x.owner === 'Head of Sales');
+  const r = b.post({ action: 'apply', session: s, ops: [{ c: 'tasks', id: t.id, set: { desc: 'x' }, base: { desc: 'wrong' } }] });
+  assert.ok(!r.ok); assert.strictEqual(r.rejected[0].code, 'denied'); assert.strictEqual(r.rejected[0].current, null);
+});
+test('priority must be a real priority', () => {
+  const b = open(); const t = b.post({ action: 'pull' }).state.tasks[0];
+  assert.ok(!b.post({ action: 'apply', ops: [{ c: 'tasks', id: t.id, set: { priority: 'p1\" onmouseover=\"x' }, base: { priority: t.priority } }] }).ok);
+});
+test('employees get only a name for projects they have no tasks in', () => {
+  const b = secured(); const s = session(b, 'ak@suraasa.com'); const st = b.post({ action: 'pull', session: s }).state;
+  const with_ = new Set(st.tasks.map(t => t.projectId));
+  st.projects.filter(p => !with_.has(p.id)).forEach(p => { assert.ok(p.name); assert.ok(!p.objective && !p.milestones.length && !p.raci.length && !p.owner, p.id); });
+});
+test('employees cannot comment on or update projects outside their work', () => {
+  const b = secured(); const s = session(b, 'ak@suraasa.com'); const st = b.post({ action: 'pull', session: s }).state;
+  const with_ = new Set(st.tasks.map(t => t.projectId)); const out = st.projects.find(p => !with_.has(p.id));
+  assert.ok(!b.post({ action: 'apply', session: s, ops: [{ c: 'projects', id: out.id, set: { comments: [{ who: 'AK', text: 'x', ts: 't' }] }, base: {} }] }).ok);
+  assert.ok(!b.post({ action: 'apply', session: s, ops: [{ c: 'updates', id: 'U-X', create: true, rec: { id: 'U-X', projectId: out.id, week: '2026-11-02' } }] }).ok);
+});
+test('an employee cannot write progress history', () => {
+  const b = secured(); const s = session(b, 'ak@suraasa.com');
+  assert.strictEqual(b.post({ action: 'snapshot', session: s, rows: [{ date: '2026-11-03', projectId: 'PRJ-01', active: 0 }] }).added, 0);
+});
+function team(o) {
+  const b = createBackend(o); b.load(seedState());
+  b.addUser({ email: 'manish@suraasa.com', name: 'Manish Pandey (Head of Sales)', role: 'management' });
+  b.addUser({ email: 'akhand@suraasa.com', name: 'Akhand Mishra', role: 'employee' });
+  b.addUser({ email: 'divya@suraasa.com', name: 'Divya', role: 'management' });
+  b.addUser({ email: 'gone@suraasa.com', name: 'Gone Person', role: 'employee', active: false });
+  return b;
+}
+const give = (b, t, owner, by, id) => b.post({ action: 'apply', actorName: by, requestId: id, ops: [{ c: 'tasks', id: t.id, set: { owner }, base: { owner: t.owner } }] });
+test('management assigning a task emails the new owner and says who assigned it', () => {
+  const b = team(); const t = b.post({ action: 'pull' }).state.tasks.find(x => x.owner !== 'Akhand Mishra');
+  assert.ok(give(b, t, 'Akhand Mishra', 'Manish Pandey').ok);
+  assert.strictEqual(b.mails.length, 1); const m = b.mails[0];
+  assert.strictEqual(m.to, 'akhand@suraasa.com'); assert.match(m.subject, /^Manish Pandey assigned you a task: /); assert.ok(m.body.includes(t.name)); assert.strictEqual(m.replyTo, 'manish@suraasa.com');
+  assert.ok(b.post({ action: 'pull' }).state.audit.some(a => a.action === 'email_sent' && a.taskId === t.id));
+});
+test('a name in brackets finds the person: Head of Sales reaches Manish', () => {
+  const b = team(); const t = b.post({ action: 'pull' }).state.tasks.find(x => x.owner !== 'Head of Sales');
+  give(b, t, 'Head of Sales', 'Divya');
+  assert.strictEqual(b.mails[0].to, 'manish@suraasa.com');
+  assert.strictEqual(b.ctx.userByEmail_('manish@suraasa.com').name, 'Manish Pandey');
+});
+test('assigning a project emails its new owner', () => {
+  const b = team(); const p = b.post({ action: 'pull' }).state.projects[0];
+  b.post({ action: 'apply', actorName: 'Manish Pandey', ops: [{ c: 'projects', id: p.id, set: { owner: 'Divya' }, base: { owner: p.owner } }] });
+  assert.strictEqual(b.mails.length, 1); assert.match(b.mails[0].subject, /assigned you a project/);
+});
+test('a new task with an owner emails them', () => {
+  const b = team(); const pid = b.post({ action: 'pull' }).state.projects[0].id;
+  b.post({ action: 'apply', actorName: 'Divya', ops: [{ c: 'tasks', id: 'N1', create: true, rec: { id: 'N1', name: 'Fresh', projectId: pid, owner: 'Akhand Mishra', status: 'Not Started', due: '2026-12-01', priority: 'P1' } }] });
+  assert.strictEqual(b.mails.length, 1); assert.ok(b.mails[0].body.includes('2026-12-01'));
+});
+test('bulk assignment is one email per person', () => {
+  const b = team(); const ts = b.post({ action: 'pull' }).state.tasks.slice(0, 4);
+  b.post({ action: 'apply', actorName: 'Divya', ops: ts.map(t => ({ c: 'tasks', id: t.id, set: { owner: 'Akhand Mishra' }, base: { owner: t.owner } })) });
+  assert.strictEqual(b.mails.length, 1); assert.match(b.mails[0].subject, /assigned you 4 items/);
+});
+test('no email for other edits, self-assignment, employees, or inactive people', () => {
+  const b = team(); const st = b.post({ action: 'pull' }).state; const t = st.tasks[0];
+  b.post({ action: 'apply', actorName: 'Manish Pandey', ops: [{ c: 'tasks', id: t.id, set: { desc: 'x' }, base: { desc: t.desc } }] });
+  give(b, st.tasks[1], 'Manish Pandey', 'Manish Pandey');
+  give(b, st.tasks[2], 'Divya', 'Akhand Mishra');
+  give(b, st.tasks[3], 'Gone Person', 'Manish Pandey');
+  assert.strictEqual(b.mails.length, 0);
+  assert.ok(b.post({ action: 'pull' }).state.audit.some(a => a.action === 'email_skipped' && /Gone Person/.test(a.text)));
+});
+test('a retry of the same save sends nothing twice', () => {
+  const b = team(); const t = b.post({ action: 'pull' }).state.tasks[5];
+  give(b, t, 'Akhand Mishra', 'Divya', 'R1'); give(b, t, 'Akhand Mishra', 'Divya', 'R1');
+  assert.strictEqual(b.mails.length, 1);
+});
+test('a mail failure never stops the save, and is recorded', () => {
+  for (const o of [{ mailFails: true }, { mailQuota: 0 }]) {
+    const b = team(o); const t = b.post({ action: 'pull' }).state.tasks[6];
+    assert.ok(give(b, t, 'Akhand Mishra', 'Divya').ok);
+    const st = b.post({ action: 'pull' }).state;
+    assert.strictEqual(st.tasks.find(x => x.id === t.id).owner, 'Akhand Mishra');
+    assert.ok(st.audit.some(a => a.action === 'email_failed'));
   }
-  // Akhand cannot see user directory
-  assert.strictEqual(akhandPull.state.users, undefined);
-
-  // Management user (Manish Pandey) signs up and pulls state
-  const manishSign = b.post({ action: 'signup', email: 'manish@suraasa.com', fullName: 'Manish Pandey', password: 'password123' });
-  const manishPull = b.post({ action: 'pull', session: manishSign.session });
-  assert.ok(manishPull.ok);
-  // Management user sees all tasks across all employees
-  assert.strictEqual(manishPull.state.tasks.length, allSt.tasks.length);
-  assert.ok(Array.isArray(manishPull.state.users));
 });
-
-test('regular employee cannot modify another employees tasks', () => {
-  const b = secured();
-  const ad = session(b, 'admin@suraasa.com');
-  const allSt = b.post({ action: 'pull', session: ad }).state;
-  const someshTask = allSt.tasks[0];
-  const deepanshTask = allSt.tasks[1];
-
-  b.post({ action: 'apply', session: ad, ops: [
-    { c: 'tasks', id: someshTask.id, set: { owner: 'Somesh' }, base: { owner: someshTask.owner } },
-    { c: 'tasks', id: deepanshTask.id, set: { owner: 'Deepansh' }, base: { owner: deepanshTask.owner } }
-  ] });
-
-  const someshSign = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
-
-  // Somesh can update his own task
-  const someshUpdate = b.post({ action: 'apply', session: someshSign.session, ops: [
-    { c: 'tasks', id: someshTask.id, set: { progress: 50 }, base: { progress: someshTask.progress } }
-  ] });
-  assert.ok(someshUpdate.ok);
-
-  // Somesh attempts to modify Deepanshs task -> rejected!
-  const someshTamper = b.post({ action: 'apply', session: someshSign.session, ops: [
-    { c: 'tasks', id: deepanshTask.id, set: { progress: 80 }, base: { progress: deepanshTask.progress } }
-  ] });
-  assert.strictEqual(someshTamper.ok, false);
-  assert.strictEqual(someshTamper.rejected[0].code, 'denied');
+test('assignment emails can be turned off', () => {
+  const b = team(); b.props.set('ASSIGN_EMAIL', 'off'); const t = b.post({ action: 'pull' }).state.tasks[7];
+  give(b, t, 'Akhand Mishra', 'Divya'); assert.strictEqual(b.mails.length, 0);
 });
-
-test('profile privacy: user can view/update own profile only', () => {
-  const b = secured();
-  const akhand = b.post({ action: 'signup', email: 'akhand@suraasa.com', fullName: 'Akhand', password: 'password123' });
-
-  // Update own full name
-  const upName = b.post({ action: 'update_profile', session: akhand.session, fullName: 'Akhand Pratap' });
-  assert.ok(upName.ok);
-  assert.strictEqual(upName.user.full_name, 'Akhand Pratap');
-
-  // Change password with correct current password
-  const upPw = b.post({ action: 'update_profile', session: akhand.session, currentPassword: 'password123', newPassword: 'newPassword789' });
-  assert.ok(upPw.ok);
-
-  // Old password no longer works
-  const oldLogin = b.post({ action: 'login', email: 'akhand@suraasa.com', password: 'password123' });
-  assert.strictEqual(oldLogin.ok, false);
-
-  // New password works
-  const newLogin = b.post({ action: 'login', email: 'akhand@suraasa.com', password: 'newPassword789' });
-  assert.ok(newLogin.ok);
+test('email text cannot carry HTML from a task name', () => {
+  const b = team(); const pid = b.post({ action: 'pull' }).state.projects[0].id;
+  b.post({ action: 'apply', actorName: 'Divya', ops: [{ c: 'tasks', id: 'N2', create: true, rec: { id: 'N2', name: '<img src=x>', projectId: pid, owner: 'Akhand Mishra', status: 'Not Started' } }] });
+  assert.ok(!b.mails[0].htmlBody.includes('<img'));
 });
-
-test('forgot password and password reset token flow', () => {
-  const b = secured();
-  b.post({ action: 'signup', email: 'deepansh@suraasa.com', fullName: 'Deepansh', password: 'initialPassword' });
-
-  // Request reset
-  const forgot = b.post({ action: 'forgot_password', email: 'deepansh@suraasa.com' });
-  assert.ok(forgot.ok);
-  assert.ok(forgot.resetToken);
-
-  // Reset with token
-  const reset = b.post({ action: 'reset_password', token: forgot.resetToken, newPassword: 'resetPassword123' });
-  assert.ok(reset.ok);
-
-  // Login with reset password
-  const login = b.post({ action: 'login', email: 'deepansh@suraasa.com', password: 'resetPassword123' });
-  assert.ok(login.ok);
+test('AK becomes Ankit Khanna everywhere, once, with no emails', () => {
+  const b = team(); const st = seedState();
+  const t = b.post({ action: 'pull' }).state.tasks; const [x, y, z] = t;
+  b.post({ action: 'apply', actorName: 'Divya', ops: [
+    { c: 'tasks', id: x.id, set: { owner: 'AK, Ankit Khanna' }, base: { owner: x.owner } },
+    { c: 'tasks', id: y.id, set: { owner: 'AK, Divya, Ankit Khanna', accountable: 'TBD \u2014 AK or Ankit Khanna (confirm)' }, base: { owner: y.owner, accountable: y.accountable } },
+    { c: 'tasks', id: z.id, set: { owner: 'MAK', desc: 'Confirm AK vs Ankit Khanna per item' }, base: { owner: z.owner, desc: z.desc } }] });
+  b.mails.length = 0;
+  assert.ok(b.ctx.replaceAkWithAnkitKhanna() > 0);
+  const s = b.post({ action: 'pull' }).state; const by = id => s.tasks.find(q => q.id === id);
+  assert.strictEqual(by(x.id).owner, 'Ankit Khanna');
+  assert.strictEqual(by(y.id).owner, 'Ankit Khanna, Divya');
+  assert.strictEqual(by(y.id).accountable, 'Ankit Khanna');
+  assert.strictEqual(by(z.id).owner, 'MAK');
+  assert.strictEqual(by(z.id).desc, 'Confirm with Ankit Khanna per item');
+  assert.ok(!/\bAK\b/.test(JSON.stringify(s.tasks)));
+  assert.strictEqual(b.mails.length, 0);
+  assert.ok(s.audit.some(a => a.action === 'name_merged' && a.oldValue === 'AK, Ankit Khanna'));
+  assert.strictEqual(b.ctx.replaceAkWithAnkitKhanna(), 0);
 });
-
-test('logout invalidates session token', () => {
-  const b = secured();
-  const log = b.post({ action: 'signup', email: 'somesh@suraasa.com', fullName: 'Somesh', password: 'password123' });
-  assert.ok(log.ok);
-
-  // Pull works with valid session
-  assert.ok(b.post({ action: 'pull', session: log.session }).ok);
-
-  // Logout
-  const out = b.post({ action: 'logout', session: log.session });
-  assert.ok(out.ok);
-
-  // Pull fails after logout
-  const afterOut = b.post({ action: 'pull', session: log.session });
-  assert.strictEqual(afterOut.ok, false);
-  assert.strictEqual(afterOut.auth, true);
-});
-
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

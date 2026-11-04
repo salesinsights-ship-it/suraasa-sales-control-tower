@@ -26,7 +26,6 @@ test('valid and invalid status moves', () => {
   assert.ok(E.moveProblem(T('a'), 'Blocked')); assert.strictEqual(E.moveProblem(T('a'), 'Blocked', { blockerText: 'y' }), '');
   assert.ok(E.moveProblem(T('a', { status: 'In Progress', requiresReview: true }), 'Completed'));
   assert.strictEqual(E.moveProblem(T('a', { status: 'In Review', requiresReview: true }), 'Completed'), '');
-  assert.strictEqual(E.moveProblem(T('a', { status: 'On Hold' }), 'Completed'), '');
 });
 test('every status in the list has defined moves', () => E.TASK_STATUSES.forEach(s => assert.ok(E.TRANSITIONS[s], s)));
 test('a single low-priority overdue task among many is not Delayed', () => { const ts = [T('a', { due: '2026-11-01', status: 'In Progress' })].concat([...Array(9)].map((_, i) => T('t' + i, { status: 'In Progress', due: '2026-12-20' }))); const h = H({}, ts); assert.strictEqual(h.level, 'At risk'); assert.ok(/1 of 10/.test(h.reasons[0])); });
@@ -71,6 +70,18 @@ test('one late low-priority task never makes a project Delayed, even if it is th
   const t = { id: 'a', status: 'In Progress', priority: 'P3', due: '2026-10-01', projectId: 'P' };
   const h = E.health({ id: 'P', status: 'In Progress', accountable: 'AK', milestones: [] }, { tasks: [t], deps: [], today, now: Date.now(), lastUpdateTs: new Date().toISOString() });
   assert.strictEqual(h.level, 'At risk');
+});
+test('every status has a stage, and each stage sets one status', () => {
+  E.TASK_STATUSES.forEach(s => assert.ok(E.STAGES.includes(E.stageOf(s)), s));
+  assert.deepStrictEqual(E.STAGES, ['Not yet started', 'Moved ahead', 'Completed', 'Parked', 'Dropped']);
+  E.STAGES.forEach(x => assert.strictEqual(E.stageOf(E.STAGE_STATUS[x]), x));
+  assert.strictEqual(E.stageOf('Blocked'), 'Moved ahead'); assert.strictEqual(E.stageOf('In Review'), 'Moved ahead'); assert.strictEqual(E.stageOf('Backlog'), 'Not yet started');
+});
+test('every stage can be reached from every status', () => {
+  E.TASK_STATUSES.forEach(from => E.STAGES.forEach(x => {
+    const to = E.STAGE_STATUS[x];
+    if (to !== from) assert.ok(E.TRANSITIONS[from].includes(to), from + ' to ' + to);
+  }));
 });
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

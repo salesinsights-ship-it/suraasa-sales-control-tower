@@ -1,6 +1,8 @@
-# Turn on sign-in
+# Turn on Google sign-in
 
-Until this is done, anyone with the link can read and change data. It takes about 15 minutes and costs nothing.
+The email and password screen on the site decides what each person sees, but it does not protect the data: anyone with the Apps Script link can still read and change it. Google sign-in, checked on the server, closes that. It takes about 15 minutes and costs nothing.
+
+Do this only after the new `apps-script/Code.gs` is in use. When it is on, Google sign-in replaces the password screen.
 
 ## 1. Add your team
 
@@ -10,7 +12,7 @@ In the Sheet, open the **Users** tab and add one row per person.
 |---|---|---|---|
 | you@suraasa.com | Your Name | Administrator | TRUE |
 
-- **role** is one of: `Administrator`, `Project Owner`, `Task Owner`, `Viewer`.
+- **role** is one of: `Administrator`, `Project Owner`, `Task Owner`, `Viewer`. `management` and `employee` also work: they mean Administrator and Task Owner. `management` means Administrator and `employee` means Task Owner.
 - **name** must match how the person is written in the Owner fields, exactly. A task owned by `Sales Operations` gives no rights to someone named `Priya`.
 
 You can add more people later in **Administration** on the site. At least one active Administrator is required.

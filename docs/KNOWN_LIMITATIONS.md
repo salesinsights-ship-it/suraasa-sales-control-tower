@@ -6,8 +6,8 @@ Deliverable 14.
 
 | Item | Why it needs you | Until then |
 |---|---|---|
-| Update the Apps Script and site | I have no access to your Google account or GitHub | The live site is unchanged |
-| Create a Google OAuth client ID | It must be made in your Google Cloud account | **Sign-in is off. Anyone with the link can read and change data, and roles are not enforced** |
+| Publish the site and update the Apps Script | I have no access to your Google account or GitHub | Assignment emails, the audit log, Trash and field-level saving wait for the new script |
+| Create a Google OAuth client ID | It must be made in your Google Cloud account | **The sign-in on the page does not protect the data. Anyone with the Apps Script link can read and change it, and roles are enforced only on the page** |
 | Add people to the Users tab | Only you know who holds which role | Nobody can sign in once sign-in is on |
 | Turn on daily backup | One click in the Sheet menu | No automatic backups or overdue events |
 
@@ -37,9 +37,23 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **Live cost of a pull.** The site re-reads the whole dataset when the version changes.
 - **Accessibility.** Keyboard use and contrast were checked as part of the work, but no screen reader test was done.
 
+## Sign-in on the page
+
+- It decides what each person sees. It is not security: the check runs in the browser, and the team list is in the page.
+- The 12 passwords were public in earlier versions and are still in Git history, so treat them as exposed.
+- The first-name-and-2026 rule and the shared password still work, so nobody was locked out. Both are guessable. Google sign-in replaces them.
+- A new team member needs a code change until Google sign-in is on.
+
+## Assignment emails
+
+- Emails come from the Google account that deployed the script, with the name Suraasa Control Tower. Replies go to the person who assigned the work.
+- While sign-in is off, the script takes the sender's name from the website and cannot verify it. Turn sign-in on to prove who assigned what.
+- Owners are matched by name. A name that is not in the Users tab gets no email; `AuditLog` records it as `email_skipped`.
+- Google limits daily email: about 1,500 for Workspace accounts and 100 for personal ones. Past that, saves still work and `AuditLog` records `email_failed`.
+- Only a change of `owner` sends an email. Being named as accountable does not.
+
 ## Data and repository
 
 - `AI mock stimulator` (PRJ-001, objective "xyz") looks like a test record. It is still there.
-- Ankit Khanna appears 29 times in the data, and `Pending AK/Ankit decision` may still be in the Sheet's options. Nothing was changed: these are your records.
 - **`src/seed.js` still contains the original project data, and so does Git history.** The published page no longer does. If the GitHub repo is public, make it private.
 - The old site remains in Vercel's deployment history until you delete those deployments.

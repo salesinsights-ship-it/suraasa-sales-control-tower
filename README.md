@@ -15,12 +15,15 @@ A single-page project tracker for the Head of Sales and the sales team. It answe
 
 ## How it works
 
-The page holds no business data. It loads from a Google Sheet through an Apps Script web app, which handles sign-in, permissions, validation and the audit log.
+The page holds no business data. It loads from a Google Sheet through an Apps Script web app, which handles validation and the audit log.
+
+People sign in on the page with their Suraasa email and password. The page holds one-way keys, not readable passwords. This decides what each person sees, but it does not protect the data. Google sign-in, which is checked on the server, does that: see [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md).
 
 | Read this | For |
 |---|---|
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing an update, and rollback |
 | [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Turning on Google sign-in |
+| [SETUP_GOOGLE_SHEET.md](SETUP_GOOGLE_SHEET.md) | Connecting a brand-new Sheet |
 | [docs/AUDIT.md](docs/AUDIT.md) | What was found, and before and after |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, and the data model |
 | [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | Who can do what |
@@ -44,11 +47,11 @@ npm run test:e2e    # browser tests (needs: npm i --no-save playwright)
 ```
 ├── src/
 │   ├── engine.js        # Rules: lifecycle, progress, health, notifications
-│   ├── app.js           # Screens, forms, permissions shown to the user, sync
+│   ├── app.js           # Sign-in, screens, forms, permissions shown to the user, sync
 │   ├── seed.js          # Data used by the tests. Not published
 │   ├── styles.css       # Light and dark themes
 │   └── shell_*.html     # Page frame
-├── apps-script/Code.gs  # Server: sign-in, permissions, validation, audit log
+├── apps-script/Code.gs  # Server: validation, audit log, assignment emails, Google sign-in
 ├── assets/              # Official logos, favicons, app icons
 ├── tests/               # Rules, server and browser tests
 ├── docs/                # Audit, architecture, permissions, workflow, tests
@@ -76,23 +79,16 @@ This compiles `src/*` into `dist/Suraasa_Sales_Control_Tower.html`, `dist/index.
 
 ## Deploying to Vercel
 
-The project includes `vercel.json` configured for zero-configuration deployments:
+`vercel.json` already holds the settings, so pushing to `main` on GitHub publishes the site.
 
-1. **Option A (GitHub Integration)**:
-   - Push to your GitHub repository.
-   - Connect the repository in Vercel.
-   - Framework Preset: **Other**.
-   - Build Command: `node build.js` (or leave default from `vercel.json`).
-   - Output Directory: `dist` (or leave default).
-
-2. **Option B (Drag and Drop / CLI)**:
-   - Upload `dist.zip` or the repository folder directly.
-   - Because `index.html` is generated at both root and `dist/index.html`, your site will load immediately without 404 errors.
+- Framework preset: **Other**
+- Build command: `node build.js`
+- Output directory: `dist`
 
 ---
 
 ## Data Storage & Reset
 
-- Data is automatically cached in the browser's `localStorage` under `suraasa_sales_control_tower_v1`.
-- When connected to a Google Sheet, changes sync to the cloud.
-- To go back to the original data, open **More → Data & settings → Reset**.
+- The Google Sheet holds the real data. Each browser keeps a working copy under `suraasa_sales_control_tower_v1`, and signing out clears it.
+- Changes save to the Sheet automatically. The status at the top of the page shows Saved, Saving or Not saved.
+- **Administration > Sheet and data** shows the connected link and exports a backup.

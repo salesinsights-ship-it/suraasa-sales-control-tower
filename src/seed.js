@@ -969,7 +969,7 @@ function buildSeed() {
     riskLevels: ['High', 'Medium', 'Low'],
     riskStatuses: ['Open', 'Mitigated', 'Resolved', 'Escalated', 'Closed'],
     dependencyStatuses: ['Open', 'Escalated', 'Resolved', 'Closed'],
-    decisionStatuses: ['Open', 'Pending AK/Ankit decision', 'Closed', 'Escalated'],
+    decisionStatuses: ['Open', 'Pending Ankit Khanna decision', 'Closed', 'Escalated'],
     actionKinds: ['Immediate action', 'Pending action', 'Recommendation'],
     actionBuckets: [
       'Implement immediately',
@@ -991,7 +991,7 @@ function buildSeed() {
       seeded: stamp,
       savedAt: stamp,
       sync: {
-        url: 'https://script.google.com/macros/s/AKfycbzkTjeuNLqYSZaSWIB11wD54IcZ2FHfllp9Icn7wvlyDRlafxv14AbprzBNh8cIR7s_Rw/exec',
+        url: 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec',
         enabled: true,
         autoSync: true,
         lastSync: null,

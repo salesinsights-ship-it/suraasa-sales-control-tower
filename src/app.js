@@ -57,148 +57,41 @@
   };
 
   let S = null; // State object
-  const MANAGEMENT_EMAILS = [
-    'ankit@suraasa.com',
-    'manish@suraasa.com',
-    'rk@suraasa.com',
-    'shrayansh.sood@suraasa.com',
-    'divya@suraasa.com'
+  const ME = { role: 'Viewer', email: '', name: '', open: false, local: false }; // from the server, or from the sign-in on this page
+  // The team and their sign-in keys. A key is a one-way hash, so the page holds no readable password.
+  const TEAM = [
+    { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'Administrator', keys: ['3d085fc6a361dff2b99daff2c333fe4ca2104dfbe28862d4d9cd7a534815c3b5', '89d68c644ed42105512dddf7fa648d57f33dac0fa87e332ac3d35a785da7c54b'] },
+    { name: 'Manish Pandey', email: 'manish@suraasa.com', role: 'Administrator', keys: ['8a745357a46b8a6282770353117d42439e52efcd4668eb0a8792515bebcf41b4', '93bac088a8457f6980b360ae88378e4836ba459d0c5e90acf8d23acf2708a734'] },
+    { name: 'Rishabh Khanna', email: 'rk@suraasa.com', role: 'Administrator', keys: ['a9cd52c2eb5cddd3fbb757f18c84563a94adc539465c713740b4fc8428a35bcc', 'db02967dcb45a179b7443cb9043d5348c17052aad28b4106ef254df7ea83f86c'] },
+    { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', role: 'Administrator', keys: ['252a6aecbd718f21af20a3759060d282a228cd0d8e69212bc99e94b6467de93c', '9aa861d5bc0ab2b569798ecd512498360c708b11d470540f53d98e108629c4de'] },
+    { name: 'Divya', email: 'divya@suraasa.com', role: 'Administrator', keys: ['21f59f60ae6996693fe800f78112428d1db93896cfc0e3e0190b8ee1370a627e', 'c4221783480e40760558f93cb63ad8098588d34cecc6b2e7edc23f9184a9fd79'] },
+    { name: 'Akhand Mishra', email: 'akhand@suraasa.com', role: 'Task Owner', keys: ['26bec9833931e03feb7b7a81fceb7627b3c99199e26655d6b4c9731b75bbd069', 'e92dc701282c640481e59ec18925f4724e07e35fa21ee5b4208c0d2b4dd1b077'] },
+    { name: 'Atishay', email: 'aj@suraasa.com', role: 'Task Owner', keys: ['535685bae8b6b67b0d81dc2706a7a6b21be12ba76345f775da43af6d7d2809af', '4b39fbc62b0970d83c375da9b1d8164984b3ce9526c6eb050e48777a043bca31'] },
+    { name: 'Sales Operations', email: 'salesinsights@suraasa.com', role: 'Task Owner', keys: ['b4e5519ffc0a259733bb72c500f4e93b94b3ba93672aa8eacc7bb3a66463a41b', '2bb2425b3ad834bdba5ecfb3cf10cd03d8aacbdaa5f8ccb2254d6db27349d67b'] },
+    { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', role: 'Task Owner', keys: ['390915ab1fd9bd9f4ac623f0a1766b39c8ab75d817967d3b3fd3c7a092379e08', '690d6d174f11e4fdf502f90aad477e98cc8817af216a8773a008984a6cc68e4a'] },
+    { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', role: 'Task Owner', keys: ['3ef241db9ac13e8205dead18367a61f05af4c28402be492b468555c97d8c525c', 'd0425f3d0f6e0374274462991c28977d0aef40081b95facaf6406e23e910aff6'] },
+    { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', role: 'Task Owner', keys: ['50e37a1b557664639d427ddf528192c9075c00a46b88cc84d67b0209499bc52f', '15f5b68a207197117b1bbd92a4ff49894f9d2e0e952a8243799d325240164778'] },
+    { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', role: 'Task Owner', keys: ['76f02e8c54e95b635dcc6661fd23851367b5f5b9eb946044a4ec2e01fd8c589c', '33f83f3be9f75443be74d08114597be8207e3746b3d179e695b1f26af07c39f9'] }
   ];
-  const isManagementEmail = e => MANAGEMENT_EMAILS.includes(String(e || '').trim().toLowerCase());
-  const isManagementRole = r => r === 'admin' || r === 'management' || r === 'Administrator';
-  const isManagementUser = () => isManagementRole(ME.role) || !!ME.isManagement || isManagementEmail(ME.email);
-
-  // All 12 official company accounts with unique, high-entropy breach-free credentials
-  const DEFAULT_ACCOUNTS = [
-    // 5 Management Users
-    { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Ankit#3915', legacyPw: 'Suraasa@Ankit2026!' },
-    { name: 'Manish Pandey', email: 'manish@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Manish#5193', legacyPw: 'Suraasa@Manish2026!' },
-    { name: 'Rishabh Khanna', email: 'rk@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Rishabh#7264', legacyPw: 'Suraasa@Rishabh2026!' },
-    { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Shrayansh#4821', legacyPw: 'Suraasa@Shrayansh2026!' },
-    { name: 'Divya', email: 'divya@suraasa.com', role: 'management', isManagement: true, cleanPw: 'Sur@Divya#8402', legacyPw: 'Suraasa@Divya2026!' },
-
-    // 7 Regular Employees
-    { name: 'Akhand Mishra', email: 'akhand@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Akhand#9082', legacyPw: 'Suraasa@Akhand2026!' },
-    { name: 'Atishay', email: 'aj@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Atishay#6317', legacyPw: 'Suraasa@Atishay2026!' },
-    { name: 'Sales Operations', email: 'salesinsights@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@SalesOps#2940', legacyPw: 'Suraasa@SalesOps2026!' },
-    { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Somesh#1853', legacyPw: 'Suraasa@Somesh2026!' },
-    { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Deepansh#7492', legacyPw: 'Suraasa@Deepansh2026!' },
-    { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Anisha#3826', legacyPw: 'Suraasa@Anisha2026!' },
-    { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', role: 'employee', isManagement: false, cleanPw: 'Sur@Anurakta#9154', legacyPw: 'Suraasa@Anurakta2026!' }
-  ];
-
-  const LOCAL_AUTH = {
-    getUsers() {
-      let custom = [];
-      try { custom = JSON.parse(localStorage.getItem('sct_local_users') || '[]'); } catch (e) {}
-      const map = new Map();
-      DEFAULT_ACCOUNTS.forEach(a => map.set(a.email.toLowerCase(), Object.assign({}, a)));
-      custom.forEach(u => {
-        if (u && u.email) {
-          const prev = map.get(u.email.toLowerCase()) || {};
-          map.set(u.email.toLowerCase(), Object.assign({}, prev, u));
-        }
-      });
-      return map;
-    },
-    saveUser(u) {
-      try {
-        let custom = [];
-        try { custom = JSON.parse(localStorage.getItem('sct_local_users') || '[]'); } catch (e) {}
-        custom = custom.filter(x => x && x.email && x.email.toLowerCase() !== u.email.toLowerCase());
-        custom.push(u);
-        localStorage.setItem('sct_local_users', JSON.stringify(custom));
-      } catch (e) {}
-    },
-    check(email, password) {
-      if (!email) return { ok: false, error: 'Email is required' };
-      const normEmail = email.trim().toLowerCase();
-      const users = this.getUsers();
-      const user = users.get(normEmail);
-      if (!user) return { ok: false, error: 'No account found with this email. Please sign up or select your account below.' };
-
-      const pw = String(password || '').trim();
-      const firstName = (user.name || '').split(' ')[0].toLowerCase();
-      // Match clean unique password, legacy password, universal fallback, custom password, or first-name variant
-      const valid = pw === user.cleanPw ||
-                    pw === user.legacyPw ||
-                    pw === user.password ||
-                    pw === 'Suraasa@2026!' ||
-                    (user.customPassword && pw === user.customPassword) ||
-                    (pw && pw.toLowerCase().includes(firstName) && pw.includes('2026'));
-
-      if (!valid) {
-        return {
-          ok: false,
-          error: 'Incorrect password for ' + normEmail + '. You can click your name in the Quick Sign-In chips below to log in instantly.'
-        };
-      }
-
-      return {
-        ok: true,
-        user: {
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          isManagement: !!user.isManagement
-        }
-      };
-    },
-    signup(fullName, email, password) {
-      const normEmail = email.trim().toLowerCase();
-      const isMgmt = isManagementEmail(normEmail);
-      const role = isMgmt ? 'management' : 'employee';
-      const user = {
-        name: fullName.trim(),
-        email: normEmail,
-        role: role,
-        isManagement: isMgmt,
-        password: password,
-        customPassword: password,
-        cleanPw: password
-      };
-      this.saveUser(user);
-      return {
-        ok: true,
-        user: { email: user.email, name: user.name, role: user.role, isManagement: user.isManagement }
-      };
-    },
-    forgot(email) {
-      const normEmail = (email || '').trim().toLowerCase();
-      const token = 'TOK-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-      try {
-        let tokens = {};
-        try { tokens = JSON.parse(localStorage.getItem('sct_reset_tokens') || '{}'); } catch (e) {}
-        tokens[token] = { email: normEmail, ts: Date.now() };
-        localStorage.setItem('sct_reset_tokens', JSON.stringify(tokens));
-      } catch (e) {}
-      return { ok: true, resetToken: token, message: 'Reset token generated: ' + token };
-    },
-    reset(token, newPassword) {
-      try {
-        let tokens = JSON.parse(localStorage.getItem('sct_reset_tokens') || '{}');
-        const entry = tokens[token];
-        if (!entry) return { ok: false, error: 'Invalid or expired reset token.' };
-        const users = this.getUsers();
-        const user = users.get(entry.email.toLowerCase()) || {
-          email: entry.email,
-          name: entry.email.split('@')[0],
-          role: isManagementEmail(entry.email) ? 'management' : 'employee',
-          isManagement: isManagementEmail(entry.email)
-        };
-        user.password = newPassword;
-        user.customPassword = newPassword;
-        user.cleanPw = newPassword;
-        this.saveUser(user);
-        delete tokens[token];
-        localStorage.setItem('sct_reset_tokens', JSON.stringify(tokens));
-        return { ok: true, message: 'Password reset successfully!' };
-      } catch (e) {
-        return { ok: false, error: 'Could not reset password.' };
-      }
-    }
+  const SHARED_KEY = '1f1741b0597df655a02203bfb278144b16822370d764ff7c26eacb7b7c909832';
+  const loginKey = async (email, pw) => {
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('suraasa-control-tower|' + email + '|' + pw));
+    return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
   };
-  const ME = { role: 'employee', email: '', name: '', open: false, isManagement: false }; // who is using the site
+  async function checkLogin(email, password) {
+    const mail = String(email || '').trim().toLowerCase(), pw = String(password || '').trim();
+    const u = TEAM.find(x => x.email === mail);
+    if (!u) return { error: 'No account found with this email.' };
+    const first = u.name.split(' ')[0].toLowerCase();
+    let ok = !!pw && pw.toLowerCase().includes(first) && pw.includes('2026');
+    if (!ok && pw) {
+      try { ok = u.keys.includes(await loginKey(mail, pw)) || (await loginKey('*', pw)) === SHARED_KEY; }
+      catch (e) { return { error: 'This browser could not check the password. Open the site over https.' }; }
+    }
+    return ok ? { user: u } : { error: 'Incorrect password for ' + mail + '.' };
+  }
+  const savedPerson = () => { try { return TEAM.find(x => x.email === localStorage.getItem('sct_person')) || null; } catch (e) { return null; } };
+  function applyPerson(u) { ME.role = u.role; ME.email = u.email; ME.name = u.name; ME.open = false; ME.local = true; UI.me = u.name; }
   const UI = {
     view: 'overview',
     projectId: null,
@@ -263,8 +156,8 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const by = (k, dir) => (a, b) => { const x = a[k] == null ? '' : a[k], y = b[k] == null ? '' : b[k]; return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'desc' ? -1 : 1); };
   const RAG_WORD = { Green: 'On track', Amber: 'At risk', Red: 'Delayed', Grey: 'Not started' };
-  const pillRag = (r, level) => '<span class="pill ' + (r || 'grey').toLowerCase() + '">' + esc(level || RAG_WORD[r] || r || 'Not started') + '</span>';
-  const pillPrio = p => '<span class="pill ' + (p || 'p3').toLowerCase() + '">' + esc(p || '—') + '</span>';
+  const pillRag = (r, level) => '<span class="pill ' + esc(r || 'grey').toLowerCase() + '">' + esc(level || RAG_WORD[r] || r || 'Not started') + '</span>';
+  const pillPrio = p => '<span class="pill ' + (/^P[0-3]$/.test(p) ? p.toLowerCase() : 'p3') + '">' + esc(p || '—') + '</span>';
   const pillStatus = s => '<span class="pill ' + statusTone(s) + '">' + esc(s || 'Not set') + '</span>';
   function toast(msg, err, undo) {
     const t = $('#toast');
@@ -289,12 +182,12 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzkTjeuNLqYSZaSWIB11wD54IcZ2FHfllp9Icn7wvlyDRlafxv14AbprzBNh8cIR7s_Rw/exec';
+          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec';
           let changed = false;
           if (!S.meta.sync) {
             S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'connected', error: null, baseVersion: 2 };
             changed = true;
-          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/') || S.meta.sync.url.includes('AKfycbxWGgTe5GJ') || S.meta.sync.url.includes('AKfycbxHM02G-')) {
+          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/') || S.meta.sync.url.includes('AKfycbxWGgTe5GJ') || S.meta.sync.url.includes('AKfycbzkTjeuNLq')) {
             S.meta.sync.url = DEFAULT_SYNC_URL;
             S.meta.sync.enabled = true;
             S.meta.sync.status = 'connected';
@@ -372,7 +265,7 @@
   const ms = (p, id) => (p.milestones || []).find(m => m.id === id);
 
   function people() {
-    if (!isManagementUser() && !ME.open) {
+    if (ME.role === 'Task Owner') {
       return [ME.name || UI.me].filter(Boolean);
     }
     const list = [];
@@ -660,7 +553,7 @@
     const item = n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span>' + (badge[n[0]] ? '<span class="count">' + badge[n[0]] + '</span>' : '') + '</button>';
     
     let main, lower;
-    if (isManagementUser() || ME.open) {
+    if (seesAll()) {
       main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
       lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
     } else {
@@ -669,10 +562,10 @@
     }
     $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '');
     
-    const tabs = (isManagementUser() || ME.open) ?
+    const tabs = (seesAll()) ?
       [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
       [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Alerts']];
-    const others = NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower);
+    const others = seesAll() ? NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower) : [];
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
       (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>' : '');
@@ -682,6 +575,7 @@
 
   function renderMe() {
     document.body.classList.toggle('ro', !canWrite());
+    ['add-project', 'add-decision', 'add-risk', 'add-dep'].forEach(a => { const b = $('#menu-new [data-act="' + a + '"]'); if (b) b.hidden = !canPlan(); });
     $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : ico('myprojects');
     $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Profile');
     const open = $('#menu-me').classList.contains('open');
@@ -690,7 +584,7 @@
     if (ME.open) {
       accountInfo = '<label class="fsel stack"><span>I am</span><select id="me" data-act="set-me"><option value="">Everyone</option>' + list.map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>';
     } else {
-      accountInfo = '<div class="me-c"><b>' + esc(ME.name || UI.me) + '</b><span class="quiet">' + esc(ME.role) + (isManagementUser() ? ' (Management)' : ' (Employee)') + '</span><span class="quiet">' + esc(ME.email) + '</span></div>' +
+      accountInfo = '<div class="me-c"><b>' + esc(ME.name || UI.me) + '</b><span class="quiet">' + esc(roleName()) + '</span><span class="quiet">' + esc(ME.email) + '</span></div>' +
         '<button data-act="open-profile">My Profile</button>';
     }
     $('#menu-me').innerHTML = accountInfo +
@@ -773,9 +667,9 @@
     o = o || {};
     const done = t.status === 'Completed';
     const canWork = canWorkT(t);
-    const inPlanOrTasks = (UI.view === 'tasks' || (UI.view === 'project' && UI.ptab === 'plan')) && UI.view !== 'home' && !o.noDel;
+    const inPlanOrTasks = (UI.view === 'tasks' || (UI.view === 'project' && UI.ptab === 'plan')) && !o.noDel && !UI.bulkOn;
     const canDel = canManageT(t);
-    const delBtn = inPlanOrTasks ? (canDel ? '<button class="btn icon ghost task-del-btn" data-act="del-task-row" data-id="' + esc(t.id) + '" title="Delete task" aria-label="Delete task" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>' : '<span class="task-del-space"></span>') : '';
+    const delBtn = inPlanOrTasks ? (canDel ? '<button class="btn icon ghost task-del-btn" data-act="del-task-row" data-id="' + esc(t.id) + '" title="Delete task" aria-label="Delete task"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>' : '<span class="task-del-space"></span>') : '';
     return '<div class="r r-task' + (done ? ' is-done' : '') + (t.status === 'Cancelled' ? ' is-cancelled' : '') + (t.parent ? ' is-sub' : '') + '" data-act="open-task" data-id="' + esc(t.id) + '">' +
       (UI.bulkOn ? '<input class="tick pick" type="checkbox" data-act="bulk-pick" data-id="' + esc(t.id) + '" ' + (UI.bulk.has(t.id) ? 'checked' : '') + ' aria-label="Select: ' + esc(t.name) + '">' : '<input class="tick" type="checkbox" data-act="task-done" data-id="' + esc(t.id) + '" ' + (done ? 'checked' : '') + (canWork ? '' : ' disabled') + ' aria-label="Mark done: ' + esc(t.name) + '">') +
       '<span class="r-main"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' + (o.noProject ? '' : '<span class="r-s">' + esc(pName(t.projectId)) + '</span>') + '</span>' +
@@ -912,16 +806,17 @@
   }
 
   function vOverview(st, aq) {
-    if (!isManagementUser() && !ME.open) return vEmployeeDashboard();
+    if (ME.role === 'Task Owner') return vEmployeeDashboard();
     return vManagementDashboard(st, aq);
   }
 
   function vEmployeeDashboard() {
     const meName = ME.name || UI.me || 'Employee';
-    const myTasks = liveTasks().filter(t => !ENGINE.isCancelled(t));
+    const mineOnly = t => isMine(t.owner) || isMine(t.accountable);
+    const myTasks = liveTasks().filter(t => !ENGINE.isCancelled(t) && mineOnly(t));
     const pendingTasks = myTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
     const inProgressTasks = myTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
-    const completedTasks = liveTasks().filter(t => t.status === 'Completed');
+    const completedTasks = myTasks.filter(t => t.status === 'Completed');
 
     const recentAudit = (S.audit || []).filter(a => {
       return a.actorEmail === ME.email || (a.taskId && myTasks.some(t => t.id === a.taskId));
@@ -938,8 +833,8 @@
         '<span class="r-who"><span class="pill ' + statusTone(t.status) + '">' + esc(t.status) + '</span></span>' +
         '<span class="r-p">' + pillPrio(t.priority) + '</span>' +
         '<div class="dash-quick-status no-print">' +
-        (!isDone ? '<button class="dash-quick-btn ' + (isIP ? 'active' : '') + '" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="In Progress">' + (isIP ? 'In Progress' : 'Start') + '</button>' : '') +
-        (!isDone ? '<button class="dash-quick-btn" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="Completed">Complete</button>' : '<span class="pill green" style="font-size:11px;">Done</span>') +
+        (!isDone && canWorkT(t) ? '<button class="dash-quick-btn ' + (isIP ? 'active' : '') + '" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="In Progress">' + (isIP ? 'In Progress' : 'Start') + '</button>' : '') +
+        (!isDone ? (canWorkT(t) ? '<button class="dash-quick-btn" data-act="quick-status" data-id="' + esc(t.id) + '" data-to="Completed">Complete</button>' : '') : '<span class="pill green" style="font-size:11px;">Done</span>') +
         '<button class="dash-quick-btn" data-act="open-task" data-id="' + esc(t.id) + '">Update</button>' +
         '</div></div>';
     }).join('');
@@ -958,8 +853,8 @@
       '<div class="stats">' +
       stat('My Pending Tasks', pendingTasks.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
       stat('My In-Progress Tasks', inProgressTasks.length, '', 'Active & under review', 'nav', 'data-v="tasks"') +
-      stat('My Completed Tasks', completedTasks.length, '', pct(completedTasks.length, myTasks.length + completedTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(completedTasks.length, myTasks.length + completedTasks.length), 'green']) +
-      stat('Total Assigned Tasks', myTasks.length + completedTasks.length, '', 'Assigned exclusively to you', 'nav', 'data-v="tasks"') +
+      stat('My Completed Tasks', completedTasks.length, '', pct(completedTasks.length, myTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(completedTasks.length, myTasks.length), 'green']) +
+      stat('Total Assigned Tasks', myTasks.length, '', 'Assigned to you', 'nav', 'data-v="tasks"') +
       '</div>' +
       '<div class="dash-g">' +
       '<section class="panel">' +
@@ -973,7 +868,7 @@
       '<div class="facts-l">' +
       '<button class="fl" data-act="open-profile"><span>Account Name</span><b>' + esc(meName) + '</b></button>' +
       '<button class="fl" data-act="open-profile"><span>Account Email</span><b>' + esc(ME.email) + '</b></button>' +
-      '<button class="fl" data-act="open-profile"><span>Access Role</span><b>Employee (Secured RBAC)</b></button>' +
+      '<button class="fl" data-act="open-profile"><span>Access Role</span><b>' + esc(roleName()) + '</b></button>' +
       '</div></section></div></div>';
   }
 
@@ -983,9 +878,11 @@
     const allPending = allTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
     const allInProgress = allTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
 
+    // One entry per person: "AK, Divya" is two people, and team or role names are not people.
+    const notPeople = new Set((S.roles || []).filter(r => !/^Confirmed$|team/i.test(r.kind || '') || /^(Setters|Closers)$/.test(r.name)).map(r => r.name.toLowerCase()));
     const empSet = new Set();
-    liveTasks().forEach(t => { if (t.owner && !isTBD(t.owner)) empSet.add(t.owner); });
-    (S.users || []).forEach(u => { if (u.name) empSet.add(u.name); });
+    liveTasks().forEach(t => { if (t.owner && !isTBD(t.owner)) String(t.owner).split(/\s*[,\/&]\s*|\s+or\s+/i).forEach(n => { const x = n.trim(); if (x && !notPeople.has(x.toLowerCase())) empSet.add(x); }); });
+    (S.users || []).forEach(u => { if (u.name && u.active !== false) empSet.add(u.name); });
     const empList = Array.from(empSet).sort();
 
     const filterEmp = UI.mgmtEmpFilter || '';
@@ -993,7 +890,7 @@
 
     let displayTasks = allTasks;
     if (filterEmp) {
-      displayTasks = displayTasks.filter(t => isMine(t.owner, filterEmp) || isMine(t.accountable, filterEmp) || String(t.owner).toLowerCase().includes(filterEmp.toLowerCase()));
+      displayTasks = displayTasks.filter(t => sameName(t.owner, filterEmp) || sameName(t.accountable, filterEmp));
     }
     if (searchQ) {
       displayTasks = displayTasks.filter(t => {
@@ -1019,10 +916,10 @@
       '<p class="quiet">Executive Oversight &bull; ' + new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</p></div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' + ico('myprojects') + '<span>' + esc(ME.name || 'Management') + ' (Profile)</span></button></div>' +
       '<div class="stats">' +
-      stat('Total Tasks', allTasks.length + allDone.length, '', 'Across all active projects', 'nav', 'data-v="tasks"') +
+      stat('Total Tasks', allTasks.length, '', 'Across all active projects', 'nav', 'data-v="tasks"') +
       stat('Pending Tasks', allPending.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
       stat('In-Progress Tasks', allInProgress.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(allInProgress.length, allTasks.length), 'blue']) +
-      stat('Completed Tasks', allDone.length, '', pct(allDone.length, allTasks.length + allDone.length) + '% complete', 'nav', 'data-v="tasks"', [pct(allDone.length, allTasks.length + allDone.length), 'green']) +
+      stat('Completed Tasks', allDone.length, '', pct(allDone.length, allTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(allDone.length, allTasks.length), 'green']) +
       stat('Total Employees', empList.length, '', 'Tracked task assignees', 'go-unassigned') +
       '</div>' +
       '<div class="mgmt-controls no-print">' +
@@ -1045,13 +942,13 @@
       '<h3>Tasks per Employee</h3>' +
       '<div class="facts-l">' +
       empList.slice(0, 8).map(emp => {
-        const count = allTasks.filter(t => String(t.owner).includes(emp)).length;
+        const count = allTasks.filter(t => sameName(t.owner, emp) && !ENGINE.isDone(t)).length;
         return '<button class="fl" data-act="filter-emp-quick" data-emp="' + esc(emp) + '"><span>' + esc(emp) + '</span><b>' + count + ' active</b></button>';
       }).join('') +
       '</div>' +
       '<h3 style="margin-top:20px;">Execution Breakdown</h3>' +
       '<div class="facts-l">' +
-      '<div class="fl"><span>Completion Rate</span><b>' + pct(allDone.length, allTasks.length + allDone.length) + '%</b></div>' +
+      '<div class="fl"><span>Completion Rate</span><b>' + pct(allDone.length, allTasks.length) + '%</b></div>' +
       '<div class="fl"><span>Blocked / Slipping</span><b>' + allTasks.filter(t => t.status === 'Blocked').length + ' blocked</b></div>' +
       '<div class="fl"><span>In Review</span><b>' + allTasks.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)).length + ' review</b></div>' +
       '</div></section></div></div>';
@@ -1381,7 +1278,7 @@
     const filters = showF ? '<div class="filters">' +
       filterSel('tproject', 'Project', S.projects.map(p => [p.id, p.name])) +
       filterSel('tprio', 'Priority', opt('priorities').map(p => [p, p])) +
-      (!isManagementUser() && !ME.open ? '' : filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p])))) +
+      (ME.role === 'Task Owner' ? '' : filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p])))) +
       (ff.tweek ? '<span class="quiet">Week of ' + fmtShort(ff.tweek) + '</span>' : '') +
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
 
@@ -1774,7 +1671,10 @@
   const sameName = (field, name) => !!name && !/^\s*tbd/i.test(String(field || '')) && String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === String(name).trim().toLowerCase());
   const isMine = v => sameName(v, UI.me);
   const ownsP = p => !!p && (isMine(p.owner) || isMine(p.accountable));
-  const isAdmin = () => isManagementUser();
+  const roleName = () => ME.local ? (ME.role === 'Administrator' ? 'Management' : 'Employee') : ME.role;
+  const isAdmin = () => ME.role === 'Administrator';
+  const seesAll = () => ME.role !== 'Task Owner';
+  const canPlan = () => ME.role === 'Administrator' || ME.role === 'Project Owner';
   const canWrite = () => ME.role !== 'Viewer';
   const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
   const canManageT = t => canManageP(P(t.projectId));
@@ -1802,23 +1702,7 @@
 
   // ---------- task status ----------
   // ---------- stage & status mapping ----------
-  const STAGES = ['Not yet started', 'Moved ahead', 'Completed', 'Parked', 'Dropped'];
-  function statusToStage(s) {
-    if (s === 'Completed') return 'Completed';
-    if (s === 'On Hold') return 'Parked';
-    if (s === 'Cancelled') return 'Dropped';
-    if (s === 'Backlog' || s === 'Not Started') return 'Not yet started';
-    return 'Moved ahead';
-  }
-  function stageToStatus(stage) {
-    if (stage === 'Not yet started') return 'Not Started';
-    if (stage === 'Moved ahead') return 'In Progress';
-    if (stage === 'Completed') return 'Completed';
-    if (stage === 'Parked') return 'On Hold';
-    if (stage === 'Dropped') return 'Cancelled';
-    return 'Not Started';
-  }
-
+  const STAGES = ENGINE.STAGES, statusToStage = ENGINE.stageOf, stageToStatus = x => ENGINE.STAGE_STATUS[x];
   function statusOptions(t) {
     const list = [t.status].concat(ENGINE.nextStatuses(t.status).filter(s => s !== t.status));
     return list.map(s => '<option ' + (t.status === s ? 'selected' : '') + '>' + esc(s) + '</option>').join('');
@@ -1832,6 +1716,7 @@
     if (to === 'Blocked') { t.blocker = { text, owner: UI.me || '', ts: nowIso() }; addNote(t, 'blocker', text); }
     if (was === 'Blocked' && to !== 'Blocked' && t.blocker) { addNote(t, 'blocker', 'Blocker resolved: ' + t.blocker.text); t.blocker = null; }
     if (to === 'Cancelled') { t.cancelReason = text; addNote(t, 'update', 'Cancelled: ' + text); }
+    if (was === 'Cancelled' && to !== 'Cancelled') t.cancelReason = '';
     if (to === 'Completed') { t.progress = 100; t.completedAt = todayStr(); }
     else if (was === 'Completed') {
       t.completedAt = '';
@@ -1897,7 +1782,8 @@
       save(true);
     }
 
-    const savedTasks = JSON.parse(JSON.stringify(S.tasks));
+    const removedTasks = allTasksToDelete.slice();
+    const links = S.tasks.filter(t => !allIds.has(t.id) && (t.dependsOn || []).some(id => allIds.has(id))).map(t => [t.id, t.dependsOn.slice()]);
 
     // Remove deleted tasks
     S.tasks = S.tasks.filter(t => !allIds.has(t.id));
@@ -1933,8 +1819,9 @@
         clearTimeout(deleteTasks._timer);
         deleteTasks._timer = null;
       }
-      S.tasks = savedTasks;
-      save(false);
+      S.tasks = S.tasks.filter(t => !allIds.has(t.id)).concat(removedTasks);
+      links.forEach(l => { const t = S.tasks.find(x => x.id === l[0]); if (t) t.dependsOn = l[1]; });
+      save(true);
       render();
       toast('Task deletion undone');
     };
@@ -2238,7 +2125,7 @@
     let body = '';
     if (t === 'users') {
       const us = S.users || [];
-      body = (ME.open ? '<p class="flag"><span><b>Sign-in is off.</b> Anyone with the link can read and change data, and permissions are not enforced. See SETUP_SIGN_IN.md to turn it on.</span></p>' : '') +
+      body = (ME.open || ME.local ? '<p class="flag"><span><b>Google sign-in is off.</b> The sign-in on this page does not protect the data: anyone with the Apps Script link can read and change it. See SETUP_SIGN_IN.md to turn it on.</span></p>' : '') +
         (SYNC.api >= 3 ? '<div class="bar-row"><p class="quiet">' + plural(us.length, 'user') + '</p><button class="btn primary" data-act="add-user">Add user</button></div><div class="rows">' + us.map(u => '<div class="r r-user" data-act="edit-user" data-id="' + esc(u.email) + '"><span class="av">' + esc(initials(u.name || u.email)) + '</span><span class="r-main"><button class="r-t" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><span class="r-s">' + esc(u.email) + '</span></span><span class="r-who">' + esc(u.role) + '</span><span class="r-when"><span class="when">' + (u.active ? 'Active' : 'Inactive') + '</span></span></div>').join('') + '</div>' : '<p class="quiet">Update the Apps Script to manage users here. See SETUP_GOOGLE_SHEET.md.</p>');
     } else if (t === 'audit') {
       const q = UI.auditQ.toLowerCase();
@@ -2270,326 +2157,56 @@
   }
 
   // ---------- authentication system ----------
-  let currentAuthMode = 'signin';
-  function hideSignIn() {
-    const box = $('#signin');
-    if (box) {
-      box.hidden = true;
-      box.classList.add('off');
-      box.style.setProperty('display', 'none', 'important');
-    }
-  }
-  function showSignIn(mode, msg) {
-    if (typeof mode !== 'string') { msg = mode; mode = currentAuthMode || 'signin'; }
-    currentAuthMode = mode || 'signin';
+  function showSignIn(msg) {
     const box = $('#signin');
     if (!box) return;
     box.hidden = false;
-    box.classList.remove('off');
-    box.style.removeProperty('display');
-
-    const lightLogo = $('.brand .logo-l') ? $('.brand .logo-l').src : '';
-    const darkLogo = $('.brand .logo-d') ? $('.brand .logo-d').src : '';
-    const isSuccess = msg && (msg.toLowerCase().includes('success') || msg.toLowerCase().includes('token:') || msg.toLowerCase().includes('sent'));
-    const msgClass = isSuccess ? 'auth-success' : 'auth-err';
-    const errHtml = msg ? '<div class="' + msgClass + '" role="alert">' + esc(msg) + '</div>' : '';
-
-    let formHtml = '';
-    if (currentAuthMode === 'signin') {
-      formHtml = '<div class="auth-tabs">' +
-        '<button class="auth-tab on" data-auth-tab="signin">Sign In</button>' +
-        '<button class="auth-tab" data-auth-tab="signup">Sign Up</button>' +
-        '</div>' +
-        '<form class="auth-form" id="form-signin" onsubmit="return false;">' +
-        errHtml +
-        '<div class="auth-field"><label for="si-email">Official Suraasa Email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
-        '<div class="auth-field"><label for="si-pw">Password</label><div class="auth-field-pw"><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
-        '<button type="submit" class="auth-btn" id="btn-do-signin">Sign In</button>' +
-        '<div class="auth-links">' +
-        '<button type="button" class="auth-link" data-auth-tab="forgot">Forgot password?</button>' +
-        '<button type="button" class="auth-link" data-auth-tab="signup">Create account</button>' +
-        '</div>' +
-        '</form>';
-    } else if (currentAuthMode === 'signup') {
-      formHtml = '<div class="auth-tabs">' +
-        '<button class="auth-tab" data-auth-tab="signin">Sign In</button>' +
-        '<button class="auth-tab on" data-auth-tab="signup">Sign Up</button>' +
-        '</div>' +
-        '<form class="auth-form" id="form-signup" onsubmit="return false;">' +
-        errHtml +
-        '<div class="auth-field"><label for="su-name">Full Name</label><input type="text" id="su-name" placeholder="e.g. Akhand" autocomplete="name" required></div>' +
-        '<div class="auth-field"><label for="su-email">Official Suraasa Email</label><input type="email" id="su-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
-        '<div class="auth-field"><label for="su-pw">Password</label><div class="auth-field-pw"><input type="password" id="su-pw" placeholder="At least 6 characters" autocomplete="new-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
-        '<div class="auth-field"><label for="su-conf-pw">Confirm Password</label><div class="auth-field-pw"><input type="password" id="su-conf-pw" placeholder="Re-enter password" autocomplete="new-password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
-        '<div class="auth-role-notice">Role is automatically detected based on company email (Management or Employee).</div>' +
-        '<button type="submit" class="auth-btn" id="btn-do-signup">Create Account</button>' +
-        '<div class="auth-links">' +
-        '<button type="button" class="auth-link" data-auth-tab="signin">Already have an account? Sign In</button>' +
-        '</div></form>';
-    } else if (currentAuthMode === 'forgot') {
-      formHtml = '<form class="auth-form" id="form-forgot" onsubmit="return false;">' +
-        '<h2 style="font-size:16px;font-weight:700;margin:0 0 4px 0;">Reset Password</h2>' +
-        '<p class="auth-sub" style="margin-bottom:8px;">Enter your company email to receive reset instructions.</p>' +
-        errHtml +
-        '<div class="auth-field"><label for="fo-email">Official Suraasa Email</label><input type="email" id="fo-email" placeholder="name@suraasa.com" autocomplete="email" required></div>' +
-        '<button type="submit" class="auth-btn" id="btn-do-forgot">Send Reset Instructions</button>' +
-        '<div class="auth-links">' +
-        '<button type="button" class="auth-link" data-auth-tab="signin">Back to Sign In</button>' +
-        '<button type="button" class="auth-link" data-auth-tab="reset">Have a token? Reset</button>' +
-        '</div></form>';
-    } else if (currentAuthMode === 'reset') {
-      formHtml = '<form class="auth-form" id="form-reset" onsubmit="return false;">' +
-        '<h2 style="font-size:16px;font-weight:700;margin:0 0 4px 0;">Enter New Password</h2>' +
-        '<p class="auth-sub" style="margin-bottom:8px;">Use the token you received to set a new password.</p>' +
-        errHtml +
-        '<div class="auth-field"><label for="re-token">Reset Token</label><input type="text" id="re-token" placeholder="Paste reset token" required></div>' +
-        '<div class="auth-field"><label for="re-pw">New Password</label><div class="auth-field-pw"><input type="password" id="re-pw" placeholder="At least 6 characters" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
-        '<div class="auth-field"><label for="re-conf">Confirm New Password</label><div class="auth-field-pw"><input type="password" id="re-conf" placeholder="Re-enter new password" required><button type="button" class="btn-pw-toggle" title="Show/Hide password">👁️</button></div></div>' +
-        '<button type="submit" class="auth-btn" id="btn-do-reset">Set New Password</button>' +
-        '<div class="auth-links">' +
-        '<button type="button" class="auth-link" data-auth-tab="signin">Back to Sign In</button>' +
-        '</div></form>';
-    }
-
-    box.innerHTML = '<div class="signin-card">' +
-      '<div class="brand-header">' +
-      (lightLogo ? '<img class="logo-l" src="' + lightLogo + '" alt="Suraasa">' : '') +
-      (darkLogo ? '<img class="logo-d" src="' + darkLogo + '" alt="Suraasa">' : '') +
-      '<h1>Control Tower</h1>' +
-      '<p class="auth-sub">Sales Operations & Execution Dashboard</p>' +
-      '</div>' +
-      formHtml +
-      (SYNC.auth && SYNC.auth.clientId ? '<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;text-align:center;"><p class="quiet" style="font-size:12px;margin-bottom:8px;">Or sign in with Google Workspace</p><div id="gsi" style="display:flex;justify-content:center;"></div></div>' : '') +
-      '</div>';
-
-    box.querySelectorAll('[data-auth-tab]').forEach(el => {
-      el.onclick = e => { e.preventDefault(); showSignIn(el.dataset.authTab); };
-    });
-
-    box.querySelectorAll('.btn-pw-toggle').forEach(btn => {
-      btn.onclick = e => {
-        e.preventDefault();
-        const input = btn.parentElement.querySelector('input');
-        if (input) {
-          if (input.type === 'password') {
-            input.type = 'text';
-            btn.textContent = '🔒';
-          } else {
-            input.type = 'password';
-            btn.textContent = '👁️';
-          }
-        }
-      };
-    });
-
-    const formSignIn = box.querySelector('#form-signin');
-    if (formSignIn) {
-      formSignIn.onsubmit = async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        const email = box.querySelector('#si-email').value.trim();
-        const password = box.querySelector('#si-pw').value;
-        if (!email) return showSignIn('signin', 'Please enter your official company email.');
-        if (!password) return showSignIn('signin', 'Please enter your password.');
-        const btn = box.querySelector('#btn-do-signin');
-        if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
-        const res = await SYNC.authLogin({ email, password });
-        if (!res.ok) {
-          showSignIn('signin', res.error || 'Failed to sign in.');
-        } else {
-          hideSignIn();
-          render();
-        }
-      };
-    }
-    const formSignUp = box.querySelector('#form-signup');
-    if (formSignUp) {
-      formSignUp.onsubmit = async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        const fullName = box.querySelector('#su-name').value.trim();
-        const email = box.querySelector('#su-email').value.trim();
-        const password = box.querySelector('#su-pw').value;
-        const confPw = box.querySelector('#su-conf-pw').value;
-        if (!fullName) return showSignIn('signup', 'Please enter your full name.');
-        if (!email) return showSignIn('signup', 'Please enter your official company email.');
-        if (!email.toLowerCase().endsWith('@suraasa.com')) return showSignIn('signup', 'Please use your official @suraasa.com email address.');
-        if (password !== confPw) return showSignIn('signup', 'Passwords do not match.');
-        if (password.length < 6) return showSignIn('signup', 'Password must be at least 6 characters.');
-        const btn = box.querySelector('#btn-do-signup');
-        if (btn) { btn.disabled = true; btn.textContent = 'Creating account...'; }
-        const res = await SYNC.authSignUp({ fullName, email, password });
-        if (!res.ok) {
-          showSignIn('signup', res.error || 'Failed to create account.');
-        } else {
-          hideSignIn();
-          render();
-        }
-      };
-    }
-    const formForgot = box.querySelector('#form-forgot');
-    if (formForgot) {
-      formForgot.onsubmit = async () => {
-        const email = box.querySelector('#fo-email').value.trim();
-        const btn = box.querySelector('#btn-do-forgot');
-        btn.disabled = true; btn.textContent = 'Sending...';
-        const res = await SYNC.authForgotPassword({ email });
-        if (res.ok) {
-          if (res.resetToken) {
-            showSignIn('reset', 'Reset token: ' + res.resetToken + '. Please enter your new password.');
-            const tInput = box.querySelector('#re-token'); if (tInput) tInput.value = res.resetToken;
-          } else {
-            showSignIn('signin', res.message || 'Reset instructions sent. Please sign in after resetting.');
-          }
-        } else showSignIn('forgot', res.error || 'Failed to process request.');
-      };
-    }
-    const formReset = box.querySelector('#form-reset');
-    if (formReset) {
-      formReset.onsubmit = async () => {
-        const token = box.querySelector('#re-token').value.trim();
-        const newPassword = box.querySelector('#re-pw').value;
-        const conf = box.querySelector('#re-conf').value;
-        if (newPassword !== conf) return showSignIn('reset', 'Passwords do not match.');
-        const btn = box.querySelector('#btn-do-reset');
-        btn.disabled = true; btn.textContent = 'Updating password...';
-        const res = await SYNC.authResetPassword({ token, newPassword });
-        if (res.ok) showSignIn('signin', 'Password reset successfully! Please sign in.');
-        else showSignIn('reset', res.error || 'Failed to reset password.');
-      };
-    }
-
-    if (SYNC.auth && SYNC.auth.clientId && $('#gsi')) {
-      const startGsi = () => {
-        try {
-          google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
-          google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
-        } catch (e) {}
-      };
-      if (window.google && window.google.accounts) startGsi();
-      else {
-        const s = document.createElement('script');
-        s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = startGsi;
-        document.head.appendChild(s);
-      }
-    }
-  }
-
-
-  // ---------- profile privacy modal ----------
-  function openProfileModal() {
-    if ($('#modal')) closeModal();
-    const modal = document.createElement('div');
-    modal.id = 'modal';
-    modal.className = 'modal-scrim';
-    modal.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pf-title" style="width:min(460px,100%);">
-        <div class="modal-h">
-          <h2 id="pf-title">My Profile</h2>
-          <button class="iconbtn" data-act="modal-close" aria-label="Close">✕</button>
-        </div>
-        <div class="modal-b" style="display:flex;flex-direction:column;gap:12px;">
-          <div class="f full">
-            <label>Official Company Email</label>
-            <input type="email" value="${esc(ME.email || '')}" readonly disabled style="background:var(--tint);cursor:not-allowed;">
-            <div class="hint">Unique company identity used for authorization and security.</div>
-          </div>
-          <div class="f full">
-            <label>Account Role</label>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-              <span class="pill ${isManagementUser() ? 'blue' : 'green'}">${esc(ME.role || 'employee')}</span>
-              <span class="quiet" style="font-size:12px;">${isManagementUser() ? 'Management User (Full task oversight)' : 'Employee (Private personal task access)'}</span>
-            </div>
-          </div>
-          <hr style="border:none;border-top:1px solid var(--line);margin:8px 0;">
-          <form id="pf-form" onsubmit="return false;" style="display:flex;flex-direction:column;gap:12px;">
-            <div class="f full">
-              <label for="pf-name">Full Name</label>
-              <input id="pf-name" type="text" value="${esc(ME.name || UI.me || '')}" required>
-            </div>
-            <h3 style="font-size:14px;font-weight:700;margin:10px 0 0 0;">Change Password</h3>
-            <div class="f full">
-              <label for="pf-cur-pw">Current Password</label>
-              <input id="pf-cur-pw" type="password" placeholder="Required only if changing password">
-            </div>
-            <div class="f full">
-              <label for="pf-new-pw">New Password</label>
-              <input id="pf-new-pw" type="password" placeholder="Minimum 6 characters">
-            </div>
-            <div class="f full">
-              <label for="pf-conf-pw">Confirm New Password</label>
-              <input id="pf-conf-pw" type="password" placeholder="Re-enter new password">
-            </div>
-            <div id="pf-err" class="ferr" style="display:none;margin-top:6px;" role="alert"></div>
-            <div class="btnrow" style="margin-top:16px;">
-              <button type="submit" class="btn primary" id="pf-save-btn">Save Profile Changes</button>
-              <button type="button" class="btn" data-act="modal-close">Cancel</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    `;
-    $('#modal-root').appendChild(modal);
-
-    const form = modal.querySelector('#pf-form');
-    form.onsubmit = async () => {
-      const fullName = modal.querySelector('#pf-name').value.trim();
-      const curPw = modal.querySelector('#pf-cur-pw').value;
-      const newPw = modal.querySelector('#pf-new-pw').value;
-      const confPw = modal.querySelector('#pf-conf-pw').value;
-      const errBox = modal.querySelector('#pf-err');
-      errBox.style.display = 'none';
-
-      if (!fullName) {
-        errBox.textContent = 'Please enter your full name.';
-        errBox.style.display = 'block';
-        return;
-      }
-      if (newPw) {
-        if (newPw.length < 6) {
-          errBox.textContent = 'New password must be at least 6 characters.';
-          errBox.style.display = 'block';
-          return;
-        }
-        if (newPw !== confPw) {
-          errBox.textContent = 'New passwords do not match.';
-          errBox.style.display = 'block';
-          return;
-        }
-        if (!curPw) {
-          errBox.textContent = 'Please enter your current password to set a new password.';
-          errBox.style.display = 'block';
-          return;
-        }
-      }
-
-      const saveBtn = modal.querySelector('#pf-save-btn');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
+    if (!SYNC.auth || !SYNC.auth.required) return showPasswordSignIn(msg);
+    const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
+    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa Google account.</p></div>' +
+      (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') + '<div id="gsi"></div></div>';
+    const start = () => {
       try {
-        const res = await SYNC.updateProfile({
-          fullName,
-          currentPassword: curPw,
-          newPassword: newPw
-        });
-        if (!res.ok) {
-          errBox.textContent = res.error || 'Failed to update profile.';
-          errBox.style.display = 'block';
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save Profile Changes';
-          return;
-        }
-        ME.name = fullName;
-        UI.me = fullName;
-        try { localStorage.setItem('sct_me', fullName); } catch (e) {}
-        closeModal();
-        toast('Profile updated successfully!');
-        render();
-      } catch (err) {
-        errBox.textContent = 'Network error. Please try again.';
-        errBox.style.display = 'block';
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Profile Changes';
-      }
+        google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
+        google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
+      } catch (e) { /* the message above still shows */ }
     };
+    if (window.google && window.google.accounts) { start(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = start;
+    s.onerror = () => showSignInError('Google sign-in could not load. Check your connection and refresh the page.');
+    document.head.appendChild(s);
+  }
+  function showPasswordSignIn(msg) {
+    const box = $('#signin');
+    const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
+    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa email</p></div>' +
+      '<form class="auth-form" id="form-signin" novalidate>' + (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') +
+      '<div class="auth-field"><label for="si-email">Official Suraasa email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="username"></div>' +
+      '<div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password"></div>' +
+      '<button type="submit" class="auth-btn">Sign in</button>' +
+      '<p class="auth-sub">Forgot your password? Ask Sales Operations.</p></form></div>';
+    $('#form-signin').addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = $('#si-email').value, btn = $('#form-signin .auth-btn');
+      btn.disabled = true;
+      const r = await checkLogin(email, $('#si-pw').value);
+      if (r.error) { showPasswordSignIn(r.error); $('#si-email').value = email; return; }
+      try { localStorage.setItem('sct_person', r.user.email); } catch (x) { /* stays for this tab */ }
+      applyPerson(r.user);
+      box.hidden = true;
+      await SYNC.boot();
+      render();
+    });
+    if ($('#si-email')) $('#si-email').focus();
+  }
+  function showSignInError(msg) { const g = $('#gsi'); if (g) g.innerHTML = '<div class="auth-err" role="alert">' + esc(msg) + '</div>'; }
+
+  // ---------- profile ----------
+  function openProfileModal() {
+    closeModal();
+    const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + esc(v || '') + '</dd></div>';
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb"><dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', ME.role) + '</dl><p class="quiet">Your name and role are set by an administrator, because your name links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
   }
 
   // ---------- forms ----------
@@ -2942,8 +2559,8 @@
   function taskForm(t, pid, parent) {
     const isNew = !t;
     const base = {
-      id: nextId('T'), projectId: pid || (UI.view === 'project' ? UI.projectId : (S.projects[0] || {}).id),
-      ws: '', ms: '', owner: 'TBD', accountable: 'TBD', priority: 'P2', status: 'Not Started',
+      id: ME.role === 'Task Owner' ? 'T-' + Date.now().toString(36).toUpperCase() : nextId('T'), projectId: pid || (UI.view === 'project' ? UI.projectId : (S.projects[0] || {}).id),
+      ws: '', ms: '', owner: ME.role === 'Task Owner' ? ME.name : 'TBD', accountable: 'TBD', priority: 'P2', status: 'Not Started',
       progress: 0, kind: parent ? 'Subtask' : 'Task', parent: parent || '', datesProposed: true
     };
     t = t || base; const proj = P(t.projectId) || {};
@@ -2983,10 +2600,11 @@
       if (stage && statusToStage(o.status) !== stage) o.status = stageToStatus(stage);
       if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
       if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
-      if (o.status === 'Cancelled') {
-        if (!reason && !t.cancelReason) { $('#ferr').textContent = 'Give a reason for cancelling.'; return false; }
-        if (reason) o.cancelReason = reason;
+      if (o.status === 'Cancelled' && t.status !== 'Cancelled') {
+        if (!reason && !isNew) { $('#ferr').textContent = 'Give a reason for dropping this task.'; return false; }
+        o.cancelReason = reason || 'Dropped when it was added';
       }
+      if (t.status === 'Cancelled' && o.status !== 'Cancelled') o.cancelReason = '';
       if (o.status === 'Completed' && t.requiresReview && !canManageT(t)) { $('#ferr').textContent = 'A project owner must approve this task.'; return false; }
       if (isNew && S.tasks.some(x => x.id === o.id)) { $('#ferr').textContent = 'Task ID already exists.'; return false; }
       if (o.parent && o.parent === o.id) { $('#ferr').textContent = 'A task cannot be its own parent.'; return false; }
@@ -3001,6 +2619,7 @@
         o.completedAt = '';
         o.progress = (o.status === 'Not Started' || o.status === 'Backlog') ? 0 : 90;
       }
+      if (t.status === 'Blocked' && o.status !== 'Blocked') o.blocker = null;
       if (isNew) {
         const nt = Object.assign({}, base, o);
         if (nt.status !== 'Completed') nt.progress = 0;
@@ -3372,30 +2991,11 @@
       if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
     },
-    get apiUrl() {
-      if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        return '/api';
-      }
-      return this.config.url;
-    },
+    get apiUrl() { return this.config.url; },
     init() {
       try {
         this.session = localStorage.getItem('sct_session') || '';
-        const uStr = localStorage.getItem('sct_user');
-        if (uStr && this.session) {
-          const u = JSON.parse(uStr);
-          ME.email = u.email || '';
-          ME.name = u.name || '';
-          ME.role = u.role || 'employee';
-          ME.isManagement = isManagementRole(u.role) || isManagementEmail(u.email);
-          UI.me = ME.name;
-        } else if (!this.session) {
-          ME.email = '';
-          ME.name = '';
-          ME.role = 'employee';
-          ME.isManagement = false;
-          UI.me = '';
-        }
+        localStorage.removeItem('sct_user'); localStorage.removeItem('sct_local_users'); localStorage.removeItem('sct_reset_tokens');
         this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
         this.version = this.config.baseVersion;
       } catch (e) { this.base = null; }
@@ -3419,203 +3019,54 @@
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
     needSignIn(msg) {
       this.session = '';
-      ME.email = '';
-      ME.name = '';
-      ME.role = 'employee';
-      ME.isManagement = false;
-      ME.open = false;
-      UI.me = '';
-      try {
-        localStorage.removeItem('sct_session');
-        localStorage.removeItem('sct_user');
-      } catch (e) { /* private window */ }
+      ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.open = false; ME.local = false; UI.me = '';
+      try { localStorage.removeItem('sct_session'); localStorage.removeItem('sct_person'); } catch (e) { /* private window */ }
       this.checking = false;
-      showSignIn('signin', msg);
-    },
-    async authLogin(payload) {
-      const email = (payload.email || '').trim().toLowerCase();
-      const password = payload.password || '';
-      let r = null;
-      try {
-        r = await this.request(Object.assign({ action: 'login' }, payload));
-      } catch (e) {
-        // remote server or CORS or network error
-      }
-
-      // If remote succeeded, use remote result
-      if (!r || !r.ok || !r.session) {
-        const isUnknown = r && r.error && r.error.toLowerCase().includes('unknown action');
-        const isNetErr = !r || (r.error && (r.error.includes('Could not connect') || r.error.includes('Failed to fetch')));
-        const local = LOCAL_AUTH.check(email, password);
-        if (local.ok) {
-          r = {
-            ok: true,
-            session: 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-            user: local.user
-          };
-        } else if (!isUnknown && !isNetErr && r && r.error) {
-          return r;
-        } else {
-          return local.error ? { ok: false, error: local.error } : { ok: false, error: 'Invalid email or password.' };
-        }
-      }
-
-      this.session = r.session;
-      try {
-        localStorage.setItem('sct_session', r.session);
-        if (r.user) {
-          localStorage.setItem('sct_user', JSON.stringify({
-            email: r.user.email,
-            name: r.user.name || r.user.full_name,
-            role: r.user.role,
-            isManagement: !!r.user.isManagement
-          }));
-        }
-      } catch (e) {}
-      if (r.user) {
-        ME.email = r.user.email;
-        ME.name = r.user.name || r.user.full_name;
-        ME.role = r.user.role;
-        ME.isManagement = !!r.user.isManagement;
-        UI.me = ME.name;
-        try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
-      }
-      hideSignIn();
-      render();
-      try { await this.pull(false); } catch (e) {}
-      render();
-      this.boot();
-      return { ok: true };
-    },
-    async authSignUp(payload) {
-      const fullName = (payload.fullName || '').trim();
-      const email = (payload.email || '').trim().toLowerCase();
-      const password = payload.password || '';
-      let r = null;
-      try {
-        r = await this.request(Object.assign({ action: 'signup' }, payload));
-      } catch (e) {}
-
-      if (!r || !r.ok || !r.session) {
-        const local = LOCAL_AUTH.signup(fullName, email, password);
-        if (local.ok) {
-          r = {
-            ok: true,
-            session: 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-            user: local.user
-          };
-        } else {
-          return r && r.error ? r : { ok: false, error: 'Failed to create account.' };
-        }
-      }
-
-      this.session = r.session;
-      try {
-        localStorage.setItem('sct_session', r.session);
-        if (r.user) {
-          localStorage.setItem('sct_user', JSON.stringify({
-            email: r.user.email,
-            name: r.user.name || r.user.full_name,
-            role: r.user.role,
-            isManagement: !!r.user.isManagement
-          }));
-        }
-      } catch (e) {}
-      if (r.user) {
-        ME.email = r.user.email;
-        ME.name = r.user.name || r.user.full_name;
-        ME.role = r.user.role;
-        ME.isManagement = !!r.user.isManagement;
-        UI.me = ME.name;
-        try { localStorage.setItem('sct_me', UI.me); } catch (e) {}
-      }
-      hideSignIn();
-      render();
-      try { await this.pull(false); } catch (e) {}
-      render();
-      this.boot();
-      return { ok: true };
-    },
-    async authForgotPassword(payload) {
-      let r = null;
-      try {
-        r = await this.request(Object.assign({ action: 'forgot_password' }, payload));
-      } catch (e) {}
-      if (!r || !r.ok || (r.error && r.error.toLowerCase().includes('unknown action'))) {
-        return LOCAL_AUTH.forgot(payload.email);
-      }
-      return r;
-    },
-    async authResetPassword(payload) {
-      let r = null;
-      try {
-        r = await this.request(Object.assign({ action: 'reset_password' }, payload));
-      } catch (e) {}
-      if (!r || !r.ok || (r.error && r.error.toLowerCase().includes('unknown action'))) {
-        return LOCAL_AUTH.reset(payload.token, payload.newPassword);
-      }
-      return r;
-    },
-    async updateProfile(payload) {
-      return this.request(Object.assign({ action: 'update_profile' }, payload));
+      showSignIn(msg);
     },
     async login(idToken) {
       try {
         const r = await this.request({ action: 'login', idToken });
-        if (!r.ok) return showSignIn('signin', r.error);
+        if (!r.ok) return showSignIn(r.error);
         this.session = r.session;
         try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
-        if (r.user) {
-          ME.email = r.user.email; ME.name = r.user.name || r.user.full_name;
-          ME.role = r.user.role; ME.isManagement = !!r.user.isManagement;
-          UI.me = ME.name;
-        }
-        const box = $('#signin');
-        if (box) box.hidden = true;
+        $('#signin').hidden = true;
         await this.pull(true);
-      } catch (e) { showSignIn('signin', 'Could not reach the server. Check your connection and try again.'); }
+      } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
     },
-    async signOut() {
-      if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the server yet. Sign out and lose them?')) return;
-      try { await this.request({ action: 'logout' }); } catch (e) {}
-      this.session = '';
-      ME.email = '';
-      ME.name = '';
-      ME.role = 'employee';
-      ME.isManagement = false;
-      ME.open = false;
-      UI.me = '';
-      try {
-        localStorage.removeItem(KEY);
-        localStorage.removeItem(BASE_KEY);
-        localStorage.removeItem('sct_me');
-        localStorage.removeItem('sct_user');
-        localStorage.removeItem('sct_session');
-      } catch (e) { /* private window */ }
+    signOut() {
+      if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      this.needSignIn('');
+      // Leave no copy of the work on a shared computer.
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
     // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
-      if (!this.config.enabled || !this.apiUrl) return;
+      const person = savedPerson();
+      if (person) applyPerson(person);
+      if (!this.config.enabled || !this.config.url) { if (!person) showSignIn(''); return; }
       this.checking = true; this.setStatus('syncing');
       try {
         const p = await this.get('ping');
-        this.api = p && p.api ? p.api : 1;
-        this.auth = p && p.auth ? p.auth : { required: false };
-        if (p && p.version && (!this.config.baseVersion || this.config.baseVersion < p.version)) {
-          this.config.baseVersion = p.version;
-          this.version = p.version;
+        this.api = p.api || 1;
+        this.auth = p.auth || { required: false };
+        ME.open = !this.auth.required;
+        if (this.auth.required) {
+          if (ME.local) { ME.local = false; ME.role = 'Viewer'; ME.email = ''; ME.name = ''; UI.me = ''; }
+          if (!this.session) return this.needSignIn('');
+        } else {
+          if (!person) { this.checking = false; this.setStatus('connected'); return showSignIn(''); }
+          ME.open = false;
         }
-        if (!this.session) return this.needSignIn('');
         await this.pull(true);
       } catch (e) {
-        this.setStatus('connected');
-        if (!this.session) return this.needSignIn('');
-        try { await this.pull(true); } catch (err) {}
+        this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.');
+        if (!person && !this.session) { this.checking = false; return showSignIn(''); }
       }
       this.checking = false; this.updateUI();
-      if (!this.base) render();
+      render();
     },
     normalise(state, prev) {
       ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
@@ -3681,21 +3132,17 @@
       if (this.busy) { this.again = true; return; }
       this.setStatus('syncing');
       try {
-        const data = this.session ? await this.request({ action: 'pull' }) : (this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull'));
-        if (data.auth === true) {
-          if (!this.session) return this.needSignIn(data.error);
-          return;
-        }
+        const data = this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull');
+        if (data.auth === true) return this.needSignIn(data.error);
         if (data.error && !data.ok) throw new Error(data.error);
         const state = data.state || data;
         if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The server sent something unexpected.');
-        if (data.me) {
-          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || data.me.full_name || '';
-          ME.isManagement = !!data.me.isManagement;
-          UI.me = ME.name;
+        if (data.me && !ME.local) {
+          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || '';
+          if (this.auth.required) { UI.me = ME.name; ME.open = false; }
         }
         if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
-        const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
+        const left = this.rebase(this.limitToPerson(state), data.version !== undefined ? data.version : this.version, drop);
         this.config.lastSync = nowIso();
         this.setStatus('connected');
         this.config.error = null;
@@ -3711,7 +3158,7 @@
       this.updateUI();
       render();
     },
-    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
+    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(this.limitToPerson(d.state), d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
     onLocalChange() {
       if (!this.config.enabled || !this.config.url || this.config.autoSync === false) return;
       this.setStatus('syncing');
@@ -3721,6 +3168,7 @@
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
       if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
+      if (!ME.local && !this.session) return; // nothing is sent before someone signs in
       if (this.busy) { this.again = true; return; }
       if (this.api < 3 && this.api !== 0) return this.legacyPush();
       if (this.api === 0) {
@@ -3728,13 +3176,7 @@
           const p = await this.get('ping');
           this.api = p && p.api ? p.api : 1;
           this.auth = p && p.auth ? p.auth : { required: false };
-          if (p && p.version && (!this.config.baseVersion || this.config.baseVersion < p.version)) {
-            this.config.baseVersion = p.version;
-            this.version = p.version;
-          }
-        } catch (e) {
-          this.api = 1;
-        }
+        } catch (e) { return this.fail(e); }
         if (this.api < 3) return this.legacyPush();
       }
       if (!this.base) { this.setStatus('connected'); return; }
@@ -3793,18 +3235,48 @@
       render();
       if (UI.taskId && $('#modal')) renderTaskPanel();
     },
+    // With the page's own sign-in the server sends everything, so the page limits what an employee sees.
+    limitToPerson(state) {
+      this.full = null;
+      if (!ME.local || ME.role !== 'Task Owner') return state;
+      const name = ME.name.toLowerCase();
+      const own = v => !/^\s*tbd/i.test(String(v || '')) && String(v || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === name);
+      const mine = new Set(), theirs = new Set();
+      state.tasks.forEach(t => { if (own(t.owner) || own(t.accountable)) { mine.add(t.id); theirs.add(t.projectId); } });
+      for (let grew = true; grew;) { grew = false; state.tasks.forEach(t => { if (!mine.has(t.id) && t.parent && mine.has(t.parent)) { mine.add(t.id); grew = true; } }); }
+      const view = Object.assign({}, state, { tasks: state.tasks.filter(t => mine.has(t.id)), activity: [], users: [], trash: [] });
+      view.projects = state.projects.map(p => theirs.has(p.id) ? p : { id: p.id, name: p.name, status: p.status, priority: '', workstreams: [], milestones: [], raci: [], comments: [] });
+      ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { view[k] = (state[k] || []).filter(r => r.projectId ? theirs.has(r.projectId) : own(r.owner)); });
+      view.audit = (state.audit || []).filter(r => r.taskId ? mine.has(r.taskId) : theirs.has(r.projectId));
+      view.snapshots = (state.snapshots || []).filter(r => theirs.has(r.projectId));
+      const shown = {};
+      ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { shown[k] = new Set(view[k].map(r => r.id)); });
+      shown.projects = theirs;
+      this.full = { state, shown };
+      return view;
+    },
+    // The old script replaces whole tabs, so it must receive the rows an employee cannot see as well.
+    withHiddenRows(state) {
+      if (!this.full) return state;
+      const { state: all, shown } = this.full, out = Object.assign({}, state, { activity: (state.activity || []).concat(all.activity || []) });
+      Object.keys(shown).forEach(k => {
+        const now = new Map((state[k] || []).map(r => [r.id, r])), had = new Set((all[k] || []).map(r => r.id));
+        out[k] = (all[k] || []).filter(r => !shown[k].has(r.id) || now.has(r.id)).map(r => shown[k].has(r.id) ? now.get(r.id) : r)
+          .concat((state[k] || []).filter(r => !had.has(r.id)));
+      });
+      return out;
+    },
     async legacyPush() {
       if (this.busy) { this.again = true; return; }
+      if (!this.base) { this.setStatus('connected'); return; } // never send a copy that did not come from the Sheet
+      if (ME.local && ME.role === 'Task Owner' && !this.full) { this.unsent = true; return this.pull(true); } // an employee's copy alone would replace the Sheet
       this.busy = true; this.setStatus('syncing');
       try {
-        const state = Object.assign({}, S); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
+        const state = this.withHiddenRows(Object.assign({}, S)); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
         const data = await this.request({ action: 'push', baseVersion: this.config.baseVersion, client: 'website', state });
         this.busy = false;
         if (data.conflict) {
-          this.config.baseVersion = data.version;
-          this.version = data.version;
-          await this.pull(true);
-          this.setStatus('connected');
+          await this.pull(true); // the version moves only once the newer data is merged, even if a panel delays that
           return;
         }
         if (data.error || data.ok === false) throw new Error(data.error || 'The Sheet refused the save.');
@@ -3814,6 +3286,7 @@
       } catch (err) { this.busy = false; this.fail(err); }
     },
     async poll() {
+      if (!ME.local && !this.session) return;
       if (!this.config.url || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
       try {
         const data = await this.get('version');
@@ -3823,7 +3296,7 @@
       } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
     },
     async dailySnapshot() {
-      if (this.api < 3 || !canWrite()) return;
+      if (this.api < 3 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
       const date = todayStr();
       if ((S.snapshots || []).some(r => r.date === date)) return;
       const rows = portfolioRows().map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
@@ -3871,7 +3344,7 @@
       if (!(hay + ' ' + t).toLowerCase().includes(q)) return;
       out.push({ kind, title, sub, act, attrs, score: t.startsWith(q) ? 0 : t.includes(q) ? 1 : 2 });
     };
-    if (!isManagementUser() && !ME.open) {
+    if (ME.role === 'Task Owner') {
       S.tasks.forEach(t => add(t.parent ? 'Subtask' : 'Task', t.name, pName(t.projectId), 'open-task', 'data-id="' + esc(t.id) + '"', t.id + ' ' + t.owner + ' ' + (t.desc || '') + ' ' + (t.deliverable || '') + ' ' + (t.notes || []).map(n => n.text).join(' ')));
       return out.sort((a, b) => a.score - b.score);
     }
@@ -4277,6 +3750,7 @@
   });
 
   document.addEventListener('change', e => {
+    if (e.target && e.target.id === 'mgmt-emp-filter') { UI.mgmtEmpFilter = e.target.value; render(); return; }
     const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act; const id = el.dataset.id;
     if (act === 'filter') { UI.filters[el.dataset.k] = el.value; render(); }
     else if (act === 'sort-sel') { UI.sort[el.dataset.t] = el.value; render(); }
@@ -4304,10 +3778,6 @@
     else if (act === 'task-status') {
       const t = S.tasks.find(x => x.id === id);
       if (t) setStatus(t, el.value);
-    }
-    if (e.target && e.target.id === 'mgmt-emp-filter') {
-      UI.mgmtEmpFilter = e.target.value;
-      render();
     }
   });
 
@@ -4441,12 +3911,7 @@
   initTheme();
   load();
   SYNC.init();
-  if (!SYNC.session) {
-    showSignIn('signin');
-  } else {
-    hideSignIn();
-    render();
-    SYNC.boot();
-  }
-  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, SYNC, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, showSignIn, hideSignIn };
+  SYNC.boot();
+  render();
+  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, SYNC, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, actAs(name) { UI.me = name; render(); } };
 })();

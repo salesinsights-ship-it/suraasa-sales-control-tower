@@ -26,7 +26,7 @@ async function page(browser, b, opts = {}) {
   p.errs = []; p.net = { down: false };
   p.on('pageerror', e => p.errs.push(e.message));
   p.on('console', m => { if (m.type() === 'error' && !/Failed to load|ERR_|Sheet (save|pull) error/.test(m.text())) p.errs.push(m.text()); });
-  p.on('dialog', d => d.accept());
+  p.on('dialog', d => { p.lastDialog = d.message(); return p.decline ? d.dismiss() : d.accept(); });
   await p.route(/script\.google\.com/, async r => {
     if (p.net.down) return r.abort();
     const q = r.request();
@@ -37,8 +37,10 @@ async function page(browser, b, opts = {}) {
   await p.route(/accounts\.google\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.google={accounts:{id:{initialize(c){window.__gsi=c},renderButton(el){el.textContent="Sign in with Google"},disableAutoSelect(){}}}}' }));
   if (opts.session) await p.addInitScript(s => { try { if (!sessionStorage.getItem('x')) { localStorage.setItem('sct_session', s); sessionStorage.setItem('x', '1'); } } catch (e) {} }, opts.session);
   if (opts.me) await p.addInitScript(m => localStorage.setItem('sct_me', m), opts.me);
-  await p.goto('file://' + path.join(ROOT, 'dist', 'index.html'));
+  if (!opts.session && opts.person !== null) await p.addInitScript(e => { if (!sessionStorage.getItem('out')) localStorage.setItem('sct_person', e); }, opts.person || 'divya@suraasa.com');
+  await p.goto(opts.url || 'file://' + path.join(ROOT, 'dist', 'index.html'));
   await p.waitForTimeout(opts.fonts ? 1500 : 450);
+  if (!opts.session && !opts.person && opts.person !== null) await p.evaluate(n => SCT.actAs(n), opts.me || '');
   return p;
 }
 module.exports = { backend, page, CLIENT };

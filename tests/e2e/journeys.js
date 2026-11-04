@@ -8,7 +8,7 @@ const settle = async p => { await wait(p, 120); await p.waitForFunction(() => !S
 const fill = async (p, k, v) => { const el = p.locator('#modal [name="' + k + '"]').first(); const tag = await el.evaluate(e => e.tagName); if (tag === 'SELECT') await el.selectOption(v); else await el.fill(v); };
 const saveForm = p => p.click('#modal .mf .btn.primary');
 const nav = async (p, v) => { await p.click('#nav [data-v="' + v + '"]'); await wait(p, 120); };
-const me = async (p, name) => { await p.evaluate(n => { const s = document.querySelector('#me'); s.value = n; s.dispatchEvent(new Event('change', { bubbles: true })); }, name); await wait(p, 120); };
+const me = async (p, name) => { await p.evaluate(n => SCT.actAs(n), name); await wait(p, 120); };
 const srv = (b, s) => b.post(Object.assign({ action: 'pull' }, s ? { session: s } : {})).state;
 
 (async () => {
@@ -106,7 +106,7 @@ const srv = (b, s) => b.post(Object.assign({ action: 'pull' }, s ? { session: s 
     const txt = await p.textContent('#main');
     ok('D3 owner gets a notification', txt.includes(t.name) && /late/.test(txt));
     const c1 = await p.$$eval('.r-note', x => x.length);
-    await p.reload(); await wait(p, 500); await nav(p, 'notifications');
+    await p.reload(); await wait(p, 500); await me(p, 'AK'); await nav(p, 'notifications');
     const c2 = await p.$$eval('.r-note', x => x.length);
     ok('D4 no duplicates after reload', c1 === c2, c1 + ' ' + c2);
     await p.context().close();
@@ -185,7 +185,10 @@ const srv = (b, s) => b.post(Object.assign({ action: 'pull' }, s ? { session: s 
     ok('H1 archived, tasks untouched', !!s2.projects.find(x => x.id === pj.id).archivedAt && s2.tasks.filter(t => t.projectId === pj.id).length === count);
     await nav(p, 'portfolio');
     ok('H2 gone from the active list', !(await p.$('[data-act="open"][data-id="' + pj.id + '"]')));
-    ok('H3 not counted on the dashboard', await p.evaluate(n => { document.querySelector('#nav [data-v="overview"]').click(); return new RegExp('Projects slipping\\s*\\d+\\s*of ' + n).test(document.querySelector('#main').innerText); }, st.projects.length - 1), (await p.evaluate(() => (document.querySelector('#main').innerText.match(/of \d+/) || [''])[0])));
+    await p.evaluate(() => document.querySelector('#nav [data-v="overview"]').click()); await wait(p);
+    const shown = await p.evaluate(() => +(document.querySelector('#main').innerText.match(/Total Tasks\s+(\d+)/) || [])[1]);
+    const left = st.tasks.filter(t => t.projectId !== pj.id && t.status !== 'Cancelled').length;
+    ok('H3 not counted on the dashboard', shown === left, shown + ' of ' + left);
     await p.evaluate(id => { const el = document.createElement('button'); el.dataset.act = 'open'; el.dataset.id = id; document.body.appendChild(el); el.click(); el.remove(); }, pj.id); await wait(p);
     await p.click('.flag [data-act="restore-project"]'); await settle(p);
     s2 = srv(b);

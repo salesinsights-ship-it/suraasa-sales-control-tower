@@ -29,6 +29,7 @@ var ACTIVITY_SHEET = 'Activity';
 var EXTRA = '_extra';
 var NL = '\n';
 var API = 3;
+var SITE_URL = 'https://suraasa-sales-control-tower-rouge.vercel.app/';
 
 var STATUS_P = ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'];
 var STATUS_T = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'];
@@ -72,7 +73,7 @@ var SCHEMA = [
     drop: { status: ['Open', 'Escalated', 'Resolved', 'Closed'] } },
   { tab: 'Decisions', key: 'decisions', id: 'id', prefix: 'DEC',
     cols: ['id', 'projectId', 'decision', 'owner', 'raised', 'requiredBy', 'impact', 'status', 'final', 'source', 'decidedAt'],
-    drop: { status: ['Open', 'Pending AK/Ankit decision', 'Decided', 'Deferred', 'Closed', 'Escalated'] } },
+    drop: { status: ['Open', 'Pending Ankit Khanna decision', 'Decided', 'Deferred', 'Closed', 'Escalated'] } },
   { tab: 'Actions', key: 'actions', id: 'id', prefix: 'A',
     cols: ['id', 'kind', 'action', 'why', 'ownerRole', 'priority', 'output', 'dependency', 'timeline', 'projectId', 'taskId', 'bucket'],
     drop: { kind: ['Pending action', 'Recommendation'], priority: PRIOS,
@@ -101,6 +102,12 @@ function onOpen() {
     .addItem('Turn off sign-in', 'disableSignIn')
     .addItem('Back up this Sheet now', 'backupNow')
     .addItem('Turn on daily backup', 'turnOnDailyBackup')
+    .addSeparator()
+    .addItem('Replace AK with Ankit Khanna', 'replaceAkWithAnkitKhanna')
+    .addSeparator()
+    .addItem('Send a test email to me', 'sendTestEmail')
+    .addItem('Turn on assignment emails', 'turnOnAssignmentEmails')
+    .addItem('Turn off assignment emails', 'turnOffAssignmentEmails')
     .addToUi();
 }
 
@@ -260,15 +267,13 @@ function fullPull_(a) {
   var m = metaMap_();
   try { if (m.options) res.state.options = JSON.parse(m.options); } catch (x) {}
   res.state = scopeState_(res.state, a);
-  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) {
-    res.state.users = users_().map(function (u) {
-      return { email: u.email, name: u.name, full_name: u.full_name || u.name, role: u.role, active: u.active };
-    });
+  if (a.role === 'Administrator') {
+    res.state.users = users_();
     res.state.trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
       return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
     });
   }
-  res.me = publicUser_(a);
+  if (!a.open) res.me = { name: a.name || '', email: a.email || '', role: a.role }; // with sign-in off, the server does not know who this is
   res.auth = { required: authCfg_().required };
   return res;
 }
@@ -281,17 +286,12 @@ function doPost(e) {
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
-    if (action === 'signup') return json_(signup_(body));
-    if (action === 'forgot_password') return json_(forgotPassword_(body));
-    if (action === 'reset_password') return json_(resetPassword_(body));
-    if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
     if (!a) return json_(authError_());
-    if (action === 'update_profile') return json_(updateProfile_(body, a));
     lock.waitLock(25000); locked = true;
     if (action === 'pull') return json_(fullPull_(a));
     if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
-    if (action === 'snapshot') return json_(a.role === 'Viewer' ? { ok: true, added: 0 } : snapshot_(body, a));
+    if (action === 'snapshot') return json_(a.role === 'Viewer' || a.role === 'Task Owner' ? { ok: true, added: 0 } : snapshot_(body, a));
     if (action === 'push') {
       if (authCfg_().required) return json_({ ok: false, error: 'This version of the site is out of date. Refresh the page.' });
       var pushed = push_(body); SpreadsheetApp.flush(); return json_(pushed);
@@ -492,95 +492,8 @@ function splitList_(v) {
 //  travel in each tab's _extra column.
 // ============================================================
 var USERS_SHEET = 'Users', AUDIT_SHEET = 'AuditLog', TRASH_SHEET = 'Trash', SNAP_SHEET = 'Snapshots';
-var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer', 'admin', 'management', 'employee'];
-var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'id', 'full_name', 'password_hash', 'salt', 'created_at', 'updated_at', 'reset_token', 'reset_expires'];
-var MANAGEMENT_EMAILS = [
-  'ankit@suraasa.com',
-  'manish@suraasa.com',
-  'rk@suraasa.com',
-  'shrayansh.sood@suraasa.com',
-  'divya@suraasa.com'
-];
-
-var DEFAULT_ACCOUNTS = [
-  // 5 Management Users
-  { name: 'Ankit Khanna', email: 'ankit@suraasa.com', password: 'Sur@Ankit#3915', cleanPw: 'Sur@Ankit#3915', legacyPw: 'Suraasa@Ankit2026!', role: 'management' },
-  { name: 'Manish Pandey', email: 'manish@suraasa.com', password: 'Sur@Manish#5193', cleanPw: 'Sur@Manish#5193', legacyPw: 'Suraasa@Manish2026!', role: 'management' },
-  { name: 'Rishabh Khanna', email: 'rk@suraasa.com', password: 'Sur@Rishabh#7264', cleanPw: 'Sur@Rishabh#7264', legacyPw: 'Suraasa@Rishabh2026!', role: 'management' },
-  { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', password: 'Sur@Shrayansh#4821', cleanPw: 'Sur@Shrayansh#4821', legacyPw: 'Suraasa@Shrayansh2026!', role: 'management' },
-  { name: 'Divya', email: 'divya@suraasa.com', password: 'Sur@Divya#8402', cleanPw: 'Sur@Divya#8402', legacyPw: 'Suraasa@Divya2026!', role: 'management' },
-
-  // 7 Regular Employees
-  { name: 'Akhand Mishra', email: 'akhand@suraasa.com', password: 'Sur@Akhand#9082', cleanPw: 'Sur@Akhand#9082', legacyPw: 'Suraasa@Akhand2026!', role: 'employee' },
-  { name: 'Atishay', email: 'aj@suraasa.com', password: 'Sur@Atishay#6317', cleanPw: 'Sur@Atishay#6317', legacyPw: 'Suraasa@Atishay2026!', role: 'employee' },
-  { name: 'Sales Operations', email: 'salesinsights@suraasa.com', password: 'Sur@SalesOps#2940', cleanPw: 'Sur@SalesOps#2940', legacyPw: 'Suraasa@SalesOps2026!', role: 'employee' },
-  { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', password: 'Sur@Somesh#1853', cleanPw: 'Sur@Somesh#1853', legacyPw: 'Suraasa@Somesh2026!', role: 'employee' },
-  { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', password: 'Sur@Deepansh#7492', cleanPw: 'Sur@Deepansh#7492', legacyPw: 'Suraasa@Deepansh2026!', role: 'employee' },
-  { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', password: 'Sur@Anisha#3826', cleanPw: 'Sur@Anisha#3826', legacyPw: 'Suraasa@Anisha2026!', role: 'employee' },
-  { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', password: 'Sur@Anurakta#9154', cleanPw: 'Sur@Anurakta#9154', legacyPw: 'Suraasa@Anurakta2026!', role: 'employee' }
-];
-
-function defaultAccountByEmail_(email) {
-  var clean = String(email || '').trim().toLowerCase();
-  for (var i = 0; i < DEFAULT_ACCOUNTS.length; i++) {
-    if (DEFAULT_ACCOUNTS[i].email.toLowerCase() === clean) return DEFAULT_ACCOUNTS[i];
-  }
-  return null;
-}
-
-function autoProvisionDefaultAccount_(def) {
-  var salt = generateSalt_();
-  var hash = hashPassword_(def.password, salt);
-  var now = new Date().toISOString();
-  var role = isManagementEmail_(def.email) ? 'management' : 'employee';
-  var rec = {
-    id: Utilities.getUuid(),
-    email: def.email.toLowerCase(),
-    name: def.name,
-    full_name: def.name,
-    role: role,
-    active: true,
-    addedBy: 'default_provision',
-    addedAt: now,
-    password_hash: hash,
-    salt: salt,
-    created_at: now,
-    updated_at: now,
-    reset_token: '',
-    reset_expires: ''
-  };
-  writeUser_(null, rec);
-  return rec;
-}
-
-function isManagementEmail_(email) {
-  return MANAGEMENT_EMAILS.indexOf(String(email || '').trim().toLowerCase()) >= 0;
-}
-
-function isManagementRole_(role) {
-  return role === 'admin' || role === 'management' || role === 'Administrator';
-}
-
-function isEmployeeRole_(role) {
-  return role === 'employee' || role === 'Task Owner' || role === 'Viewer';
-}
-
-function generateSalt_() {
-  return Utilities.getUuid().replace(/-/g, '').slice(0, 16);
-}
-
-function hashPassword_(password, salt) {
-  var raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(salt) + ':' + String(password), Utilities.Charset.UTF_8);
-  var hex = '';
-  for (var i = 0; i < raw.length; i++) {
-    var b = raw[i];
-    if (b < 0) b += 256;
-    var h = b.toString(16);
-    if (h.length === 1) hex += '0';
-    hex += h;
-  }
-  return hex;
-}
+var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'];
+var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt'];
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
@@ -620,32 +533,26 @@ function ensureSystemTabs_() {
       sh.setFrozenRows(1);
       sh.getRange(2, 1, Math.max(sh.getMaxRows() - 1, 1), t[1].length).setNumberFormat('@');
       if (t[0] !== USERS_SHEET) { try { sh.protect().setWarningOnly(true); } catch (x) { /* protection is a courtesy only */ } }
-    } else if (t[0] === USERS_SHEET) {
-      var lc = sh.getLastColumn();
-      if (lc > 0 && lc < USER_COLS.length) {
-        var needed = USER_COLS.slice(lc);
-        sh.getRange(1, lc + 1, 1, needed.length).setValues([needed]);
-        sh.getRange(1, 1, 1, USER_COLS.length).setFontWeight('bold').setBackground('#0f172a').setFontColor('#ffffff');
-      }
     }
   });
 }
 
 // ---------- users and sessions ----------
+/** "management" and "employee" are accepted in the Users tab as plain words for two of the roles. */
+function roleOf_(v) {
+  var r = String(v == null ? '' : v).trim();
+  var low = r.toLowerCase();
+  if (low === 'management' || low === 'admin') return 'Administrator';
+  if (low === 'employee') return 'Task Owner';
+  return ROLES.indexOf(r) >= 0 ? r : 'Viewer';
+}
 function users_() {
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, USER_COLS.length).getValues().filter(function (r) { return r[0] !== ''; }).map(function (r) {
-    var u = {};
-    USER_COLS.forEach(function (c, idx) {
-      u[c] = cell_(r[idx]);
-    });
-    u.email = String(u.email || '').trim().toLowerCase();
-    u.name = String(u.name || u.full_name || '').trim();
-    u.full_name = String(u.full_name || u.name || '').trim();
-    u.role = ROLES.indexOf(String(u.role)) >= 0 ? String(u.role) : (isManagementEmail_(u.email) ? 'management' : 'employee');
-    u.active = toBool_(u.active);
-    return u;
+    // "Manish Pandey (Head of Sales)": the part in brackets is another name tasks may use for this person.
+    var raw = String(r[1]).trim(), m = raw.match(/^(.*?)\s*\((.+)\)$/);
+    return { email: String(r[0]).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(r[2]), active: toBool_(r[3]), addedBy: String(r[4] || ''), addedAt: String(r[5] || '') };
   });
 }
 function userByEmail_(email) {
@@ -654,261 +561,32 @@ function userByEmail_(email) {
 }
 function login_(body) {
   var cfg = authCfg_();
-  // 1. Email and password authentication
-  if (body.email && body.password) {
-    var email = String(body.email).trim().toLowerCase();
-    var isDefaultPw = function (def, pw) {
-      if (!def) return false;
-      return pw === def.password || pw === def.cleanPw || pw === def.legacyPw || pw === 'Suraasa@2026!';
-    };
-    var u = userByEmail_(email);
-    if (!u) {
-      var def = defaultAccountByEmail_(email);
-      if (def && isDefaultPw(def, body.password)) {
-        var seeded = autoProvisionDefaultAccount_(def);
-        var token = Utilities.getUuid();
-        CacheService.getScriptCache().put('sess:' + token, email, 21600);
-        return { ok: true, session: token, user: publicUser_(seeded) };
-      }
-      return { ok: false, auth: true, error: 'No account found with this email. Please sign up.' };
-    }
-    if (!u.active) return { ok: false, auth: true, denied: true, error: 'Your account is inactive. Please contact an administrator.' };
-    if (!u.password_hash || !u.salt) {
-      var defAcc = defaultAccountByEmail_(email);
-      if (defAcc && isDefaultPw(defAcc, body.password)) {
-        u.salt = generateSalt_();
-        u.password_hash = hashPassword_(body.password, u.salt);
-        u.updated_at = new Date().toISOString();
-        writeUser_(u, u);
-        var t = Utilities.getUuid();
-        CacheService.getScriptCache().put('sess:' + t, email, 21600);
-        return { ok: true, session: t, user: publicUser_(u) };
-      }
-      return { ok: false, auth: true, error: 'Password not set for this account. Please sign up or reset your password.' };
-    }
-    var computed = hashPassword_(body.password, u.salt);
-    if (computed !== u.password_hash) {
-      var defCheck = defaultAccountByEmail_(email);
-      if (defCheck && isDefaultPw(defCheck, body.password)) {
-        u.salt = generateSalt_();
-        u.password_hash = hashPassword_(body.password, u.salt);
-        u.updated_at = new Date().toISOString();
-        writeUser_(u, u);
-        var tkn = Utilities.getUuid();
-        CacheService.getScriptCache().put('sess:' + tkn, email, 21600);
-        return { ok: true, session: tkn, user: publicUser_(u) };
-      }
-      return { ok: false, auth: true, error: 'Incorrect email or password. Please try again.' };
-    }
-    var token = Utilities.getUuid();
-    CacheService.getScriptCache().put('sess:' + token, email, 21600);
-    return { ok: true, session: token, user: publicUser_(u) };
-  }
-
-  // 2. Google OAuth idToken (for Google Sign-In and tests)
-  if (body.idToken) {
-    var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
-    if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
-    var t = JSON.parse(res.getContentText());
-    var gEmail = String(t.email || '').toLowerCase();
-    if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
-    if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
-    if (gEmail.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
-    if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
-    var gu = userByEmail_(gEmail);
-    if (!gu || !gu.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + gEmail + '.' };
-    var gToken = Utilities.getUuid();
-    CacheService.getScriptCache().put('sess:' + gToken, gEmail, 21600);
-    return { ok: true, session: gToken, user: publicUser_(gu) };
-  }
-
   if (!cfg.required) return { ok: true, open: true };
-  return { ok: false, auth: true, error: 'Please enter your email and password to sign in.' };
-}
-
-function signup_(body) {
-  var email = String(body.email || '').trim().toLowerCase();
-  var fullName = String(body.fullName || body.full_name || body.name || '').trim();
-  var password = String(body.password || '');
-
-  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { ok: false, error: 'Please enter a valid email address.' };
-  }
-  var domain = (authCfg_().domain || 'suraasa.com').toLowerCase();
-  if (email.split('@')[1] !== domain) {
-    return { ok: false, error: 'Please use your official @' + domain + ' company email address.' };
-  }
-  if (!fullName) {
-    return { ok: false, error: 'Please enter your full name.' };
-  }
-  if (!password || password.length < 6) {
-    return { ok: false, error: 'Password must be at least 6 characters long.' };
-  }
-
-  var existing = userByEmail_(email);
-  if (existing && existing.password_hash) {
-    return { ok: false, error: 'An account with this email already exists. Please sign in.' };
-  }
-
-  // Automatic Role Detection: 5 management emails get management, all other employees get employee
-  var role = isManagementEmail_(email) ? 'management' : 'employee';
-  if (existing && isManagementRole_(existing.role)) {
-    role = existing.role;
-  }
-
-  var salt = generateSalt_();
-  var hash = hashPassword_(password, salt);
-  var now = new Date().toISOString();
-
-  var userRec = {
-    id: (existing && existing.id) ? existing.id : Utilities.getUuid(),
-    email: email,
-    name: fullName,
-    full_name: fullName,
-    role: role,
-    active: true,
-    addedBy: (existing && existing.addedBy) ? existing.addedBy : 'signup',
-    addedAt: (existing && existing.addedAt) ? existing.addedAt : now,
-    password_hash: hash,
-    salt: salt,
-    created_at: (existing && existing.created_at) ? existing.created_at : now,
-    updated_at: now,
-    reset_token: '',
-    reset_expires: ''
-  };
-
-  writeUser_(existing, userRec);
-
+  if (!body.idToken) return { ok: false, auth: true, error: 'Sign in with your Suraasa Google account.' };
+  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
+  var t = JSON.parse(res.getContentText());
+  var email = String(t.email || '').toLowerCase();
+  if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
+  if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
+  if (email.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
+  if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
+  var u = userByEmail_(email);
+  if (!u || !u.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + email + '.' };
   var token = Utilities.getUuid();
   CacheService.getScriptCache().put('sess:' + token, email, 21600);
-  return { ok: true, session: token, user: publicUser_(userRec) };
+  return { ok: true, session: token, user: publicUser_(u) };
 }
-
-function forgotPassword_(body) {
-  var email = String(body.email || '').trim().toLowerCase();
-  if (!email) return { ok: false, error: 'Please enter your email address.' };
-  var u = userByEmail_(email);
-  if (!u || !u.active) {
-    return { ok: true, message: 'If an active account exists for that email, password reset instructions have been generated.' };
-  }
-  var resetToken = Utilities.getUuid().replace(/-/g, '').slice(0, 32);
-  var expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
-  u.reset_token = resetToken;
-  u.reset_expires = expires;
-  u.updated_at = new Date().toISOString();
-  writeUser_(u, u);
-  return {
-    ok: true,
-    resetToken: resetToken,
-    message: 'Password reset token generated. Use it to set a new password.'
-  };
-}
-
-function resetPassword_(body) {
-  var email = String(body.email || '').trim().toLowerCase();
-  var token = String(body.token || body.resetToken || '').trim();
-  var newPassword = String(body.newPassword || body.password || '');
-
-  if (!newPassword || newPassword.length < 6) {
-    return { ok: false, error: 'New password must be at least 6 characters long.' };
-  }
-  if (!token) {
-    return { ok: false, error: 'Invalid or missing reset token.' };
-  }
-
-  var u = null;
-  if (email) {
-    u = userByEmail_(email);
-  } else {
-    u = users_().filter(function (x) { return x.reset_token === token; })[0] || null;
-  }
-
-  if (!u || u.reset_token !== token) {
-    return { ok: false, error: 'Invalid or expired reset token.' };
-  }
-
-  var nowIso = new Date().toISOString();
-  if (u.reset_expires && u.reset_expires < nowIso) {
-    return { ok: false, error: 'Password reset link has expired. Please request a new one.' };
-  }
-
-  var salt = generateSalt_();
-  var hash = hashPassword_(newPassword, salt);
-  u.salt = salt;
-  u.password_hash = hash;
-  u.reset_token = '';
-  u.reset_expires = '';
-  u.updated_at = nowIso;
-  writeUser_(u, u);
-
-  return { ok: true, message: 'Password reset successfully. You can now sign in.' };
-}
-
-function updateProfile_(body, a) {
-  if (!a || !a.email) return authError_();
-  var u = userByEmail_(a.email);
-  if (!u) return { ok: false, error: 'User profile not found.' };
-
-  var fullName = String(body.fullName || body.full_name || body.name || '').trim();
-  var currentPassword = String(body.currentPassword || body.current_password || '');
-  var newPassword = String(body.newPassword || body.new_password || '');
-
-  if (fullName) {
-    u.full_name = fullName;
-    u.name = fullName;
-  }
-
-  if (newPassword) {
-    if (newPassword.length < 6) {
-      return { ok: false, error: 'New password must be at least 6 characters long.' };
-    }
-    if (u.password_hash) {
-      if (!currentPassword || hashPassword_(currentPassword, u.salt) !== u.password_hash) {
-        return { ok: false, error: 'Current password is incorrect.' };
-      }
-    }
-    var salt = generateSalt_();
-    u.salt = salt;
-    u.password_hash = hashPassword_(newPassword, salt);
-  }
-
-  u.updated_at = new Date().toISOString();
-  writeUser_(u, u);
-  return { ok: true, user: publicUser_(u), message: 'Profile updated successfully.' };
-}
-
-function logout_(body) {
-  if (body && body.session) {
-    try {
-      CacheService.getScriptCache().remove('sess:' + body.session);
-    } catch (e) {}
-  }
-  return { ok: true };
-}
-
-function publicUser_(u) {
-  var isMgmt = isManagementRole_(u.role) || isManagementEmail_(u.email);
-  return {
-    email: u.email,
-    name: u.name || u.full_name || '',
-    full_name: u.full_name || u.name || '',
-    role: u.role,
-    isManagement: isMgmt
-  };
-}
-
+function publicUser_(u) { return { email: u.email, name: u.name, role: u.role }; }
 /** Returns who is calling. Role is read fresh on every request, so a role change applies at once. */
 function actor_(body) {
   var cfg = authCfg_();
-  if (body.session) {
-    var email = CacheService.getScriptCache().get('sess:' + body.session);
-    if (email) {
-      var u = userByEmail_(email);
-      if (u && u.active) return publicUser_(u);
-    }
-  }
-  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), role: 'Administrator', isManagement: true };
-  return null;
+  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), role: 'Administrator' };
+  if (!body.session) return null;
+  var email = CacheService.getScriptCache().get('sess:' + body.session);
+  if (!email) return null;
+  var u = userByEmail_(email);
+  return u && u.active ? publicUser_(u) : null;
 }
 function authError_() { return { ok: false, auth: true, error: 'Your session has ended. Sign in again.' }; }
 
@@ -920,59 +598,42 @@ function isMine_(field, name) {
 }
 function ownsProject_(p, a) { return !!p && (isMine_(p.owner, a.name) || isMine_(p.accountable, a.name)); }
 function canSeeProject_(p, tasks, a) {
-  if (isManagementRole_(a.role) || !p.restricted) return true;
+  if (a.role === 'Administrator' || !p.restricted) return true;
   if (ownsProject_(p, a) || isMine_(p.sponsor, a.name)) return true;
   if ((p.members || []).some(function (m) { return isMine_(m, a.name); })) return true;
   return tasks.some(function (t) { return t.projectId === p.id && isMine_(t.owner, a.name); });
 }
-
-function isTaskMine_(t, a) {
-  if (!t || !a) return false;
-  var email = String(a.email || '').trim().toLowerCase();
-  var name = String(a.name || '').trim().toLowerCase();
-  var full = String(a.full_name || '').trim().toLowerCase();
-  if (name && (isMine_(t.owner, name) || isMine_(t.accountable, name))) return true;
-  if (full && (isMine_(t.owner, full) || isMine_(t.accountable, full))) return true;
-  var ownerStr = String(t.owner || '').trim().toLowerCase();
-  var assignedStr = String(t.assigned_to || t.assignedTo || '').trim().toLowerCase();
-  if (email && (ownerStr === email || assignedStr === email)) return true;
-  return false;
-}
-
 function scopeState_(state, a) {
-  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) return state;
+  if (a.role === 'Administrator') return state;
   var seen = {};
   state.projects = state.projects.filter(function (p) { var ok = canSeeProject_(p, state.tasks, a); if (ok) seen[p.id] = true; return ok; });
-  if (a.role === 'employee') {
-    var myTasks = (state.tasks || []).filter(function (t) { return isTaskMine_(t, a); });
-    var myTaskIds = {};
-    myTasks.forEach(function (t) { myTaskIds[t.id] = true; });
-    var changed = true;
-    while (changed) {
-      changed = false;
-      (state.tasks || []).forEach(function (t) {
-        if (!myTaskIds[t.id] && t.parent && myTaskIds[t.parent]) {
-          myTaskIds[t.id] = true;
-          myTasks.push(t);
-          changed = true;
-        }
-      });
-    }
-    state.tasks = myTasks;
-  } else {
-    ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
-      state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
-    });
-  }
-  var general = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
-  state.audit = (state.audit || []).filter(function (r) {
-    if (r.taskId) return (state.tasks || []).some(function (t) { return t.id === r.taskId; });
-    return r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0;
+  ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
+    state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
   });
+  var general = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
+  state.audit = (state.audit || []).filter(function (r) { return r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0; });
   state.snapshots = (state.snapshots || []).filter(function (r) { return seen[r.projectId]; });
-  state.activity = [];
-  delete state.users;
-  delete state.trash;
+  if (a.role === 'Task Owner') {
+    // Employees see their own tasks and subtasks, and only what belongs to the projects those tasks are in.
+    var mine = {}, theirs = {};
+    state.tasks.forEach(function (t) { if (isMine_(t.owner, a.name) || isMine_(t.accountable, a.name)) { mine[t.id] = true; theirs[t.projectId] = true; } });
+    var grew = true;
+    while (grew) {
+      grew = false;
+      state.tasks.forEach(function (t) { if (!mine[t.id] && t.parent && mine[t.parent]) { mine[t.id] = true; grew = true; } });
+    }
+    state.tasks = state.tasks.filter(function (t) { return mine[t.id]; });
+    // Other projects: just enough to choose one for a new task.
+    state.projects = state.projects.map(function (p) {
+      return theirs[p.id] ? p : { id: p.id, name: p.name, status: p.status, priority: '', workstreams: [], milestones: [], raci: [], comments: [] };
+    });
+    ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
+      state[k] = (state[k] || []).filter(function (r) { return r.projectId ? theirs[r.projectId] : isMine_(r.owner, a.name); });
+    });
+    state.audit = state.audit.filter(function (r) { return r.taskId ? mine[r.taskId] : theirs[r.projectId]; });
+    state.snapshots = state.snapshots.filter(function (r) { return theirs[r.projectId]; });
+  }
+  state.activity = []; // the old free-text list names projects and has no project field to filter on
   return state;
 }
 function changedFields_(cur, next) {
@@ -983,19 +644,12 @@ function changedFields_(cur, next) {
   Object.keys(keys).forEach(function (k) { if (STAMPS.indexOf(k) < 0 && canon_(cur ? cur[k] : '') !== canon_(next ? next[k] : '')) out.push(k); });
   return out;
 }
+function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.projectId === pid && (isMine_(t.owner, a.name) || isMine_(t.accountable, a.name)); }); }
 /** Returns a refusal message, or '' when allowed. Checked on the server for every record. */
 function deny_(a, coll, cur, next, st) {
-  if (isManagementRole_(a.role) || isManagementEmail_(a.email)) return '';
+  if (a.role === 'Administrator') return '';
   if (a.role === 'Viewer') return 'Viewers cannot change anything.';
-  if (['governance', 'options', 'roles', 'programs'].indexOf(coll) >= 0) return 'Only an administrator can change this.';
-  if (coll === 'users') {
-    if (cur && cur.email === a.email.toLowerCase() && next && next.email === a.email.toLowerCase()) {
-      if (cur.role !== next.role) return 'You cannot change your own role.';
-      if (cur.active !== next.active) return 'You cannot change your active status.';
-      return '';
-    }
-    return 'You can only view and edit your own profile.';
-  }
+  if (['governance', 'options', 'users', 'roles', 'programs'].indexOf(coll) >= 0) return 'Only an administrator can change this.';
   var rec = next || cur;
   var byId = function (id) { return st.projects.filter(function (p) { return p.id === id; })[0]; };
   if (coll === 'projects') {
@@ -1003,7 +657,7 @@ function deny_(a, coll, cur, next, st) {
     if (!next) return 'Only an administrator can delete a project.';
     if (ownsProject_(cur, a) && a.role === 'Project Owner') return '';
     var ch = changedFields_(cur, next);
-    if (ch.length === 1 && APPEND_ONLY.indexOf(ch[0]) >= 0) return '';
+    if (ch.length === 1 && APPEND_ONLY.indexOf(ch[0]) >= 0 && (a.role !== 'Task Owner' || hasWorkIn_(cur.id, st, a))) return '';
     return 'Only this project\'s owner can change it.';
   }
   var proj = byId(rec.projectId);
@@ -1014,31 +668,20 @@ function deny_(a, coll, cur, next, st) {
     var off = changedFields_(cur, next).filter(function (f) { return f === 'owner' || f === 'responsible'; });
     return off.length ? 'Ask the project owner to reassign this.' : '';
   }
-  if (coll === 'tasks') {
-    var checkT = cur || next;
-    var isOwn = isTaskMine_(checkT, a) || (checkT && isMine_(checkT.owner, a.name));
-    if (!isOwn && !ownsProject_(proj, a)) {
+  if (coll === 'tasks' && cur && next) {
+    if (!isMine_(cur.owner, a.name)) {
       var cf = changedFields_(cur, next);
-      if (cf.length === 1 && APPEND_ONLY.indexOf(cf[0]) >= 0) return '';
-      return 'You do not have permission to modify another employee\'s tasks.';
+      return a.role !== 'Task Owner' && cf.length === 1 && APPEND_ONLY.indexOf(cf[0]) >= 0 ? '' : 'Only the task owner or project owner can change this task.';
     }
-    if (cur && next) {
-      if (!ownsProject_(proj, a)) {
-        var bad = changedFields_(cur, next).filter(function (f) { return TASK_OWNER_FIELDS.indexOf(f) < 0; });
-        return bad.length ? 'Task owners cannot change ' + bad.join(', ') + '. Ask the project owner.' : '';
-      }
-      return '';
-    }
-    if (!cur && next) {
-      if (next.parent) {
-        var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
-        return parent && parent.projectId === next.projectId && (isTaskMine_(parent, a) || isMine_(parent.owner, a.name) || ownsProject_(proj, a)) ? '' : 'You can add subtasks only to your own tasks.';
-      }
-      return (isOwn || ownsProject_(proj, a)) ? '' : 'You cannot assign tasks to another employee.';
-    }
-    return '';
+    var bad = changedFields_(cur, next).filter(function (f) { return TASK_OWNER_FIELDS.indexOf(f) < 0; });
+    return bad.length ? 'Task owners cannot change ' + bad.join(', ') + '. Ask the project owner.' : '';
   }
-  if (coll === 'updates' && !cur) return '';
+  if (coll === 'tasks' && !cur && next && next.parent) {
+    var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
+    return parent && parent.projectId === next.projectId && isMine_(parent.owner, a.name) ? '' : 'You can add subtasks only to your own tasks.';
+  }
+  if (coll === 'tasks' && !cur && next) return isMine_(next.owner, a.name) ? '' : 'You can add tasks only for yourself. Set yourself as the owner.';
+  if (coll === 'updates' && !cur) return a.role !== 'Task Owner' || hasWorkIn_(rec.projectId, st, a) ? '' : 'You can add updates only to projects you have tasks in.';
   return 'You do not have permission to change this.';
 }
 function hasCycle_(tasks, id, deps) {
@@ -1059,6 +702,7 @@ function invalid_(coll, cur, next, st, a) {
   var dateOk = function (v) { return !v || /^\d{4}-\d{2}-\d{2}$/.test(String(v)); };
   if (coll === 'projects') {
     if (!String(next.name || '').trim()) return 'A project needs a name.';
+    if (next.priority && PRIOS.indexOf(next.priority) < 0) return 'Priority must be P0, P1, P2 or P3.';
     if (!dateOk(next.start) || !dateOk(next.due)) return 'Dates must be YYYY-MM-DD.';
     if (next.start && next.due && next.due < next.start) return 'The target date cannot be before the start date.';
     if (cur) {
@@ -1073,6 +717,7 @@ function invalid_(coll, cur, next, st, a) {
   }
   if (coll === 'tasks') {
     if (!String(next.name || '').trim()) return 'A task needs a name.';
+    if (next.priority && PRIOS.indexOf(next.priority) < 0) return 'Priority must be P0, P1, P2 or P3.';
     if (!st.projects.some(function (p) { return p.id === next.projectId; })) return 'Task ' + next.id + ' points to a project that does not exist.';
     if (next.parent && !st.tasks.some(function (t) { return t.id === next.parent; })) return 'The parent task does not exist.';
     if (next.parent === next.id) return 'A task cannot be its own parent.';
@@ -1090,9 +735,9 @@ function invalid_(coll, cur, next, st, a) {
       if (to === 'Cancelled' && !String(next.cancelReason || '').trim()) return 'Give a reason for cancelling.';
       if (to === 'Blocked' && !(next.blocker && String(next.blocker.text || '').trim())) return 'Say what is blocking this task.';
       var proj = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
-      if (to === 'Completed' && next.requiresReview && from !== 'In Review' && from !== 'Awaiting Approval' && !isManagementRole_(a.role)) return 'This task must go through review first.';
-      if (to === 'Completed' && next.requiresReview && !isManagementRole_(a.role) && !ownsProject_(proj, a)) return 'A project owner must approve this task.';
-      if (to === 'Changes Requested' && !isManagementRole_(a.role) && !ownsProject_(proj, a)) return 'Only a project owner can request changes.';
+      if (to === 'Completed' && next.requiresReview && from !== 'In Review' && from !== 'Awaiting Approval' && a.role !== 'Administrator') return 'This task must go through review first.';
+      if (to === 'Completed' && next.requiresReview && a.role !== 'Administrator' && !ownsProject_(proj, a)) return 'A project owner must approve this task.';
+      if (to === 'Changes Requested' && a.role !== 'Administrator' && !ownsProject_(proj, a)) return 'Only a project owner can request changes.';
     }
   }
   if (coll === 'users') {
@@ -1261,8 +906,8 @@ function apply_(body, a) {
       var uNext = op.del ? null : Object.assign({}, uCur || {}, op.rec || {}, { email: String(op.id).toLowerCase() });
       var ud = deny_(a, 'users', uCur, uNext, st) || invalid_('users', uCur, uNext, st, a);
       if (ud) return reject(ud, 'denied');
-      var admins = users.filter(function (u) { return u.active && isManagementRole_(u.role) && u.email !== String(op.id).toLowerCase(); }).length;
-      if (authCfg_().required && !admins && (!uNext || !uNext.active || !isManagementRole_(uNext.role))) return reject('There must always be at least one active administrator.', 'invalid');
+      var admins = users.filter(function (u) { return u.active && u.role === 'Administrator' && u.email !== String(op.id).toLowerCase(); }).length;
+      if (authCfg_().required && !admins && (!uNext || !uNext.active || uNext.role !== 'Administrator')) return reject('There must always be at least one active administrator.', 'invalid');
       if (uNext) { uNext.active = uNext.active !== false && String(uNext.active) !== 'false'; uNext.addedBy = uNext.addedBy || a.name; uNext.addedAt = uNext.addedAt || ts; }
       users = users.filter(function (u) { return u.email !== String(op.id).toLowerCase(); }).concat(uNext ? [uNext] : []);
       plan.push({ users: true, cur: uCur, next: uNext });
@@ -1273,7 +918,7 @@ function apply_(body, a) {
     var list = st[op.c] = st[op.c] || [];
     var idx = findIn_(list, idField, op.id);
     var cur = idx >= 0 ? list[idx] : null;
-    if (!isManagementRole_(a.role) && cur) {
+    if (a.role !== 'Administrator' && cur) {
       var pid = op.c === 'projects' ? cur.id : cur.projectId;
       var pr = st.projects.filter(function (p) { return p.id === pid; })[0];
       if (pr && !canSeeProject_(pr, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
@@ -1298,15 +943,18 @@ function apply_(body, a) {
       next = JSON.parse(JSON.stringify(cur));
       var conflict = null;
       Object.keys(op.set || {}).forEach(function (f) {
-        if (conflict || f === idField || STAMPS.indexOf(f) >= 0) return; // IDs and server stamps never change
+        if (f === idField || STAMPS.indexOf(f) >= 0) return; // IDs and server stamps never change
         var base = (op.base || {})[f];
         if (APPEND_ONLY.indexOf(f) >= 0) { next[f] = mergeAppend_(cur[f], base, op.set[f]); return; }
-        if (!same_(cur[f], base) && !same_(cur[f], op.set[f])) { conflict = f; return; }
+        if (!conflict && !same_(cur[f], base) && !same_(cur[f], op.set[f])) conflict = f;
         if (op.set[f] === null || op.set[f] === undefined) delete next[f]; else next[f] = op.set[f];
       });
+      // Permission first: a refused person must not learn the current value from a conflict reply.
+      var mayChange = deny_(a, op.c, cur, next, st);
+      if (mayChange) return reject(mayChange, 'denied');
       if (conflict) return reject((FIELD_NAMES[conflict] || conflict) + ' was changed by ' + (cur.updatedBy || 'someone else') + '. Check the latest value.', 'conflict', conflict, cur[conflict]);
     }
-    if (!isManagementRole_(a.role) && next.projectId) {
+    if (a.role !== 'Administrator' && next.projectId) {
       var dest = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
       if (dest && !canSeeProject_(dest, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
     }
@@ -1315,7 +963,7 @@ function apply_(body, a) {
     var problem = '';
     if (cur) APPEND_ONLY.forEach(function (f) {
       var owner = op.c === 'projects' ? cur : st.projects.filter(function (p) { return p.id === cur.projectId; })[0];
-      problem = problem || (canon_(cur[f]) !== canon_(next[f]) ? noteProblem_(f, cur, next, a, isManagementRole_(a.role) || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
+      problem = problem || (canon_(cur[f]) !== canon_(next[f]) ? noteProblem_(f, cur, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
     });
     if (problem) return reject(problem, 'denied');
     if (schemaFor_(op.c) && oversize_(op.c, next)) return reject('This record has grown too long for the Sheet. Remove some notes or text and try again.', 'invalid');
@@ -1382,13 +1030,14 @@ function apply_(body, a) {
     if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue });
   }); } catch (err) { failure = err; }
   // Whatever did get written is recorded and announced, so a retry finishes the rest.
+  if (!failure) audit = audit.concat(assignmentEmails_(plan, a, users, st, ts, reqId));
   appendRows_(TRASH_SHEET, trash);
   appendRows_(AUDIT_SHEET, audit);
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: ts, updatedBy: a.name || 'website' });
   if (failure) return { ok: false, version: v, error: 'Only part of this save reached the Sheet (' + String(failure.message || failure) + ').' };
   var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved };
-  res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return isManagementRole_(a.role) || !o.projectId || o.entityType !== 'users'; });
+  res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return a.role === 'Administrator' || !o.projectId || o.entityType !== 'users'; });
   try { cache.put('req:' + reqId, JSON.stringify(res), 600); } catch (x) { /* very large reply: skip the replay cache */ }
   return res;
 }
@@ -1479,7 +1128,10 @@ function writeUser_(cur, next) {
   var row = -1, n = sh.getLastRow();
   if (n >= 2) sh.getRange(2, 1, n - 1, 1).getValues().forEach(function (r, i) { if (row < 0 && String(r[0]).trim().toLowerCase() === email) row = i + 2; });
   if (!next) { if (row > 0) deleteSheetRow_(sh, row); return; }
-  var vals = USER_COLS.map(function (c) { return c === 'active' ? (next.active ? 'TRUE' : 'FALSE') : String(next[c] == null ? '' : next[c]); });
+  var vals = USER_COLS.map(function (c) {
+    if (c === 'name' && cur && next.name === cur.name && cur.rawName) return cur.rawName; // keep the part in brackets
+    return c === 'active' ? (next.active ? 'TRUE' : 'FALSE') : String(next[c] == null ? '' : next[c]);
+  });
   if (row < 0) row = Math.max(sh.getLastRow(), 1) + 1;
   ensureRows_(sh, row);
   sh.getRange(row, 1, 1, vals.length).setValues([vals]);
@@ -1488,6 +1140,152 @@ function markRestored_(trashId, ts) {
   var sh = SpreadsheetApp.getActive().getSheetByName(TRASH_SHEET);
   var row = rowOfId_(sh, 1, trashId);
   if (row > 0) sh.getRange(row, TRASH_COLS.indexOf('restoredAt') + 1, 1, 1).setValues([[ts]]);
+}
+
+// ---------- assignment emails ----------
+function ownerNames_(field) {
+  if (!field || /^\s*tbd/i.test(String(field))) return [];
+  return String(field).split(/\s*[,\/&]\s*|\s+or\s+/i).map(function (x) { return x.trim(); }).filter(Boolean);
+}
+function personNamed_(name, users) {
+  var n = String(name).toLowerCase();
+  return users.filter(function (u) {
+    return u.active && (u.name.toLowerCase() === n || (u.rawName || '').toLowerCase() === n || u.email === n || (u.aliases || []).some(function (x) { return x.toLowerCase() === n; }));
+  })[0] || null;
+}
+function escHtml_(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+/**
+ * Tells each new owner what they have just been given, and by whom. One email per person per
+ * save, however many items. A problem here never stops the save: it is written to the audit log.
+ */
+function assignmentEmails_(plan, a, users, st, ts, reqId) {
+  if (props_().getProperty('ASSIGN_EMAIL') === 'off') return [];
+  var boss = a.email ? users.filter(function (u) { return u.email === a.email; })[0] : personNamed_(a.name, users);
+  if (!boss || !boss.active || (boss.role !== 'Administrator' && boss.role !== 'Project Owner')) return [];
+  var byPerson = {}, rows = [];
+  var row = function (item, action, text) { return [Utilities.getUuid(), ts, a.email || '', a.name || '', item.kind + 's', item.id, item.projectId, item.kind === 'task' ? item.id : '', action, 'owner', '', item.owner, text, reqId]; };
+  plan.forEach(function (p) {
+    if (!p.next || p.restoreOf || (p.c !== 'tasks' && p.c !== 'projects')) return;
+    var before = ownerNames_(p.cur && p.cur.owner).map(function (x) { return x.toLowerCase(); });
+    var isTask = p.c === 'tasks';
+    var proj = isTask ? st.projects.filter(function (x) { return x.id === p.next.projectId; })[0] : p.next;
+    ownerNames_(p.next.owner).forEach(function (name) {
+      if (before.indexOf(name.toLowerCase()) >= 0) return;
+      var item = { kind: isTask ? 'task' : 'project', id: p.next.id, name: p.next.name, owner: name, project: proj ? proj.name : '', projectId: proj ? proj.id : '', due: p.next.due || '', priority: p.next.priority || '' };
+      var u = personNamed_(name, users);
+      if (!u) { rows.push(row(item, 'email_skipped', 'No email sent: "' + short_(name) + '" is not in the Users tab')); return; }
+      if (u.email === boss.email) return; // nobody needs telling what they gave themselves
+      var list = byPerson[u.email] = byPerson[u.email] || { user: u, items: [] };
+      if (!list.items.some(function (x) { return x.kind === item.kind && x.id === item.id; })) list.items.push(item);
+    });
+  });
+  Object.keys(byPerson).forEach(function (email) {
+    var who = byPerson[email].user, items = byPerson[email].items, first = items[0];
+    var subject = items.length === 1 ? boss.name + ' assigned you a ' + first.kind + ': ' + first.name : boss.name + ' assigned you ' + items.length + ' items';
+    var line = function (i) { return (i.kind === 'task' ? 'Task: ' : 'Project: ') + i.name + (i.kind === 'task' && i.project ? ' (' + i.project + ')' : '') + (i.due ? ', due ' + i.due : '') + (i.priority ? ', priority ' + i.priority : ''); };
+    var body = 'Hi ' + who.name + ',\n\n' + boss.name + ' has assigned you:\n\n' + items.map(function (i) { return '- ' + line(i); }).join('\n') + '\n\nOpen the Control Tower: ' + SITE_URL;
+    var html = '<p>Hi ' + escHtml_(who.name) + ',</p><p><b>' + escHtml_(boss.name) + '</b> has assigned you:</p><ul>' + items.map(function (i) { return '<li>' + escHtml_(line(i)) + '</li>'; }).join('') + '</ul><p><a href="' + SITE_URL + '">Open the Control Tower</a></p>';
+    try {
+      if (MailApp.getRemainingDailyQuota() < 1) throw new Error('daily email limit reached');
+      MailApp.sendEmail({ to: email, subject: subject, body: body, htmlBody: html, name: 'Suraasa Control Tower', replyTo: boss.email });
+      items.forEach(function (i) { rows.push(row(i, 'email_sent', 'Assignment email sent to ' + email)); });
+    } catch (err) {
+      items.forEach(function (i) { rows.push(row(i, 'email_failed', 'Assignment email to ' + email + ' failed: ' + short_(err && err.message || err))); });
+    }
+  });
+  return rows;
+}
+function sendTestEmail() {
+  var me = Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail({ to: me, subject: 'Control Tower test email', body: 'Assignment emails can be sent from this account.', name: 'Suraasa Control Tower' });
+  SpreadsheetApp.getUi().alert('A test email was sent to ' + me + '. Emails left today: ' + MailApp.getRemainingDailyQuota());
+}
+function turnOffAssignmentEmails() { props_().setProperty('ASSIGN_EMAIL', 'off'); SpreadsheetApp.getUi().alert('Assignment emails are off.'); }
+function turnOnAssignmentEmails() { props_().setProperty('ASSIGN_EMAIL', 'on'); SpreadsheetApp.getUi().alert('Assignment emails are on.'); }
+
+// ---------- one-off: AK and Ankit Khanna are the same person ----------
+var ANKIT = 'Ankit Khanna';
+/** Sentences that set the two against each other lose the comparison; every other AK becomes the full name. */
+function ankitText_(v) {
+  if (!/\bAK\b/.test(v)) return v;
+  var A = 'Ankit(?: Khanna)?';
+  return v
+    .replace(new RegExp('\\s+between AK and ' + A, 'g'), '')
+    .replace(new RegExp('\\s*\\(AK vs\\.? ' + A + '\\)', 'g'), '')
+    .replace(new RegExp('Confirm AK vs\\.? ' + A, 'g'), 'Confirm with ' + ANKIT)
+    .replace(/\bOnly AK and Ankit Khanna are\b/g, 'Only ' + ANKIT + ' is')
+    .replace(new RegExp('(?:TBD\\s*[\u2014-]\\s*)?AK\\s*(?:or|/)\\s*' + A + '\\s*\\(confirm\\)', 'g'), ANKIT)
+    .replace(new RegExp('\\bAK\\s*(?:,|/|&|and\\b|or\\b|vs\\b\\.?)\\s*' + A + '\\b', 'g'), ANKIT)
+    .replace(new RegExp('\\b' + A + '\\s*(?:,|/|&|and\\b|or\\b)\\s*AK\\b', 'g'), ANKIT)
+    .replace(/\bAK\b/g, ANKIT);
+}
+function ankitList_(v, sep) {
+  var seen = {};
+  return v.split(sep).filter(function (x) { var k = x.trim().toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; }).join(sep);
+}
+function ankitDeep_(o) {
+  if (typeof o === 'string') return ankitText_(o);
+  if (Array.isArray(o)) {
+    var seen = {};
+    return o.map(ankitDeep_).filter(function (x) { if (typeof x !== 'string') return true; if (seen[x]) return false; seen[x] = 1; return true; });
+  }
+  if (o && typeof o === 'object') { var r = {}; Object.keys(o).forEach(function (k) { r[k] = ankitDeep_(o[k]); }); return r; }
+  return o;
+}
+function ankitCell_(s, col, v) {
+  if (typeof v !== 'string' || !/\bAK\b/.test(v)) return v;
+  if (col === EXTRA) { try { return JSON.stringify(ankitDeep_(JSON.parse(v))); } catch (x) { return ankitText_(v); } }
+  var sep = s.lists && s.lists[col] || (/owner|accountable|responsible/i.test(col) ? ', ' : '');
+  return sep ? ankitList_(ankitText_(v), sep) : ankitText_(v);
+}
+/** Changes only cells that mention AK, writes each old value to AuditLog, and sends no emails. Safe to run twice. */
+function replaceAkWithAnkitKhanna() {
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  var count = 0;
+  try {
+    var ss = SpreadsheetApp.getActive(), ts = new Date().toISOString(), req = 'ak-' + Utilities.getUuid(), audit = [];
+    var log = function (key, id, projectId, field, was, now) {
+      audit.push([Utilities.getUuid(), ts, '', 'Sheet owner', key, id, projectId, '', 'name_merged', field, was, now, 'AK replaced with ' + ANKIT, req]);
+      count++;
+    };
+    // Roles: one person, one row. Anything only AK's row said moves to Ankit Khanna's.
+    var roles = SCHEMA.filter(function (s) { return s.key === 'roles'; })[0], rs = ss.getSheetByName(roles.tab);
+    if (rs && rs.getLastRow() >= 2) {
+      var rv = rs.getRange(2, 1, rs.getLastRow() - 1, roles.cols.length).getValues();
+      var ai = -1, bi = -1, nc = roles.cols.indexOf('note');
+      rv.forEach(function (r, i) { if (String(r[0]).trim() === 'AK') ai = i; if (String(r[0]).trim() === ANKIT) bi = i; });
+      if (ai >= 0 && bi >= 0) {
+        var an = String(rv[ai][nc] || ''), bn = String(rv[bi][nc] || ''), stem = bn.replace(/[.\s]+$/, '');
+        var note = !an ? bn : an.indexOf(stem) === 0 ? an : bn.indexOf(an.replace(/[.\s]+$/, '')) >= 0 ? bn : stem + '; ' + an;
+        if (note !== bn) { rs.getRange(bi + 2, nc + 1).setValue(note); log('roles', ANKIT, '', 'note', bn, note); }
+        log('roles', 'AK', '', 'name', 'AK', '');
+        deleteSheetRow_(rs, ai + 2);
+      }
+    }
+    SCHEMA.forEach(function (s) {
+      var sh = ss.getSheetByName(s.tab);
+      if (!sh || sh.getLastRow() < 2) return;
+      var cols = s.cols.concat([EXTRA]), idCol = s.id ? s.cols.indexOf(s.id) : 0, pCol = s.cols.indexOf('projectId');
+      sh.getRange(2, 1, sh.getLastRow() - 1, cols.length).getValues().forEach(function (r, i) {
+        cols.forEach(function (c, j) {
+          if (j === idCol && s.id) return;
+          var next = ankitCell_(s, c, r[j]);
+          if (next === r[j]) return;
+          sh.getRange(i + 2, j + 1).setValue(next);
+          log(s.key, String(r[idCol]), pCol >= 0 ? String(r[pCol]) : '', c, short_(r[j]), short_(next));
+        });
+      });
+    });
+    var m = metaMap_(), blob = {};
+    ['governance', 'meta'].forEach(function (k) {
+      if (!m[k] || !/\bAK\b/.test(m[k])) return;
+      try { blob[k] = JSON.stringify(ankitDeep_(JSON.parse(m[k]))); log(k, k, '', k, '', 'updated'); } catch (x) {}
+    });
+    if (Object.keys(blob).length) metaSet_(blob);
+    if (count) { appendRows_(AUDIT_SHEET, audit); bumpVersion_('AK replaced with ' + ANKIT); }
+  } finally { lock.releaseLock(); }
+  try { SpreadsheetApp.getUi().alert(count ? count + ' places changed from AK to ' + ANKIT + '. Each old value is in the AuditLog tab.' : 'Nothing to change: AK is not in the data.'); } catch (x) {}
+  return count;
 }
 
 // ---------- history of progress ----------
@@ -1508,7 +1306,7 @@ function enableSignIn() {
   var id = c.getResponseText().trim();
   if (!/\.apps\.googleusercontent\.com$/.test(id)) { ui.alert('That does not look like a Web client ID.'); return; }
   ensureSystemTabs_();
-  var admins = users_().filter(function (u) { return u.active && isManagementRole_(u.role); });
+  var admins = users_().filter(function (u) { return u.active && u.role === 'Administrator'; });
   if (!admins.length) { ui.alert('Add at least one active Administrator to the Users tab first, then run this again.'); return; }
   props_().setProperties({ AUTH_CLIENT_ID: id, AUTH_REQUIRED: 'true' });
   ui.alert('Sign-in is on. Only people listed in the Users tab can now open the site.');

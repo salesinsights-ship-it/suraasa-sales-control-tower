@@ -34,6 +34,8 @@ Pending work is stored in the browser, so it survives a refresh or a dropped con
 
 ## Sign-in
 
+There are two ways in. While Google sign-in is off, the page shows an email and password screen, checks one-way keys held in the page, and limits an employee's view itself (`limitToPerson` in `src/app.js`). When Google sign-in is on, the steps below replace it and the server applies the rules.
+
 Google Identity Services gives the page an ID token. Apps Script checks it with Google (`oauth2.googleapis.com/tokeninfo`): audience, verified email, domain, expiry, then the Users tab. It then issues a session ID stored in Apps Script's cache for 6 hours. Every read and write after that carries the session.
 
 ## Database changes

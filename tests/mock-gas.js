@@ -57,22 +57,15 @@ function createBackend(opts = {}) {
   const props = new Map(Object.entries(opts.props || {}));
   const cache = new Map();
   const tokens = opts.tokens || {}; // id token -> Google tokeninfo reply
+  const mails = [];
   const ctx = {
     console, JSON, Date, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, encodeURIComponent, RegExp,
     SpreadsheetApp: { flush() {}, getActive: () => ss, getUi: () => { throw new Error('no UI'); }, newDataValidation: () => chain() },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), setProperty: (k, v) => props.set(k, v), setProperties: o => Object.entries(o).forEach(([k, v]) => props.set(k, v)) }) },
-    CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
+    CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v) }) },
+    MailApp: { sendEmail(o) { if (opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    Utilities: {
-      getUuid: () => crypto.randomUUID(),
-      formatDate: d => d.toISOString().slice(0, 10),
-      DigestAlgorithm: { SHA_256: 'SHA_256' },
-      Charset: { UTF_8: 'UTF_8' },
-      computeDigest: (alg, str) => {
-        const hash = crypto.createHash('sha256').update(str, 'utf8').digest();
-        return Array.from(hash).map(b => b > 127 ? b - 256 : b);
-      }
-    },
+    Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10) },
     UrlFetchApp: { fetch: url => { const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
     DriveApp: {}, ScriptApp: {}
@@ -82,8 +75,8 @@ function createBackend(opts = {}) {
   ctx.setupSheet();
   const parse = r => JSON.parse(r.text);
   return {
-    ss, props, cache, ctx, tokens,
-    get: params => parse(ctx.doGet({ parameter: typeof params === 'string' ? { action: params } : (params || {}) })),
+    ss, props, cache, ctx, tokens, mails,
+    get: params => parse(ctx.doGet({ parameter: params })),
     post: body => parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } })),
     load(state) { const r = parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'push', force: true, state }) } })); if (!r.ok) throw new Error(r.error); return r; },
     addUser(u) { ss.getSheetByName('Users').getRange(ss.getSheetByName('Users').getLastRow() + 1, 1, 1, 6).setValues([[u.email, u.name, u.role, u.active === false ? 'FALSE' : 'TRUE', 'test', '']]); },

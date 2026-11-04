@@ -1,50 +1,39 @@
 # Deployment and rollback
 
-Deliverable 15. The site URL and Apps Script URL stay the same. The order below is safe: the new site works with the old script, and the old site works with the new script, so nothing breaks between steps.
+The site address stays the same. The steps can be done in this order without the site going down.
 
-## Before you start
+## 1. Publish the site
 
-In the Sheet: **File > Make a copy**. Name it with today's date. This is your recovery point.
+Push to `main` on GitHub. Vercel builds it in about 2 minutes. The site then saves through the working link, even before step 2.
 
-## 1. Update the Apps Script
+Check: open the site, sign in, add a note to a task and refresh. The note should still be there, and in the Sheet.
 
-1. Sheet > **Extensions > Apps Script**. Open `Code.gs`.
-2. **Copy the current code into a text file and keep it.** This is your rollback.
-3. Replace everything with `apps-script/Code.gs` from this release. Save.
-4. Choose `setupSheet` in the function menu and click **Run**. Allow the permissions if asked. New tabs appear; existing tabs are untouched.
-5. **Deploy > Manage deployments >** pencil icon **> Version: New version > Deploy.** Do not create a new deployment: that would change the URL.
+## 2. Update the Apps Script
 
-Check: open `YOUR_EXEC_URL?action=ping`. You should see `"api":3`.
+This turns on assignment emails, the audit log, Trash and field-level saving.
 
-## 2. Publish the site
+1. In the Sheet: **File > Make a copy**. This is your recovery point.
+2. **Extensions > Apps Script.** Replace everything in `Code.gs` with `apps-script/Code.gs`, and save.
+3. Choose `setupSheet` in the function menu and click **Run**. Allow the permissions, including sending email.
+4. Go to the Sheet tab and click **OK** on the message.
+5. **Deploy > Manage deployments.** For every **Web app** entry: pencil icon, **Version: New version**, **Deploy**. Do not use **New deployment**, because that changes the link.
+6. In the **Users** tab, click A2. **File > Import > Upload**, choose your team file, and pick **Replace data at selected cell**.
+7. Refresh the Sheet. Click **Control Tower > Replace AK with Ankit Khanna**, then **Control Tower > Send a test email to me**.
 
-Merge the branch into `main`. Vercel builds it. Open the site, refresh, and check that the sidebar and logo appear and your projects load.
+Check: open the script's `/exec?action=ping` address. You should see `"api":3`, and no Sheet address.
 
-## 3. Check saving works
+## 3. Turn on Google sign-in, when you are ready
 
-1. Open a task, add a note, and save. The status should read Saved.
-2. Refresh. The note is still there.
-3. Check the Sheet's `AuditLog` tab has a new row.
-4. Remove the test note's effect if you wish; the log entry stays.
-
-## 4. Turn on backups
-
-Sheet menu: **Control Tower > Turn on daily backup**. This also starts the morning overdue check.
-
-## 5. Turn on sign-in
-
-Follow [SETUP_SIGN_IN.md](../SETUP_SIGN_IN.md). **Do this soon: until then the data is open to anyone with the link.**
+Follow [SETUP_SIGN_IN.md](../SETUP_SIGN_IN.md). Make the repository private as well.
 
 ## Rollback
 
 | Problem | What to do |
 |---|---|
-| The site misbehaves | In Vercel: Deployments, choose the previous one, **Promote to Production**. Data is unaffected |
-| The script misbehaves | Apps Script: **Deploy > Manage deployments >** pencil **> Version:** choose the previous version **> Deploy** |
-| Locked out after sign-in | Sheet menu: **Control Tower > Turn off sign-in** |
-| Data looks wrong | Use the Sheet's **File > Version history**, or your copy from the start |
-
-The old site keeps working with the new script as long as sign-in is off. New tabs can stay; the old script ignores them.
+| The site misbehaves | Vercel: **Deployments**, choose the previous one, **Promote to Production** |
+| The script misbehaves | Apps Script: **Deploy > Manage deployments >** pencil icon, choose the previous version, **Deploy** |
+| Locked out after Google sign-in | Sheet menu: **Control Tower > Turn off sign-in** |
+| Data looks wrong | Sheet: **File > Version history**, or your copy from step 2 |
 
 ## Later releases
 

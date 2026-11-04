@@ -103,5 +103,6 @@ You never receive a notification for your own action.
 | Daily progress snapshot | First signed-in visit each day | Yes, one per project per day |
 | Nightly backup | `backupNow` at 02:00 | Each run makes a new copy |
 | Save retries | Browser, every 15 seconds until it succeeds | Yes, by request ID |
+| Assignment emails | Server, on a save that gives someone a task or project | Yes, a retried save sends nothing |
 
 The two timed jobs start after you click **Turn on daily backup** in the Control Tower menu. Dates use the viewer's time zone on the site and the Sheet's in `dailyChecks`.

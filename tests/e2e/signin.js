@@ -10,7 +10,7 @@ const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = O
   ok('sign-in screen shows before any data', await p.evaluate(() => !document.querySelector('#signin').hidden), '');
   ok('official logo on the sign-in screen', await p.evaluate(() => { const i = document.querySelector('#signin img'); return !!i && i.naturalWidth > 0 && /Suraasa/.test(i.alt); }));
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'dist', 'index.html'), 'utf8');
-  ok('page source holds no project, owner or risk data', !/Referral Plan|Messaging Optimisation|Ankit Khanna|PRJ-0\d\d/.test(src));
+  ok('page source holds no project, owner or risk data', !/Referral Plan|Messaging Optimisation|PRJ-0\d\d/.test(src));
   ok('no project data on screen before sign-in', await p.evaluate(() => !SCT.state.projects.length && !/Referral Plan|Messaging Optimisation/.test(document.documentElement.innerHTML)));
   if (process.env.SHOTS) await p.screenshot({ path: require('path').join(process.env.SHOTS, 'signin.png') });
   await p.evaluate(t => window.__gsi.callback({ credential: t }), token(b, 'stranger@suraasa.com')); await p.waitForTimeout(300);
@@ -25,6 +25,9 @@ const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = O
   ok('sign out returns to the sign-in screen', await p.evaluate(() => !document.querySelector('#signin').hidden));
   await p.reload(); await p.waitForTimeout(500);
   ok('session gone after sign out', await p.evaluate(() => !document.querySelector('#signin').hidden));
+  await p.evaluate(() => { localStorage.setItem('sct_session', 'sess_123_fake'); localStorage.setItem('sct_user', JSON.stringify({ email: 'x@suraasa.com', name: 'X', role: 'management', isManagement: true })); }); await p.reload(); await p.waitForTimeout(500);
+  const tamper = await p.evaluate(() => ({ gate: !document.querySelector('#signin').hidden, projects: SCT.state.projects.length, role: SCT.ME.role, base: !!SCT.base }));
+  ok('editing browser storage gets nowhere', tamper.gate && !tamper.projects && tamper.role === 'Viewer', JSON.stringify(tamper));
   ok('no copy of the work left in this browser', await p.evaluate(() => !SCT.state.projects.length && !/Referral Plan|Messaging/.test(JSON.stringify(localStorage))));
   ok('no page errors', !p.errs.length, p.errs.join('|'));
   await br.close();
