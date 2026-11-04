@@ -289,12 +289,12 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxWGgTe5GJidK2m3nPeZOTTeL-bLKyaVdomX6VJZFa5eMScv-mQp7z9fbbsidPVFd1D/exec';
+          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzkTjeuNLqYSZaSWIB11wD54IcZ2FHfllp9Icn7wvlyDRlafxv14AbprzBNh8cIR7s_Rw/exec';
           let changed = false;
           if (!S.meta.sync) {
             S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'connected', error: null, baseVersion: 2 };
             changed = true;
-          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/')) {
+          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/') || S.meta.sync.url.includes('AKfycbxWGgTe5GJ') || S.meta.sync.url.includes('AKfycbxHM02G-')) {
             S.meta.sync.url = DEFAULT_SYNC_URL;
             S.meta.sync.enabled = true;
             S.meta.sync.status = 'connected';

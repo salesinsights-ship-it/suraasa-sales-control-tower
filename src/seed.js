@@ -991,7 +991,7 @@ function buildSeed() {
       seeded: stamp,
       savedAt: stamp,
       sync: {
-        url: 'https://script.google.com/macros/s/AKfycbxWGgTe5GJidK2m3nPeZOTTeL-bLKyaVdomX6VJZFa5eMScv-mQp7z9fbbsidPVFd1D/exec',
+        url: 'https://script.google.com/macros/s/AKfycbzkTjeuNLqYSZaSWIB11wD54IcZ2FHfllp9Icn7wvlyDRlafxv14AbprzBNh8cIR7s_Rw/exec',
         enabled: true,
         autoSync: true,
         lastSync: null,
