@@ -58,6 +58,7 @@
 
   let S = null; // State object
   const ME = { role: 'Viewer', email: '', name: '', open: false, local: false }; // from the server, or from the sign-in on this page
+  const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Di4qDz4_bpKm7DB2SpjZV2dtOKJBBxS6-dnm99fk3lc/edit';
   // The team and their sign-in keys. A key is a one-way hash, so the page holds no readable password.
   const TEAM = [
     { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'Administrator', keys: ['3d085fc6a361dff2b99daff2c333fe4ca2104dfbe28862d4d9cd7a534815c3b5', '89d68c644ed42105512dddf7fa648d57f33dac0fa87e332ac3d35a785da7c54b'] },
@@ -527,6 +528,7 @@
   const NAV = [['overview', 'Home'], ['tasks', 'My Tasks'], ['portfolio', 'Projects'], ['myprojects', 'My Projects'], ['decisions', 'Decisions & risks'], ['weekly', 'Weekly review'], ['notifications', 'Notifications'], ['reports', 'Reports']];
   const NAV_MORE = [['actions', 'Action plan'], ['raci', 'Who does what'], ['governance', 'How we work'], ['admin', 'Administration']];
   const ICON = {
+    sheet: '<path fill-rule="evenodd" d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm1 2v4h6V5H5Zm8 0v4h6V5h-6ZM5 11v3h6v-3H5Zm8 0v3h6v-3h-6ZM5 16v3h6v-3H5Zm8 0v3h6v-3h-6Z"/>',
     overview: '<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>',
     tasks: '<path d="m9.5 16.2-4-4L4 13.7l5.5 5.5L20.5 8.2 19 6.7z"/>',
     portfolio: '<path d="M4 5h16v3H4zm0 5.5h16v3H4zM4 16h16v3H4z"/>',
@@ -560,7 +562,8 @@
       main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Notifications']];
       lower = [];
     }
-    $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '');
+    $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '') +
+      (seesAll() ? '<a class="nav-link" href="' + SHEET_URL + '" target="_blank" rel="noopener" aria-label="Open Google Sheet in a new tab">' + ico('sheet') + '<span>Open Google Sheet</span></a>' : '');
     
     const tabs = (seesAll()) ?
       [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
@@ -568,7 +571,7 @@
     const others = seesAll() ? NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower) : [];
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
-      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '</div></div>' : '');
+      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '<a role="menuitem" href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a></div></div>' : '');
     $('#bell').innerHTML = ico('notifications') + (unread ? '<span class="count">' + unread + '</span>' : '');
     $('#bell').setAttribute('aria-label', 'Notifications' + (unread ? ', ' + unread + ' unread' : ''));
   }
@@ -588,6 +591,7 @@
         '<button data-act="open-profile">My Profile</button>';
     }
     $('#menu-me').innerHTML = accountInfo +
+      (seesAll() ? '<a href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') +
       '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' +
       (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
     if (open) $('#menu-me').classList.add('open');
@@ -1654,7 +1658,7 @@
     <section class="sec" id="sync-card"><div class="s-h"><h2>Google Sheet</h2><span class="pill ${stateWord[1]}">${stateWord[0]}</span></div>
       <p class="quiet">Changes here save to the Sheet, and edits in the Sheet appear here. Last synced ${sync.lastSync ? new Date(sync.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet'}.</p>
       ${sync.error ? '<p class="flag">' + esc(sync.error) + '</p>' : ''}
-      <div class="btnrow"><button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Send everything to Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div>
+      <div class="btnrow"><a class="btn" href="${SHEET_URL}" target="_blank" rel="noopener">Open Google Sheet</a><button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Send everything to Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div>
       <details class="acc"><summary>${CHEV}Connection settings</summary><div class="acc-bd"><div class="form one">
         <div class="f"><label for="sync-url-input">Apps Script web app URL</label><div class="btnrow nowrap"><input id="sync-url-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(sync.url || '')}"><button class="btn" data-act="save-sync-config">Save</button></div></div>
         <label class="check"><input type="checkbox" id="sync-auto-input" ${sync.autoSync !== false ? 'checked' : ''}> Save to the Sheet automatically</label>

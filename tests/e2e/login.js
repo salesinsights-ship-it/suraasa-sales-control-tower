@@ -65,6 +65,32 @@ const addUsers = b => [['manish@suraasa.com', 'Manish Pandey (Head of Sales)', '
     await ph.context().close();
   }
 
+  // Going to the Sheet from the site: management only.
+  {
+    const o = backend(false);
+    const m = await page(br, o, { person: 'manish@suraasa.com' });
+    const link = m.locator('#nav a.nav-link');
+    ok('the sidebar opens the Sheet in a new tab', await link.getAttribute('target') === '_blank' && /docs\.google\.com\/spreadsheets\/d\/1Di4qDz4_bpKm7DB2SpjZV2dtOKJBBxS6-dnm99fk3lc/.test(await link.getAttribute('href')));
+    await m.route(/docs\.google\.com/, r => r.fulfill({ status: 200, contentType: 'text/html', body: 'sheet' }));
+    const [tab] = await Promise.all([m.context().waitForEvent('page'), link.click()]);
+    ok('clicking it opens the Sheet and keeps the site open', /docs\.google\.com/.test(tab.url()) && (await m.url()).startsWith('file:'), tab.url().slice(0, 40));
+    await tab.close();
+    await m.click('#me-btn'); await wait(m);
+    ok('the profile menu has it too', await m.locator('#menu-me a').getAttribute('target') === '_blank');
+    await m.context().close();
+    const r = await page(br, o, { person: 'manish@suraasa.com', viewport: { width: 1100, height: 800 } });
+    ok('it fits the narrow sidebar', await r.locator('#nav a.nav-link').isVisible());
+    await r.context().close();
+    const ph = await page(br, o, { person: 'manish@suraasa.com', viewport: { width: 390, height: 800 }, touch: true });
+    await ph.click('#tabbar [data-m="more-m"]'); await wait(ph);
+    ok('the phone More menu has it', await ph.locator('#menu-more-m a').isVisible());
+    await ph.context().close();
+    const e = await page(br, o, { person: 'aj@suraasa.com' });
+    await e.click('#me-btn'); await wait(e);
+    ok('employees do not get the Sheet link', !(await e.$('a[href*="docs.google.com"]')));
+    await e.context().close();
+  }
+
   // Saves that must never replace the Sheet with a partial or empty copy (old script).
   {
     const o = backend(false, OLD); const n = tasks(o).length;

@@ -1,8 +1,8 @@
 # Test cases and results
 
-Deliverable 13. Run on 4 November 2026 on version 2.5.0, on a copy of the live data from 3 November.
+Deliverable 13. Run on 4 November 2026 on version 2.5.1, on a copy of the live data from 3 November.
 
-**355 checks, 0 failed**, plus 72 layout checks with no problems.
+**361 checks, 0 failed**, plus 72 layout checks with no problems.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
@@ -11,7 +11,7 @@ Deliverable 13. Run on 4 November 2026 on version 2.5.0, on a copy of the live d
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other new features, in Chromium |
 | `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
-| `tests/e2e/login.js` | 67 | The sign-in on the page with the old and the new script: every menu section, saving, emails, employee limits, phone |
+| `tests/e2e/login.js` | 73 | The sign-in on the page with the old and the new script: every menu section, saving, emails, employee limits, phone |
 | `tests/e2e/roles.js` | 23 | What each role sees and can do, with sign-in on, and the home page numbers |
 | `tests/e2e/stage.js` | 28 | The Stage dropdown: panel, edit form, filters, board, rights |
 | `tests/e2e/delete.js` | 30 | Deleting tasks: row, panel, selection, undo, rights, links, phone |

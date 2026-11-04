@@ -37,6 +37,8 @@ Change the link in two places, then run `node build.js` and push:
 - `DEFAULT_SYNC_URL` in `src/app.js`
 - `url` under `meta.sync` in `src/seed.js`
 
+If this is a different Sheet, also change `SHEET_URL` in `src/app.js`, which is the **Open Google Sheet** link.
+
 ## Later changes to the script
 
 After editing the code, click **Deploy > Manage deployments**, click the pencil icon, choose **New version**, then **Deploy**. Without a new version, the link keeps running the old code. Do not use **New deployment**, because that creates a different link.

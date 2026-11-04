@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.1, 4 November 2026
+
+- Management can open the Google Sheet from the sidebar, the profile menu, the phone More menu and **Administration > Sheet and data**. It opens in a new tab.
+
 ## 2.5.0, 4 November 2026
 
 **Saving**

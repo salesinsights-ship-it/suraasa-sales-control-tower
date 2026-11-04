@@ -1,6 +1,6 @@
 {
   "name": "suraasa-sales-control-tower",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Suraasa Sales Control Tower",
   "scripts": {
     "build": "node build.js",
