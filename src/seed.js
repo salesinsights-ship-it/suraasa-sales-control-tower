@@ -991,13 +991,13 @@ function buildSeed() {
       seeded: stamp,
       savedAt: stamp,
       sync: {
-        url: 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec',
-        enabled: true,
-        autoSync: true,
+        url: '',
+        enabled: false,
+        autoSync: false,
         lastSync: null,
-        status: 'connected',
+        status: 'idle',
         error: null,
-        baseVersion: 2
+        baseVersion: 0
       },
       note: 'Seed built from the Head of Sales brief dated 30 Oct 2026. All dates and owners marked TBD/(proposed) are unconfirmed.'
     },

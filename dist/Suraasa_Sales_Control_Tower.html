@@ -1554,7 +1554,7 @@ const ENGINE = (function () {
 })();
 if (typeof module !== 'undefined') module.exports = ENGINE;
 
-function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","schema":2,"version":1,"sync":{"url":"https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec","enabled":true,"autoSync":true,"lastSync":null,"status":"connected","error":null,"baseVersion":2}},"roles":[],"programs":[],"projects":[],"tasks":[],"risks":[],"dependencies":[],"decisions":[],"updates":[],"actions":[],"activity":[],"governance":{"cadence":{},"rag":{},"classification":[]},"options":{"priorities":["P0","P1","P2","P3"],"projectStatuses":["Not Started","In Progress","On Hold","Blocked","Completed"],"taskStatuses":["Not Started","In Progress","Awaiting Approval","Blocked","On Hold","Completed"],"taskKinds":["Task","Subtask","Recurring","Decision"],"milestoneStatuses":["Pending","In Progress","Completed"],"categories":["Revenue Generation","Funnel Conversion & Sales Productivity","B2B Business Development","Marketing & Demand Generation","Cross-functional Dependencies"],"projectTypes":["Project","Strategic Project","Experiment","Recurring Operation","Recurring Programme","Project → Recurring Ops","Dependency Cluster","Recurring Operation + Experiment"],"valueClasses":["Revenue-generating","Conversion improvement","Operational efficiency","Strategic growth","Experiment","Dependency"],"riskLevels":["High","Medium","Low"],"riskStatuses":["Open","Mitigated","Resolved","Escalated","Closed"],"dependencyStatuses":["Open","Escalated","Resolved","Closed"],"decisionStatuses":["Open","Pending Ankit Khanna decision","Closed","Escalated"],"actionKinds":["Immediate action","Pending action","Recommendation"],"actionBuckets":["Implement immediately","Requires a decision","Requires technology / CRM support","Requires another department","Requires a complete project plan","Requires a pilot / experiment"],"updateRag":["Green","Amber","Red"]}}; s.meta.seeded = s.meta.savedAt = new Date().toISOString(); return s; }
+function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","schema":2,"version":1,"sync":{"url":"","enabled":false,"autoSync":false,"lastSync":null,"status":"idle","error":null,"baseVersion":0}},"roles":[],"programs":[],"projects":[],"tasks":[],"risks":[],"dependencies":[],"decisions":[],"updates":[],"actions":[],"activity":[],"governance":{"cadence":{},"rag":{},"classification":[]},"options":{"priorities":["P0","P1","P2","P3"],"projectStatuses":["Not Started","In Progress","On Hold","Blocked","Completed"],"taskStatuses":["Not Started","In Progress","Awaiting Approval","Blocked","On Hold","Completed"],"taskKinds":["Task","Subtask","Recurring","Decision"],"milestoneStatuses":["Pending","In Progress","Completed"],"categories":["Revenue Generation","Funnel Conversion & Sales Productivity","B2B Business Development","Marketing & Demand Generation","Cross-functional Dependencies"],"projectTypes":["Project","Strategic Project","Experiment","Recurring Operation","Recurring Programme","Project → Recurring Ops","Dependency Cluster","Recurring Operation + Experiment"],"valueClasses":["Revenue-generating","Conversion improvement","Operational efficiency","Strategic growth","Experiment","Dependency"],"riskLevels":["High","Medium","Low"],"riskStatuses":["Open","Mitigated","Resolved","Escalated","Closed"],"dependencyStatuses":["Open","Escalated","Resolved","Closed"],"decisionStatuses":["Open","Pending Ankit Khanna decision","Closed","Escalated"],"actionKinds":["Immediate action","Pending action","Recommendation"],"actionBuckets":["Implement immediately","Requires a decision","Requires technology / CRM support","Requires another department","Requires a complete project plan","Requires a pilot / experiment"],"updateRag":["Green","Amber","Red"]}}; s.meta.seeded = s.meta.savedAt = new Date().toISOString(); return s; }
 /* ============================================================
    Suraasa Sales Control Tower
    Home answers "what needs me today?". Every list is one line per thing;
@@ -1740,15 +1740,17 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec';
+          const DEFAULT_SYNC_URL = '';
           let changed = false;
           if (!S.meta.sync) {
-            S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'connected', error: null, baseVersion: 2 };
+            S.meta.sync = { url: '', enabled: false, autoSync: false, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
             changed = true;
-          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/') || S.meta.sync.url.includes('AKfycbxWGgTe5GJ') || S.meta.sync.url.includes('AKfycbzkTjeuNLq')) {
-            S.meta.sync.url = DEFAULT_SYNC_URL;
-            S.meta.sync.enabled = true;
-            S.meta.sync.status = 'connected';
+          } else if (S.meta.sync.enabled || S.meta.sync.url) {
+            S.meta.sync.url = '';
+            S.meta.sync.enabled = false;
+            S.meta.sync.autoSync = false;
+            S.meta.sync.status = 'idle';
+            S.meta.sync.error = null;
             changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {

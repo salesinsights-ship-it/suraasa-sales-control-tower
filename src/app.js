@@ -183,15 +183,17 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec';
+          const DEFAULT_SYNC_URL = '';
           let changed = false;
           if (!S.meta.sync) {
-            S.meta.sync = { url: DEFAULT_SYNC_URL, enabled: true, autoSync: true, lastSync: null, status: 'connected', error: null, baseVersion: 2 };
+            S.meta.sync = { url: '', enabled: false, autoSync: false, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
             changed = true;
-          } else if (!S.meta.sync.url || S.meta.sync.url.includes('/a/macros/suraasa.com/') || S.meta.sync.url.includes('AKfycbxWGgTe5GJ') || S.meta.sync.url.includes('AKfycbzkTjeuNLq')) {
-            S.meta.sync.url = DEFAULT_SYNC_URL;
-            S.meta.sync.enabled = true;
-            S.meta.sync.status = 'connected';
+          } else if (S.meta.sync.enabled || S.meta.sync.url) {
+            S.meta.sync.url = '';
+            S.meta.sync.enabled = false;
+            S.meta.sync.autoSync = false;
+            S.meta.sync.status = 'idle';
+            S.meta.sync.error = null;
             changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
