@@ -2,13 +2,13 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**491 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**499 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 107 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 115 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
@@ -80,8 +80,9 @@ Separate reviewers, who had not seen the work, read the code and ran attacks aga
 | 4 | Both briefs traced line by line against the code | About 265 requirements done, 21 gaps and 7 false doc statements. Fixed, apart from the limits below |
 | 5 | Google's own documentation for every service used | The Workspace `hd` check was missing, and cache keys were unbounded. Both fixed |
 | 6 | The code added by passes 4 and 5 | 1 high severity problem in the new sign-in limit, 3 medium and 7 small. All fixed |
+| 7 | The new password sign-in | No direct bypass. 1 high severity problem in the emergency switch, 2 medium and 2 small. All fixed, each with a test |
 
-**The fixes from pass 6 have tests but were not reviewed again.** The findings have moved from serious flaws to edge cases, but a review only shows what it found.
+**The fixes from passes 6 and 7 have tests but were not reviewed again.** The findings have moved from serious flaws to edge cases, but a review only shows what it found.
 
 Three outcomes were accepted on purpose:
 

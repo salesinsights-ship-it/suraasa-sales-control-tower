@@ -64,7 +64,7 @@ function createBackend(opts = {}) {
   const ctx = {
     console, JSON, Date, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, encodeURIComponent, RegExp,
     SpreadsheetApp: { flush() {}, getActive: () => ss, getUi: () => { throw new Error('no UI'); }, newDataValidation: () => chain() },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), setProperty: (k, v) => props.set(k, v), setProperties: o => Object.entries(o).forEach(([k, v]) => props.set(k, v)) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), deleteProperty: k => props.delete(k), setProperty: (k, v) => props.set(k, v), setProperties: o => Object.entries(o).forEach(([k, v]) => props.set(k, v)) }) },
     CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
     MailApp: { sendEmail(o) { if (typeof opts.mailFails === 'function' ? opts.mailFails(o) : opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },

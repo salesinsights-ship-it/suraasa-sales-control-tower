@@ -27,7 +27,7 @@ Later, add people under **Administration > Employees** on the site. At least one
 
 1. Sign in as a Super Admin and open **Administration > Employees**.
 2. Open the person, then click **Reset password**.
-3. Give them the temporary password privately. They choose their own when they sign in.
+3. Give them the temporary password privately. It expires in 3 days, and they choose their own when they sign in.
 
 The Sheet menu in step 2 does the same job, for anyone who can open the Sheet.
 
@@ -38,6 +38,7 @@ The Sheet menu in step 2 does the same job, for anyone who can open the Sheet.
 - If you forget yours, ask a Super Admin to reset it. Nobody can look up a password.
 - Five wrong tries lock that person for 15 minutes. A reset ends the lock straight away.
 - Changing or resetting a password signs that person out everywhere else.
+- Making someone inactive or removing them deletes their password. If they come back, give them a new one.
 
 Passwords are stored only as salted hashes in Script Properties, away from the Sheet. They are never written to the Sheet, the logs or the browser.
 

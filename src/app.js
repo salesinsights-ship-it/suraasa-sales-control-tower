@@ -2362,7 +2362,7 @@
       if (r.auth === true) { closeModal(); return SYNC.needSignIn(r.error); }
       if (!r.ok) return toast(r.error, true);
       closeModal();
-      $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Temporary password</h2></div><div class="mb"><p>For ' + esc(u.name || email) + ':</p><p class="temp-pw" id="temp-pw">' + esc(r.tempPassword) + '</p><p class="quiet">Give this to them privately. It works once: they choose their own password when they sign in. It will not be shown again.</p></div><div class="mf"><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
+      $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Temporary password</h2></div><div class="mb"><p>For ' + esc(u.name || email) + ':</p><p class="temp-pw" id="temp-pw">' + esc(r.tempPassword) + '</p><p class="quiet">Give this to them privately. It expires in 3 days, and they choose their own password when they sign in. It will not be shown again.</p></div><div class="mf"><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
     } catch (e) { toast('Could not reach the Sheet. Try again.', true); }
   }
 

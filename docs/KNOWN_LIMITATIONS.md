@@ -26,6 +26,8 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **A former owner of a task sees only that it moved on.** Someone who shares a name with another employee is not told, because names cannot be matched safely.
 - **Passwords are weaker than Sign in with Google.** You chose them to avoid Google Cloud. They can be shared, guessed or reused, and there is no second step. Use long, unique ones.
 - **Anyone who knows an email can lock that person out for 15 minutes,** by getting the password wrong five times. A Super Admin reset ends the lock.
+- **Someone trying six wrong passwords can tell whether an email is registered,** because only real accounts lock.
+- **Editing the `Users` tab by hand does not delete a password.** Marking someone inactive there blocks them at once, but use the site to remove their password as well.
 - **Whoever controls the Google account that owns the script can reset anyone's password,** and can read the password hashes. The team shares that account, so keep it secure.
 - **Password hashing is limited by Apps Script.** It has no purpose-built password function, so the hash is 500 rounds of HMAC-SHA256 with a secret kept in Script Properties.
 - **Password sign-in has not run on real Apps Script.** Check that a sign-in takes only a few seconds.

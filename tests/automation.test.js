@@ -866,6 +866,57 @@ test('the Sheet menu gives the first person a temporary password, for a listed p
   answer = 'stranger@suraasa.com'; b.ctx.tempPasswordMenu();
   assert.ok(/not an active person/.test(shown[1])); assert.ok(!b.props.has('pw:stranger@suraasa.com'));
 });
+test('the emergency switch cannot leave a lasting Super Admin behind', () => {
+  const b = pwBackend(); b.ctx.pwStore_('left@suraasa.com', 'old long password', false);
+  b.props.set('AUTH_REQUIRED', 'false'); b.props.set('AUTH_OFF_UNTIL', String(Date.now() + 60000));
+  const r = b.post({ action: 'apply', requestId: 'x1', ops: [{ c: 'users', id: 'left@suraasa.com', rec: { role: 'Administrator', active: true } }] });
+  assert.ok(!r.ok && r.rejected[0].code === 'denied', JSON.stringify(r));
+  b.props.delete('AUTH_REQUIRED'); b.props.delete('AUTH_OFF_UNTIL');
+  assert.ok(!signIn(b, 'left@suraasa.com', 'old long password').ok);
+});
+test('invented emails leave nothing behind, so they cannot flood out a lock or a session', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const before = b.cache.size, props = b.props.size;
+  for (let i = 0; i < 50; i++) signIn(b, 'made-up' + i + '@suraasa.com', 'wrong password');
+  assert.strictEqual(b.cache.size, before); assert.strictEqual(b.props.size, props);
+});
+test('a lock survives the cache being cleared', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  for (let i = 0; i < 5; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  b.cache.clear();
+  assert.ok(/Too many/.test(signIn(b, 'staff@suraasa.com', 'correct horse battery').error));
+});
+test('a lock ends by itself', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  for (let i = 0; i < 5; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  b.props.set('pwf:staff@suraasa.com', JSON.stringify({ n: 5, u: Date.now() - 1 }));
+  assert.ok(signIn(b, 'staff@suraasa.com', 'correct horse battery').ok);
+});
+test('making someone inactive or removing them ends their password and sessions for good', () => {
+  const b = pwBackend(); b.ctx.pwStore_('boss@suraasa.com', 'boss long password', false); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const boss = signIn(b, 'boss@suraasa.com', 'boss long password').session, staff = signIn(b, 'staff@suraasa.com', 'correct horse battery').session;
+  assert.ok(b.post({ action: 'apply', session: boss, requestId: 'u1', ops: [{ c: 'users', id: 'staff@suraasa.com', rec: { active: false } }] }).ok);
+  assert.ok(b.post({ action: 'apply', session: boss, requestId: 'u2', ops: [{ c: 'users', id: 'staff@suraasa.com', rec: { active: true } }] }).ok);
+  assert.ok(b.post({ action: 'pull', session: staff }).auth === true, 'the old session has ended');
+  assert.ok(!signIn(b, 'staff@suraasa.com', 'correct horse battery').ok, 'the old password has gone');
+  b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  assert.ok(b.post({ action: 'apply', session: boss, requestId: 'u3', ops: [{ c: 'users', id: 'staff@suraasa.com', del: true }] }).ok);
+  assert.ok(!b.props.has('pw:staff@suraasa.com'));
+});
+test('a temporary password expires', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'temp-pass-1234', true);
+  const rec = JSON.parse(b.props.get('pw:staff@suraasa.com'));
+  assert.ok(rec.e > Date.now() + 2.9 * 86400000 && rec.e < Date.now() + 3.1 * 86400000);
+  rec.e = Date.now() - 1; b.props.set('pw:staff@suraasa.com', JSON.stringify(rec));
+  const r = signIn(b, 'staff@suraasa.com', 'temp-pass-1234'); assert.ok(!r.ok && !r.session && /expired/.test(r.error));
+});
+test('a reset also ends a Google session', () => {
+  const b = pwBackend(); b.props.set('AUTH_CLIENT_ID', CLIENT);
+  const g = b.sessionFor('staff@suraasa.com').session, wait = Date.now() + 3; while (Date.now() < wait);
+  assert.ok(b.post({ action: 'pull', session: g }).state);
+  b.ctx.pwStore_('staff@suraasa.com', 'temp-pass-1234', true);
+  assert.ok(b.post({ action: 'pull', session: g }).auth === true);
+});
 test('the emergency switch cannot be used to take over an account', () => {
   const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
   b.props.set('AUTH_REQUIRED', 'false'); b.props.set('AUTH_OFF_UNTIL', String(Date.now() + 60000));

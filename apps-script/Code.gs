@@ -548,7 +548,7 @@ var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six h
 var SESSION_MAX_MS = 12 * 3600 * 1000;
 var MAX_OWNERS = 10;
 var LOGIN_LIMIT_PER_PERSON = 10, LOGIN_LIMIT_UNREADABLE = 30;
-var PW_MIN = 10, PW_ROUNDS = 500, PW_FAILS = 5, PW_LOCK_SECONDS = 900;
+var PW_MIN = 10, PW_ROUNDS = 500, PW_FAILS = 5, PW_LOCK_SECONDS = 900, PW_TEMP_DAYS = 3;
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
@@ -689,7 +689,7 @@ function login_(body) {
   try { storePhoto_(u, t.picture); } catch (x) { /* a picture is never worth failing a sign-in */ }
   var token = Utilities.getUuid() + Utilities.getUuid();
   var now = Date.now();
-  CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS }), SESSION_IDLE_SECONDS);
+  CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS, b: now }), SESSION_IDLE_SECONDS);
   return { ok: true, session: token, user: publicUser_(u) };
 }
 /** The Google profile picture is the employee's picture. Only Google's own image host is accepted. */
@@ -755,7 +755,8 @@ function actor_(body) {
   try { s = JSON.parse(raw); } catch (x) { return null; }
   if (!s || !s.e || Date.now() > s.x) { cache.remove(key); return null; }
   if (s.m) return null; // a temporary password opens nothing until the person has chosen their own
-  if (s.p) { var pw = pwRecord_(s.e); if (!pw || pw.t > s.b) { cache.remove(key); return null; } } // a new password ends older sessions
+  var pw = pwRecord_(s.e);
+  if ((s.p && !pw) || (pw && s.b && pw.t > s.b)) { cache.remove(key); return null; } // a new password ends older sessions
   var all = users_(), u = all.filter(function (x) { return x.email === s.e; })[0];
   if (!u || !u.active) { cache.remove(key); return null; }
   if (Date.now() - s.t > 600000) { s.t = Date.now(); cache.put(key, JSON.stringify(s), SESSION_IDLE_SECONDS); } // still in use, so the idle limit moves on
@@ -786,9 +787,21 @@ function pwSame_(a, b) {
 }
 function pwStore_(email, password, temporary) {
   var salt = Utilities.getUuid();
-  props_().setProperty('pw:' + email, JSON.stringify({ s: salt, h: pwHash_(password, salt), c: temporary ? 1 : 0, t: Date.now() }));
-  CacheService.getScriptCache().remove('pwfail:' + email); // a reset gets someone back in straight away
+  var now = Date.now(), rec = { s: salt, h: pwHash_(password, salt), c: temporary ? 1 : 0, t: now };
+  if (temporary) rec.e = now + PW_TEMP_DAYS * 86400000;
+  props_().setProperty('pw:' + email, JSON.stringify(rec));
+  pwClear_(email); // a reset gets someone back in straight away
 }
+function pwForget_(email) { props_().deleteProperty('pw:' + email); pwClear_(email); }
+// Wrong tries are kept with the password, not in the cache: Google drops old cache items once it holds 1,000.
+function pwTries_(email) {
+  var r = null;
+  try { r = JSON.parse(props_().getProperty('pwf:' + email) || 'null'); } catch (x) { r = null; }
+  return r && r.u > Date.now() ? r : { n: 0, u: 0 };
+}
+function pwLocked_(email) { return pwTries_(email).n >= PW_FAILS; }
+function pwFail_(email) { props_().setProperty('pwf:' + email, JSON.stringify({ n: pwTries_(email).n + 1, u: Date.now() + PW_LOCK_SECONDS * 1000 })); }
+function pwClear_(email) { props_().deleteProperty('pwf:' + email); }
 function pwProblem_(pw) {
   if (pw.length < PW_MIN) return 'Use at least ' + PW_MIN + ' characters.';
   if (pw.length > 200) return 'Use 200 characters or fewer.';
@@ -814,15 +827,16 @@ function passwordLogin_(body) {
   var email = String(body.email || '').trim().toLowerCase(), password = String(body.password || '');
   var wrong = { ok: false, auth: true, error: 'That email or password is not right.' };
   if (!/^[^\s@]{1,100}@[^\s@]{1,100}$/.test(email) || !password || password.length > 200) return wrong;
-  var cache = CacheService.getScriptCache(), key = 'pwfail:' + email, fails = Number(cache.get(key) || 0);
-  if (fails >= PW_FAILS) return { ok: false, auth: true, error: 'Too many wrong tries. Wait 15 minutes, or ask a Super Admin to reset your password.' };
   var u = userByEmail_(email), rec = u && u.active ? pwRecord_(email) : null;
+  if (rec && pwLocked_(email)) return { ok: false, auth: true, error: 'Too many wrong tries. Wait 15 minutes, or ask a Super Admin to reset your password.' };
   // The hash runs either way, so a reply takes as long for an unknown email as for a known one.
   var hash = pwHash_(password, rec ? rec.s : 'unknown');
-  if (!rec || !pwSame_(hash, rec.h)) { cache.put(key, String(fails + 1), PW_LOCK_SECONDS); return wrong; }
-  cache.remove(key);
-  var token = Utilities.getUuid() + Utilities.getUuid(), now = Date.now();
-  cache.put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS, p: 1, b: rec.t, m: rec.c ? 1 : 0 }), SESSION_IDLE_SECONDS);
+  if (!rec || !pwSame_(hash, rec.h)) { if (rec) pwFail_(email); return wrong; } // invented emails must leave nothing behind
+  var now = Date.now();
+  if (rec.c && rec.e && now > rec.e) return { ok: false, auth: true, error: 'This temporary password has expired. Ask a Super Admin for a new one.' };
+  pwClear_(email);
+  var token = Utilities.getUuid() + Utilities.getUuid();
+  CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS, p: 1, b: rec.t, m: rec.c ? 1 : 0 }), SESSION_IDLE_SECONDS);
   return { ok: true, session: token, user: publicUser_(u), mustChange: !!rec.c };
 }
 /** Needs the current password, except straight after signing in with a temporary one. */
@@ -831,14 +845,13 @@ function passwordChange_(body) {
   var cache = CacheService.getScriptCache(), key = 'sess:' + String(body.session), raw = cache.get(key), s = null;
   try { s = JSON.parse(raw); } catch (x) { s = null; }
   if (!s || !s.e || Date.now() > s.x) return authError_();
-  var u = userByEmail_(s.e), rec = pwRecord_(s.e), next = String(body.newPassword || ''), fails = 'pwfail:' + s.e;
+  var u = userByEmail_(s.e), rec = pwRecord_(s.e), next = String(body.newPassword || '');
   if (!u || !u.active) return authError_();
-  if (s.p && (!rec || rec.t > s.b)) { cache.remove(key); return authError_(); }
+  if ((s.p && !rec) || (rec && s.b && rec.t > s.b)) { cache.remove(key); return authError_(); }
   if (rec && !s.m) {
-    var tries = Number(cache.get(fails) || 0);
-    if (tries >= PW_FAILS) return { ok: false, error: 'Too many wrong tries. Wait 15 minutes and try again.' };
-    if (!pwSame_(pwHash_(String(body.currentPassword || ''), rec.s), rec.h)) { cache.put(fails, String(tries + 1), PW_LOCK_SECONDS); return { ok: false, error: 'Your current password is not right.' }; }
-    cache.remove(fails);
+    if (pwLocked_(s.e)) return { ok: false, error: 'Too many wrong tries. Wait 15 minutes and try again.' };
+    if (!pwSame_(pwHash_(String(body.currentPassword || ''), rec.s), rec.h)) { pwFail_(s.e); return { ok: false, error: 'Your current password is not right.' }; }
+    pwClear_(s.e);
   }
   var problem = pwProblem_(next);
   if (problem) return { ok: false, error: problem };
@@ -1212,6 +1225,7 @@ function apply_(body, a, preloaded) {
       return;
     }
     if (op.c === 'users') {
+      if (a.open) return reject('Employees cannot be changed while emergency access is open.', 'denied'); // it must not outlast the hour
       var uCur = users.filter(function (u) { return u.email === String(op.id).toLowerCase(); })[0] || null;
       var uPatch = {}; USER_EDIT.forEach(function (k) { if (op.rec && op.rec[k] !== undefined) uPatch[k] = op.rec[k]; });
       var uNext = op.del ? null : Object.assign({}, uCur || {}, uPatch, { email: String(op.id).trim().toLowerCase() });
@@ -1468,6 +1482,7 @@ function replaceNested_(ss, s, projectId, rows) {
   if (last - 1 > all.length) sh.getRange(all.length + 2, 1, last - 1 - all.length, width).clearContent();
 }
 function writeUser_(cur, next) {
+  if (!next || !next.active) pwForget_((next || cur).email); // anyone let back in later starts with a new password
   ensureUserColumns_();
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
   var at = userColumns_(sh), email = (next || cur).email;
@@ -2090,7 +2105,7 @@ function tempPasswordMenu() {
   var temp = tempPassword_();
   pwStore_(email, temp, true);
   pwAudit_('password_reset', { email: Session.getEffectiveUser().getEmail(), name: 'Google Sheet' }, email, 'Reset the password for ' + u.name);
-  ui.alert('Temporary password for ' + u.name, temp + '\n\nGive this to them privately. It works once: they choose their own password when they sign in. It will not be shown again.', ui.ButtonSet.OK);
+  ui.alert('Temporary password for ' + u.name, temp + '\n\nGive this to them privately. It expires in ' + PW_TEMP_DAYS + ' days, and they choose their own password when they sign in. It will not be shown again.', ui.ButtonSet.OK);
 }
 function enableSignIn() {
   var ui = SpreadsheetApp.getUi();
