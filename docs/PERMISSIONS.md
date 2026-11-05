@@ -25,17 +25,19 @@ A person's role is in the Users tab. "Project owner of X" means their registered
 | Add or remove tasks and milestones | Yes | Yes | No | No | No | No |
 | Change task owner, due date, priority, scope | Yes | Yes | No | No | No | No |
 | Update status, progress, checklist, notes, blockers, links | Yes | Yes | No | Yes | No | No |
-| Add a comment on a visible task | Yes | Yes | Yes | Yes | No | No |
-| Edit or remove someone else's note | Yes | Yes | No | No | No | No |
-| Edit or remove your own note | Yes | Yes | Yes | Yes | Yes | No |
+| Add a comment on a visible task. The server allows it; the site shows the comment box only to people who can work on the task | Yes | Yes | Yes | Yes | No | No |
+| Edit or remove someone else's note (server rule; the site shows notes read-only) | Yes | Yes | No | No | No | No |
+| Edit or remove your own note (server rule; the site shows notes read-only) | Yes | Yes | Yes | Yes | Yes | No |
 | Update a risk, decision or dependency you own, without reassigning it | Yes | Yes | Yes | Yes | Yes | No |
 | Add subtasks | Yes | Yes | No | Yes | No | No |
-| Ask for more time | Yes | Yes | No | Yes | No | No |
+| Ask for more time. Managers can move the date, so the site shows this button to task owners | Yes | Yes | No | Yes | No | No |
 | Decide a time request | Yes | Yes | No | No | No | No |
 | Submit for review | Yes | Yes | No | Yes | No | No |
 | Approve, request changes | Yes | Yes | No | No | No | No |
 | Bulk edit | Yes | Yes | No | No | No | No |
 | See the employee directory (names, emails, departments) | Yes | Yes | Yes | No | No | No |
+| Update department, designation and joining date of people who report to them | Yes | Yes | Yes | No | No | No |
+| Upload a file | Yes | Yes | No | Own task | No | No |
 | See the notification log | Yes | Own projects | Own projects | No | No | No |
 | Retry or resend emails, send a test email, see Integrations | Yes | No | No | No | No | No |
 | Manage employees, health rules, settings | Yes | No | No | No | No | No |

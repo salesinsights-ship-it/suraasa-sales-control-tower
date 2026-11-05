@@ -46,6 +46,21 @@
 - Employee dashboard: overdue count and upcoming deadlines.
 - Links in emails open the task directly, after sign-in.
 
+**Found by tracing both briefs line by line, and added**
+- Several assignees on one task, by email.
+- **Duplicate** on a task, and **Sort by** on the task list.
+- File uploads to Drive on tasks and projects, up to 10 MB.
+- Managers get **Administration > Employees** and the notification log, can see **My team**, and can update their own reports.
+- Employees get **My Projects**.
+- Profile pictures from Google, joining dates in the directory and profile.
+- In-app notices for completion, review and project assignment, and for a former owner.
+- Home gains Total Projects, Team Productivity and overdue analysis.
+- The task panel shows the ID, emails, who assigned it, and every date. CSV exports carry emails, files and comments.
+- Priorities read Critical, High, Medium and Low in forms and filters.
+- Viewers see forms read-only.
+- Sign-in now requires the Workspace `hd` claim, and is rate limited.
+- Fixed: the Task CSV header printed source code.
+
 **Reconnected**
 - The site saves to the Sheet again. It had been disconnected on 4 November, because the script running was too old for it.
 

@@ -26,7 +26,7 @@ The page has no business data of its own. It loads from the Sheet, keeps a worki
 3. It sends operations: `{c, id, set: {field: new}, base: {field: old}}`.
 4. The server takes a lock, re-reads the Sheet, and for each field compares `base` with what is there now.
 5. If someone else changed that field, the whole save is refused and the person is shown the current value. Notes and comments are merged instead, so both are kept.
-6. Saves are all-or-nothing, and each carries a `requestId`, so a retry after a dropped connection does not apply twice.
+6. Every record in a save is checked before anything is written, so one refused record means nothing is written. If Google fails partway through writing, what was written is recorded and a retry finishes it. Each save carries a `requestId`, so a retry after a dropped connection does not apply twice.
 7. The audit rows are written in the same locked step.
 8. Each save raises the Sheet's version. Other browsers check this and refresh. Unsent changes are re-applied on top, except where someone else changed the same field: the newer value wins and the person is told.
 
@@ -38,7 +38,9 @@ Google sign-in is the only way in. The page holds no people, no passwords and no
 
 Google Identity Services gives the page an ID token. Apps Script checks it with Google (`oauth2.googleapis.com/tokeninfo`): audience, issuer, verified email, domain, expiry, then the Users tab. It then issues a random session ID, stored in Apps Script's cache. Every read and write after that carries the session, and the person's role is read fresh from the Users tab each time.
 
-A session ends after 6 hours without use, 12 hours after sign-in at the latest, on sign-out (which removes it on the server), or when the person is deactivated.
+The check requires the `hd` claim to match the domain, because Google says the email's domain alone does not show that the organisation manages an account. Google also warns that `tokeninfo` can fail now and then or be throttled, so one failure gets a second try, and sign-ins are limited to 60 a minute. Replacing it would need signature checks written by hand, which could not be tested on real Apps Script, so it stays for a team of this size.
+
+A session ends after 6 hours without use, 12 hours after sign-in at the latest, on sign-out (which removes it on the server), or when the person is deactivated. Google says the cache can drop a value early, so someone may occasionally be asked to sign in again.
 
 Sign-in is required unless `AUTH_REQUIRED` is `false` **and** `AUTH_OFF_UNTIL` is in the future. The menu's emergency switch sets both, for one hour. So a missing or old setting can never leave the data open.
 
@@ -85,7 +87,7 @@ All changes add to the Sheet. Nothing is dropped or renamed, and `setupSheet` is
 
 | Tab | Columns |
 |---|---|
-| Users | email, name, role, active, addedBy, addedAt, employeeId, department, designation, managerEmail, joiningDate, updatedAt. Read by column name, so hand-added columns are safe |
+| Users | email, name, role, active, addedBy, addedAt, employeeId, department, designation, managerEmail, joiningDate, updatedAt, photoUrl. Read by column name, so hand-added columns are safe |
 | NotificationLog | notificationId, ts, channel, eventType, recipientEmail, recipientName, taskId, projectId, subject, deliveryStatus, attempts, lastAttemptAt, nextAttemptAt, errorDetails, dedupeKey, batchId, actorEmail, actorName, requestId, payload |
 | AuditLog | activityId, ts, actorEmail, actorName, entityType, entityId, projectId, taskId, action, field, oldValue, newValue, text, requestId |
 | Trash | trashId, ts, actorName, collection, recordId, record, restoredAt, record2, record3, record4 (long records span these) |
@@ -119,7 +121,7 @@ All changes add to the Sheet. Nothing is dropped or renamed, and `setupSheet` is
 
 They sit after `_extra` so every older column stays where it is. An older script can still read the Sheet, which keeps the upgrade reversible. `setupSheet` opens the gap by inserting columns, so columns added by hand move with their formulas and formats. The script reads only its own columns, so hand-added ones never enter a record.
 
-**Also new, in `_extra`:** `assignKey` on tasks, `managerEmails` on projects.
+**Also new, in `_extra`:** `assignKey` and `completedTs` on tasks, `managerEmails` on projects.
 
 **Script Properties:** see [DEPLOYMENT.md](DEPLOYMENT.md).
 

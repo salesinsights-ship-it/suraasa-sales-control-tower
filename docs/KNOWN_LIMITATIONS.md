@@ -19,8 +19,13 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **"Accepted" is not "delivered".** Apps Script can see that Google's mail service took an email, not whether it reached the inbox or bounced. A bounce arrives as an email in the script owner's inbox.
 - **Viewers and Managers read widely.** They see tasks on every project that is not restricted. Use a restricted project to limit that. Employees see only their own tasks.
 - **The site keeps a working copy in the browser.** It is cleared on sign-out, not when a session expires, so use Sign out on shared computers.
-- **Files are links.** Tasks and projects hold Google Drive links. Direct upload is not built.
+- **Uploads have not run on real Google Drive.** They use the Sheet owner's Drive, in a folder called Control Tower Uploads, and are shared with your organisation by link. Files can be up to 10 MB. PDF, Office, CSV, text and image files are accepted.
 - **In-app read state is per browser,** so it does not follow you between devices.
+- **Google warns its token check can be throttled.** It is fine for a team this size. The cost of replacing it is hand-written signature checks that cannot be tested off real Apps Script.
+- **Sign-in is limited to 60 attempts a minute across everyone.** Someone flooding the script could delay sign-ins for that minute, but not reach any data. Existing sessions are unaffected.
+- **Rate limiting covers sign-in only.** Everything else needs a session, and Google applies its own quotas.
+- **AuditLog is protected with a warning, not a lock.** The site cannot edit it, and direct edits to it are logged. Anyone with edit access to the Sheet could still ignore the warning, so limit that access.
+- **Profiles are read-only for employees.** A Super Admin or their Manager keeps them up to date. Pictures come from their Google account at sign-in.
 - **Saved views are per browser** for the same reason.
 - **A record has a size limit.** A task's notes share one 50,000-character cell, roughly 250 typical notes. Past that, saves to that task are refused with a clear message.
 - **Import is for an empty Sheet only.** To recover live data, use the Sheet's version history or a backup copy.
@@ -32,8 +37,6 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **Dependency links are finish-to-start between tasks.** There are no lead or lag times, and dates are never moved automatically.
 - **Roles can be assigned but their rules cannot be edited on screen.** Changing what a role may do means editing `deny_` in `Code.gs`.
 - **Older tasks may still be matched by name.** New and reassigned tasks use the email. Older ones get it from **Match task owners to registered emails**, which only matches a name that exactly one person has. This matters here: **113 of 129 tasks have no confirmed owner yet**, and those can only be managed by a Super Admin until they are assigned.
-- **One owner per assignment.** The assign form takes one email. Several owners are still possible through Edit details.
-- **Files are links.** Tasks hold Drive links rather than uploaded files.
 - **The one-line command is rule-based, not AI.** It costs nothing and needs no API key, and it reads the usual ways of writing a task. Unusual wording leaves fields blank for you to fill in; it never guesses.
 - **Live cost of a pull.** The site re-reads the whole dataset when the version changes.
 - **Accessibility.** Keyboard use and contrast were checked as part of the work, but no screen reader test was done.

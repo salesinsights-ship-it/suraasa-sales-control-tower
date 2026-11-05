@@ -20,7 +20,7 @@ Follow [SETUP_SIGN_IN.md](../SETUP_SIGN_IN.md), steps 1 and 2.
 
 1. In the Sheet: **Extensions > Apps Script**.
 2. Replace everything in `Code.gs` with `apps-script/Code.gs` from this project, and save.
-3. Choose `setupSheet` in the function menu and click **Run**. Allow the permissions, including sending email.
+3. Choose `setupSheet` in the function menu and click **Run**. Allow the permissions, including sending email and Drive.
 4. Go to the Sheet tab and click **OK** on the message.
 
 This keeps every record. New columns are added to the right of `_extra`, and the `NotificationLog` tab appears. No email is sent.
@@ -100,6 +100,7 @@ Script Properties are in Apps Script under **Project Settings**. None of them ar
 | `EMAIL_TEST_TO` | Script Properties, optional | Where test mode sends. Default: the script owner |
 | `ASSIGN_EMAIL` | Set from the menu | `off` stops all email |
 | `SITE_URL` | Script Properties, optional | Address used in email links. Default: the production site |
+| `UPLOAD_FOLDER_ID` | Set by itself on the first upload | The Drive folder for uploaded files |
 | `CT_API_URL` | Vercel, optional | The script link used at build time. Default: the production link |
 
 ## Later releases

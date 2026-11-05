@@ -6,12 +6,12 @@ A project and task platform for the Head of Sales and the sales team. It answers
 
 ## How it is organised
 
-- **Home**: headline statistics and what needs attention. Task owners see My work.
+- **Home**: headline statistics, charts and workload. Employees see their own dashboard.
 - **My Tasks**: list, board or calendar, with saved views and bulk edit.
 - **Projects** and **My Projects**: list or timeline. Each project has Summary, Plan, Risks, Updates, People, Files and Activity.
 - **Decisions & risks**, **Weekly review**, **Notifications**, **Reports**.
 - **Action plan**, **Who does what**, **How we work**.
-- **Administration**: Employees, Integrations, Notification log, Audit log, Deleted items, Health rules, Sheet and data.
+- **Administration**: Employees, Integrations, Notification log, Audit log, Deleted items, Health rules, Sheet and data. Managers see Employees and the Notification log.
 - Everywhere: `/` to find anything, and **New** to add anything, including **Assign a task by email**.
 
 ## How it works

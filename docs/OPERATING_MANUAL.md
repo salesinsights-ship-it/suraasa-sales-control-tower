@@ -32,7 +32,11 @@ The last screen shows what really happened: saved to the Sheet, email status, in
 
 You still see the preview before anything is saved. If something is missing or does not match, the form opens and says what. It never guesses a person or project.
 
+To assign several people, separate their emails with commas. Each is emailed and sees the task.
+
 **To reassign:** open the task, click **Reassign**, enter the new email and give a reason.
+
+**To copy a task:** open it and click **Duplicate**. You review it before anything is saved.
 
 ## 4. Check whether an email was sent
 
@@ -62,7 +66,9 @@ They sign in with Google and see their tasks on their dashboard, or use the link
 
 - **Start** and **Complete** on the dashboard do the usual moves.
 - **Update** opens the task, to add a note, change the stage, status or progress, add a checklist or a link, or ask for more time.
-- **My Tasks** has list, board and calendar views.
+- **My Tasks** has list, board and calendar views, and can be sorted under the filters.
+- **My Projects** lists the projects their work is in.
+- **Links and files** on a task takes an upload of up to 10 MB, or a link.
 
 ## 7. Monitor team performance
 
@@ -73,6 +79,8 @@ They sign in with Google and see their tasks on their dashboard, or use the link
 **Administration > Employees > Add employee.** Enter their name, official email, role, department, designation, manager and joining date. They get an employee ID, and can sign in straight away. You can also add a row to the `Users` tab.
 
 To remove someone, edit them and set **Access** to **Inactive**. Their access ends at their next request, and their history stays.
+
+Managers see **Administration > Employees** too. They can update the department, designation and joining date of people who report to them, and **My team** shows who those are. Set a person's manager on their record.
 
 ## 9. Manage permissions
 

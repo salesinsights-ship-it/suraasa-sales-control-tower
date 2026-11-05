@@ -7,7 +7,7 @@ Nothing here is stored in the code. The only secret-like value is the session ea
 | Access to the Google account that owns the Sheet | You | To update the script and publish a new version | Used in the browser, not stored | Yes: never share the password |
 | Google OAuth client ID | You, from Google Cloud | Google sign-in | **Control Tower > Set Google sign-in client ID** | No |
 | Team list | You | Decides who can sign in and their role | Users tab | Employee data: keep it out of the repository |
-| Permission to send email | Granted when you first run `setupSheet` | Sends notifications from that Google account | Google account | Not applicable |
+| Permission to send email and use Drive | Granted when you first run `setupSheet` | Sends notifications, and saves uploads and backups in that Google account | Google account | Not applicable |
 | GitHub write access | You: install the Claude GitHub App, or push the branch yourself | Publishes the code | GitHub | Not applicable |
 | Vercel | Already connected to the repository | Publishes the site | Vercel | Not applicable |
 

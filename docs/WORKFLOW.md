@@ -6,16 +6,16 @@ Deliverables 6 to 10.
 
 | From | Can move to |
 |---|---|
-| Backlog | Not Started, In Progress, Cancelled |
+| Backlog | Not Started, In Progress, On Hold, Completed, Cancelled |
 | Not Started | Backlog, In Progress, Blocked, On Hold, Completed, Cancelled |
-| In Progress | Not Started, Blocked, On Hold, In Review, Completed, Cancelled |
-| Blocked | Not Started, In Progress, On Hold, Cancelled |
-| On Hold | Not Started, In Progress, Blocked, Cancelled |
-| In Review | In Progress, Changes Requested, Completed, Cancelled |
-| Awaiting Approval | In Progress, In Review, Changes Requested, Completed, Cancelled |
-| Changes Requested | In Progress, In Review, Blocked, Cancelled |
-| Completed | In Progress, Not Started, In Review, Awaiting Approval (reopen and undo) |
-| Cancelled | Not Started |
+| In Progress | Not Started, Blocked, On Hold, In Review, Awaiting Approval, Completed, Cancelled |
+| Blocked | Not Started, In Progress, On Hold, Completed, Cancelled |
+| On Hold | Not Started, In Progress, Blocked, Completed, Cancelled |
+| In Review | Not Started, In Progress, On Hold, Awaiting Approval, Changes Requested, Completed, Cancelled |
+| Awaiting Approval | Not Started, In Progress, On Hold, In Review, Changes Requested, Completed, Cancelled |
+| Changes Requested | Not Started, In Progress, On Hold, In Review, Blocked, Completed, Cancelled |
+| Completed | In Progress, Not Started, On Hold, In Review, Awaiting Approval, Cancelled |
+| Cancelled | Not Started, In Progress, On Hold, Completed |
 
 `On Hold` and `Awaiting Approval` were already in use and were kept.
 
@@ -56,7 +56,7 @@ Checked in this order; the first that applies wins, and every reason is shown.
 | At risk | Any task overdue or blocked; a milestone due within 7 days under 50%; a P0 or P1 task due within 7 days under 50%; an open dependency due within 14 days; no weekly update; no update for 14 days; no progress in 14 days; no confirmed answerable person; on hold |
 | On track | None of the above |
 
-The 25%, 10%, 7 and 14 values can be changed in Administration, Health rules. One late low-priority task can make a project At risk, never Delayed.
+The 25%, 7 and 14 values can be changed in Administration, Health rules. One late low-priority task can make a project At risk, never Delayed.
 
 A project owner can add a **risk assessment** with a level and a reason. It sits beside the calculated health and never replaces it.
 
@@ -81,12 +81,13 @@ Timelines on project and task pages filter by All, Status, Progress, Ownership, 
 | Due soon, tomorrow, today | Task owner | 3 days, 1 day, due date |
 | Overdue | Task owner | Daily while late. More than 5 become one line |
 | Waiting on a late task | Task owner | A task it depends on is late |
-| Assigned, Reassigned | Old and new owner | Owner changes, or a new task is assigned |
+| Assigned, Reassigned | Old and new owner | Owner changes, or a new task or project is assigned. A former owner sees only that the task moved on |
+| Completed | Whoever assigned the task, project owner | Status becomes Completed |
 | Deadline changed | Task owner | Date moved by someone else |
 | New comment, Mentioned | Task owner, person mentioned | Comment added, `@name` |
 | Changes requested | Task owner | Review sent back |
 | Blocked | Project owner | Task blocked |
-| Review requested | Project owner | Task in review |
+| Review requested | Project owner, whoever assigned the task, task owner | Task in review |
 | More time requested, Question | Project owner | Task owner asks |
 | Milestone soon, Milestone late | Project owner | Within 3 days, overdue |
 | Ready to close | Project owner | All work done |
@@ -99,7 +100,7 @@ You never receive a notification for your own action.
 |---|---|---|
 | New task assigned | New owner | A Super Admin or Manager gives them a task |
 | Task reassigned | New owner | The owner changes. The old owner is told in the app |
-| Project assigned | New project owner | The project's owner changes |
+| Project assigned | New project owner, newly named project managers | The project's owner changes, or someone is added to its Managers list |
 | Deadline reminder | Task owner | 3 days, 1 day and the day itself |
 | Task overdue | Task owner | The first day late, then weekly |
 | Task completed | Whoever assigned it, the project's owner, answerable and managers | Status becomes Completed |
