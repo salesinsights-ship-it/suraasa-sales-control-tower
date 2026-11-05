@@ -402,8 +402,9 @@ function readTab_(ss, s, idsNeeded) {
     if (r.every(function (v) { return v === '' || v == null; })) return; // blank row
     var o = {};
     header.forEach(function (h, i) {
-      if (!h || !ours[h]) return;
+      if (!h || !ours[h] || header.indexOf(h) !== i) return; // a repeated heading cannot override the real column
       var v = r[i];
+      if (typeof v === 'string' && /^'=/.test(v)) v = v.slice(1);
       if (h === EXTRA) { if (v) { try { var ex = JSON.parse(v); Object.keys(ex).forEach(function (k) { o[k] = ex[k]; }); } catch (x) {} } return; }
       if (s.tail && s.tail.indexOf(h) >= 0 && (v === '' || v == null) && o[h] !== undefined) return;
       if (s.lists && s.lists[h] !== undefined) { o[h] = splitList_(v); return; }
@@ -910,10 +911,10 @@ function noteProblem_(f, cur, next, a, canManage) {
     var k = noteKey_(n), o = was[k];
     seen[k] = true;
     if (!o) { if (!byMe(n)) bad = 'You can only add notes in your own name.'; return; }
-    if (canon_(o) !== canon_(n) && !canManage && !byMe(o)) bad = 'You can only edit your own notes.';
+    if (canon_(o) !== canon_(n) && !canManage && !(byMe(o) && !a.nameShared)) bad = 'You can only edit your own notes.';
     if (signed(o).join() !== signed(n).join()) bad = 'The author of a note cannot be changed.';
   });
-  Object.keys(was).forEach(function (k) { if (!seen[k] && !canManage && !byMe(was[k])) bad = 'You can only remove your own notes.'; });
+  Object.keys(was).forEach(function (k) { if (!seen[k] && !canManage && !(byMe(was[k]) && !a.nameShared)) bad = 'You can only remove your own notes.'; });
   return bad;
 }
 
@@ -1079,6 +1080,7 @@ function apply_(body, a, preloaded) {
     }
     if (op.create || !cur) {
       if (cur) return reject('This ID already exists: ' + op.id, 'duplicate');
+      if (idField === 'id' && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(op.id))) return reject('That is not a valid ID.', 'invalid');
       if (!op.rec) return reject('This record no longer exists.', 'missing');
       next = JSON.parse(JSON.stringify(op.rec));
       next[idField] = op.id;
@@ -1103,6 +1105,7 @@ function apply_(body, a, preloaded) {
       var dest = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
       if (dest && !canSeeProject_(dest, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
     }
+    if (op.c === 'tasks' && !cur && !op.restoreOf && a.role !== 'Administrator' && !ownsProject_(st.projects.filter(function (p) { return p.id === next.projectId; })[0], a)) next.accountable = 'TBD';
     var unknown = identity_(op.c, cur, next, users, a, ts);
     if (unknown) return reject(unknown, 'invalid', 'ownerEmail');
     var denied = deny_(a, op.c, cur, next, st);
@@ -1111,7 +1114,7 @@ function apply_(body, a, preloaded) {
     var earlier = cur || {};
     if (!op.restoreOf) APPEND_ONLY.forEach(function (f) {
       var owner = op.c === 'projects' ? earlier : st.projects.filter(function (p) { return p.id === next.projectId; })[0];
-      problem = problem || (canon_(earlier[f]) !== canon_(next[f]) ? noteProblem_(f, earlier, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
+      problem = problem || (canon_(earlier[f]) !== canon_(next[f]) ? noteProblem_(f, earlier, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a) && !a.nameShared)) : '');
     });
     if (problem) return reject(problem, 'denied');
     if (schemaFor_(op.c) && oversize_(op.c, next)) return reject('This record has grown too long for the Sheet. Remove some notes or text and try again.', 'invalid');
@@ -1258,14 +1261,21 @@ function replaceNested_(ss, s, projectId, rows) {
   var sh = ss.getSheetByName(s.tab);
   var width = Math.max(sh.getLastColumn(), s.cols.length + 1), known = s.cols.length + 1;
   var last = sh.getLastRow();
-  var col = s.cols.indexOf('projectId'), idCol = s.id ? s.cols.indexOf(s.id) : -1;
-  var grid = last >= 2 ? gridOf_(sh.getRange(2, 1, last - 1, width)) : [];
+  var col = s.cols.indexOf('projectId');
+  var keyCols = s.id ? [s.id] : s.key === 'comments' ? ['who', 'ts'] : ['item'];
+  var grid = [];
+  if (last >= 2) {
+    var rng = sh.getRange(2, 1, last - 1, width), plain = rng.getValues(), withFormulas = gridOf_(rng);
+    // Our own columns are rewritten as text. Hand-added columns keep their formulas.
+    grid = withFormulas.map(function (r, i) { return r.map(function (v, j) { return j >= known ? v : safeCell_(plain[i][j] instanceof Date ? cell_(plain[i][j]) : plain[i][j]); }); });
+  }
+  var rowKey = function (r) { return keyCols.map(function (c) { return String(r[s.cols.indexOf(c)]); }).join('|'); };
   var kept = grid.filter(function (r) { return String(r[col]) !== String(projectId); });
-  var theirs = grid.filter(function (r) { return String(r[col]) === String(projectId); });
-  var fresh = rows.map(function (o, i) {
+  var theirs = {}; grid.forEach(function (r) { if (String(r[col]) === String(projectId) && !theirs[rowKey(r)]) theirs[rowKey(r)] = r; });
+  var fresh = rows.map(function (o) {
     var v = rowValues_(s, Object.assign({}, o, { projectId: projectId }));
-    // Columns added by hand stay with their row: matched by ID, or by position where a tab has no ID.
-    var old = idCol >= 0 ? theirs.filter(function (r) { return String(r[idCol]) === String(o[s.id]); })[0] : theirs[i];
+    // Columns added by hand stay with their row.
+    var old = theirs[keyCols.map(function (c) { return String(o[c] == null ? '' : o[c]); }).join('|')];
     while (v.length < width) v.push(old ? old[v.length] : '');
     return v;
   });
@@ -1340,6 +1350,7 @@ function fieldIdentity_(cur, next, nameF, mailF, users) {
 /** The email is what identifies a person. The server works it out, checks it and stamps who assigned the work. */
 function identity_(coll, cur, next, users, a, ts) {
   if (coll !== 'tasks' && coll !== 'projects') return '';
+  if (coll === 'tasks' && !cur && a.email && !next.ownerEmail && String(next.owner || '').trim().toLowerCase() === String(a.name || '').trim().toLowerCase()) next.ownerEmail = a.email;
   var bad = fieldIdentity_(cur, next, 'owner', 'ownerEmail', users);
   if (coll === 'projects') {
     bad = bad || fieldIdentity_(cur, next, 'accountable', 'accountableEmail', users);
@@ -1497,7 +1508,7 @@ function queue_(events, ts, reqId, actor, batchOf) {
     seen[key] = true;
     var base = { ts: ts, eventType: ev.type, recipientEmail: ev.user.email, recipientName: ev.user.name, taskId: ev.item.kind === 'task' ? ev.item.id : '', projectId: ev.item.projectId, subject: EVENT_TITLE[ev.type] + ': ' + short_(ev.item.name), attempts: 0, actorEmail: ev.item.byEmail || actor.email || '', actorName: ev.item.by || actor.name || '', requestId: reqId };
     rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'in-app', deliveryStatus: 'created', dedupeKey: 'inapp|' + key }));
-    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'email', deliveryStatus: off ? 'skipped' : 'queued', errorDetails: off ? 'Emails are turned off' : '', dedupeKey: key, batchId: batchOf(ev), payload: JSON.stringify(ev.item), emailMode: mode }));
+    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'email', deliveryStatus: off ? 'skipped' : 'queued', errorDetails: off ? 'Emails are turned off' : '', dedupeKey: key, batchId: batchOf(ev) + '|' + mode, payload: JSON.stringify(ev.item), emailMode: mode }));
   });
   if (rows.length) appendRows_(NOTIF_SHEET, rows.map(notifRow_));
   return rows;
@@ -1543,8 +1554,8 @@ function sendBatch_(rows) {
   try {
     if (MailApp.getRemainingDailyQuota() < 1) { quota = true; throw new Error('daily email limit reached'); }
     var mail = renderEmail_(rows), to = first.recipientEmail;
-    // A row keeps the mode it was queued in, so a test notice never reaches an employee after going live.
-    if (first.emailMode !== 'live') {
+    // Both must be live: a test notice never reaches an employee after going live, and test mode holds back everything.
+    if (first.emailMode !== 'live' || emailMode_().mode !== 'live') {
       var box = testAddress_();
       if (!box) throw new Error('test mode has no address to send to');
       mail.subject = '[TEST for ' + to + '] ' + mail.subject;

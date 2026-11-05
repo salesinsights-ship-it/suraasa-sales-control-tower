@@ -172,12 +172,24 @@ function company() {
 
     const t3 = srv(c, s1).tasks[0];
     q.net.down = true;
-    await q.evaluate(id => { SCT.state.tasks.find(t => t.id === id).desc = 'Typed by the first person'; SCT.SYNC.onLocalChange(); }, t3.id); await wait(q, 300);
+    await q.evaluate(id => { const k = 'suraasa_sales_control_tower_v1', d = JSON.parse(localStorage.getItem(k)); d.tasks.find(t => t.id === id).desc = 'Typed by the first person'; localStorage.setItem(k, JSON.stringify(d)); }, t3.id); await wait(q, 300);
     const s2 = c.sessionFor('rahul@suraasa.com').session;
     await q.evaluate(x => localStorage.setItem('sct_session', x), s2); await q.addInitScript(x => localStorage.setItem('sct_session', x), s2);
     q.net.down = false; await q.reload(); await wait(q, 900);
+    await wait(q, 1500);
     ok('unsaved work is never sent in the next person\'s name', srv(c, s1).tasks.find(t => t.id === t3.id).desc !== 'Typed by the first person' && await q.evaluate(() => SCT.ME.email === 'rahul@suraasa.com'));
+    ok('and they are told', /previous person/.test(await q.textContent('#toast')), await q.textContent('#toast'));
     await q.context().close();
+    // a browser from before sign-in: its work is kept to download, never sent under whoever signs in
+    const q2 = await page(br, c, { session: s1 }); await wait(q2, 500);
+    const t4 = srv(c, s1).tasks[1];
+    q2.net.down = true;
+    await q2.evaluate(id => { const k = 'suraasa_sales_control_tower_v1', d = JSON.parse(localStorage.getItem(k)); d.tasks.find(t => t.id === id).desc = 'Typed before sign-in existed'; localStorage.setItem(k, JSON.stringify(d)); }, t4.id); await wait(q2, 300);
+    await q2.addInitScript(() => { if (!sessionStorage.getItem('y')) { localStorage.removeItem('sct_owner'); sessionStorage.setItem('y', '1'); } });
+    q2.net.down = false; await q2.reload(); await wait(q2, 2200);
+    ok('older unsaved work is not sent', srv(c, s1).tasks.find(t => t.id === t4.id).desc !== 'Typed before sign-in existed');
+    ok('and is kept to download', await q2.evaluate(() => (localStorage.getItem('sct_browser_copy') || '').includes('Typed before sign-in existed')));
+    await q2.context().close();
   }
 
   ok('no script errors', !a.errs.length && !e.errs.length, a.errs.concat(e.errs).join(' | ').slice(0, 300));

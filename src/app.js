@@ -3053,7 +3053,7 @@
   function csv(rows, cols) {
     const q = v => {
       v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      if (/^[=+@\t\r-]/.test(v) && !/^-?\d/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
+      if (/^[=+@\t\r-]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
       return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     };
     return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n');
@@ -3339,7 +3339,13 @@
           // Unsaved work belongs to whoever typed it. It is never sent in the name of the next person on this browser.
           let last = '';
           try { last = localStorage.getItem('sct_owner') || ''; localStorage.setItem('sct_owner', data.me.email); } catch (e) { /* private window */ }
-          if (last && last !== data.me.email) { this.base = null; this.sending = null; toast('Unsaved changes from the previous person on this browser were discarded.', true); }
+          if (last !== data.me.email && this.base) {
+            const unsent = diffOps(this.base, S).length;
+            // No owner on record means this browser's work predates sign-in. It is kept to download, but never sent as this person.
+            if (!last && unsent) { try { localStorage.setItem('sct_browser_copy', JSON.stringify(S)); } catch (e) { /* too large to keep */ } }
+            if (last || unsent) { this.base = null; this.sending = null; }
+            if (unsent) toast(last ? 'Unsaved changes from the previous person on this browser were discarded.' : 'Older unsaved work on this browser was not sent. You can download it under Administration.', true);
+          }
           Object.assign(ME, data.me, { open: false });
           UI.me = ME.name;
         }
@@ -3449,9 +3455,9 @@
     },
     async dailySnapshot() {
       if (this.api < 4 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
-      const date = todayStr();
-      if ((S.snapshots || []).some(r => r.date === date)) return;
-      const rows = portfolioRows().map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
+      const date = todayStr(), have = new Set((S.snapshots || []).filter(r => r.date === date).map(r => r.projectId));
+      const rows = portfolioRows().filter(r => !have.has(r.p.id) && canManageP(r.p)).map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
+      if (!rows.length) return;
       try { await this.request({ action: 'snapshot', rows }); S.snapshots = (S.snapshots || []).concat(rows); } catch (e) { /* tomorrow's visit will add the next point */ }
     },
     updateUI() {

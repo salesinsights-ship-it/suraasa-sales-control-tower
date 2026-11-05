@@ -559,6 +559,55 @@ test('one huge digest stays within Google\'s email size', () => {
   assert.ok(b.mails[0].htmlBody.length < 150000, String(b.mails[0].htmlBody.length)); assert.ok(b.mails[0].body.includes('30 more')); assert.match(b.mails[0].subject, /^60 New Items/);
 });
 
+// ---------- found when the fixes were reviewed again ----------
+test('an employee cannot hand a colleague access by naming them answerable', () => {
+  const { b, pid, s } = company(); const r = s('rahul@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: r, requestId: 'q1', ops: [{ c: 'tasks', id: 'Q1', create: true, rec: { name: 'Mine', projectId: pid, status: 'Not Started', ownerEmail: 'rahul@suraasa.com', accountable: 'Priya Nair' } }] }).ok);
+  assert.strictEqual(row(b, 'Tasks', 'Q1').accountable, 'TBD');
+  assert.strictEqual(pull(b, s('priya@suraasa.com')).state.projects.find(p => p.id === pid).objective, undefined);
+});
+test('people who share a name can still file their own tasks, and cannot touch each other\'s notes', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'); b.addUser({ email: 'rahul2@suraasa.com', name: 'Rahul Verma', role: 'Employee' });
+  const r = s('rahul@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: r, requestId: 'n1', ops: [{ c: 'tasks', id: 'N1', create: true, rec: { name: 'Own', projectId: pid, status: 'Not Started', owner: 'Rahul Verma' } }] }).ok);
+  assert.strictEqual(row(b, 'Tasks', 'N1').ownerEmail, 'rahul@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: r, requestId: 'n2', ops: [{ c: 'tasks', id: 'N1S', create: true, rec: { name: 'Sub', projectId: pid, parent: 'N1', kind: 'Subtask', status: 'Not Started', owner: 'Rahul Verma' } }] }).ok, 'subtask too');
+  assert.ok(pull(b, r).state.tasks.some(t => t.id === 'N1'));
+  const t = assign(b, a, pid).task; assert.ok(edit(b, r, t.id, { notes: [{ id: 'z', type: 'comment', text: 'Mine', author: 'Rahul Verma', ts: '2026-11-05' }] }, { notes: [] }).ok, 'adding a note works');
+  const m = b.post({ action: 'apply', session: s('rahul2@suraasa.com'), requestId: 'n3', ops: [{ c: 'tasks', id: t.id, set: { notes: [] }, base: { notes: [{ id: 'z', type: 'comment', text: 'Mine', author: 'Rahul Verma', ts: '2026-11-05' }] } }] }); assert.ok(m.rejected);
+});
+test('comments keep their hand-added cells when an earlier comment is removed', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'); const p = pull(b, a).state.projects[0];
+  const one = { who: 'Boss Lady', text: 'one', ts: '2026-11-01T00:00:00Z' }, two = { who: 'Boss Lady', text: 'two', ts: '2026-11-02T00:00:00Z' };
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'c1', ops: [{ c: 'projects', id: p.id, set: { comments: [one, two] }, base: { comments: p.comments } }] }).ok);
+  const sh = b.ss.getSheetByName('Comments'), w = sh.getLastColumn(); sh.getRange(1, w + 1).setValue('Hand');
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach((r, i) => { if (r[2] === 'one' || r[2] === 'two') sh.getRange(i + 2, w + 1).setValue('note for ' + r[2]); });
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'c2', ops: [{ c: 'projects', id: p.id, set: { comments: [two] }, base: { comments: [one, two] } }] }).ok);
+  const left = sh.getRange(2, 1, sh.getLastRow() - 1, w + 1).getValues().filter(r => r[0] === p.id);
+  assert.strictEqual(left.length, 1); assert.strictEqual(left[0][w], 'note for two');
+});
+test('test mode holds back everything, even an email queued while live; a batch never mixes modes', () => {
+  let down = true; const { b, pid, s } = company({ mailFails: () => down }); const a = s('boss@suraasa.com');
+  const r = assign(b, a, pid); down = false; b.props.set('EMAIL_MODE', 'test');
+  const e = emails(b).find(x => x.taskId === r.task.id); b.ss.getSheetByName('NotificationLog').getRange(e._row, b.ctx.NOTIF_COLS.indexOf('nextAttemptAt') + 1).setValue(new Date(Date.now() - 1000).toISOString());
+  b.ctx.processNotifications();
+  assert.strictEqual(b.mails.length, 1); assert.strictEqual(b.mails[0].to, 'owner@suraasa.com');
+  const q = company(), t = q.b; assign(t, q.s('boss@suraasa.com'), q.pid); t.props.set('EMAIL_MODE', 'test'); assign(t, q.s('boss@suraasa.com'), q.pid);
+  const ids = emails(t).map(x => x.batchId); assert.ok(ids.every(x => /\|(live|test)$/.test(x)));
+});
+test('a task ID cannot be a formula, and a repeated column cannot override the real one', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'id1', ops: [{ c: 'tasks', id: '=ID1', create: true, rec: { name: 'X', projectId: pid, status: 'Not Started' } }] }).rejected);
+  const sh = b.ss.getSheetByName('Tasks'), w = sh.getLastColumn(); const t = pull(b, a).state.tasks[0];
+  sh.getRange(1, w + 1).setValue('status'); sh.getRange(b.ctx.rowOfId_(sh, 1, t.id), w + 1).setValue('Completed');
+  assert.strictEqual(pull(b, a).state.tasks.find(x => x.id === t.id).status, t.status);
+});
+test('a quoted formula reads back cleanly in list fields too', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'); const p = pull(b, a).state.projects[0];
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'l1', ops: [{ c: 'projects', id: p.id, set: { metrics: ['=ROI>2'] }, base: { metrics: p.metrics } }] }).ok);
+  assert.strictEqual(pull(b, a).state.projects[0].metrics.join(), '=ROI>2');
+});
+
 const failed = results.filter(r => r[0] === 'FAIL');
 results.forEach(r => console.log(r[0], r[1]));
 console.log(results.length - failed.length + ' of ' + results.length + ' passed');

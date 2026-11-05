@@ -265,7 +265,9 @@ const ENGINE = (function () {
     if ((m = text.match(/\btoday\b/i))) return { date: today, text: m[0] };
     if ((m = text.match(/\btomorrow\b/i))) return { date: add(1), text: m[0] };
     if ((m = text.match(/\bin\s+(\d{1,3})\s+days?\b/i))) return { date: add(+m[1]), text: m[0] };
-    if ((m = text.match(new RegExp('\\b(next\\s+|this\\s+)?(' + DAYS.join('|') + ')\\b', 'i')))) {
+    // A bare weekday can be part of a title, like "Monday report". It counts only after a word that means a date.
+    if ((m = text.match(new RegExp('\\b(?:by|due|on|before|deadline(?:\\s+is)?|until)\\s+(next\\s+|this\\s+)?(' + DAYS.join('|') + ')\\b|\\b(next\\s+|this\\s+)(' + DAYS.join('|') + ')\\b', 'i')))) {
+      m = [m[0], m[1] || m[3], m[2] || m[4]];
       const want = DAYS.indexOf(m[2].toLowerCase()), now = base.getUTCDay();
       let gap = (want - now + 7) % 7 || 7;
       if (/^next/i.test(m[1] || '') && gap < 7 && want > now) gap += 7;
@@ -296,7 +298,6 @@ const ENGINE = (function () {
     m = rest.match(/\b(critical|urgent|high|medium|normal|low)[\s-]*priority\b/i) || rest.match(/\bpriority\s*(?:is|of|:|-)?\s*(critical|urgent|high|medium|normal|low)\b/i);
     if (m) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
     else if ((m = rest.match(/\b(P[0-3])\b/))) { task.priority = m[1]; take(m[0]); }
-    else if ((m = rest.match(/\b(critical|urgent)\b/i))) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
     else problems.push('Choose a priority.');
     // Two different dates in one sentence: asking is better than picking one.
     const dates = []; let scan = rest, hit = findDate(scan, d.today);
@@ -307,8 +308,10 @@ const ENGINE = (function () {
     } else if (dates.length > 1) problems.push('This mentions more than one date. Choose the deadline.');
     else problems.push('Choose a deadline.');
     if (task.due && task.due < d.today) problems.push('The deadline is in the past.');
-    const named = rest.match(/\b(?:under|for|in|on)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i) || rest.match(/\bproject\s*(?::|-|called|named)\s*["']?([^.,;"']+)["']?/i);
-    const want = named ? named[1].trim() : '';
+    // The preposition nearest to the word "project" counts: "report for teachers task under the CRM project" means CRM.
+    const near1 = rest.match(/^(.*)\b(?:under|for|in|on)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i), near2 = near1 ? null : rest.match(/\bproject\s*(?::|-|called|named)\s*["']?([^.,;"']+)["']?/i);
+    const want = (near1 ? near1[2] : near2 ? near2[1] : '').trim();
+    const named = near1 ? [near1[0].slice(near1[1].length)] : near2;
     if (want && !/^(the|a|an|this|that|our|my)$/i.test(want)) {
       const low = want.toLowerCase(), list = d.projects || [];
       const exact = list.filter(p => String(p.name).toLowerCase() === low || String(p.id).toLowerCase() === low);

@@ -121,7 +121,7 @@ test('dates: day first, relative words, and impossible dates are refused', () =>
 });
 test('priority words and P numbers both work; "high" in a title is not a priority', () => {
   const pr = t => parse('Assign the x task to rahul@suraasa.com under the CRM project by tomorrow ' + t).task.priority;
-  assert.strictEqual(pr('critical'), 'P0'); assert.strictEqual(pr('priority: low'), 'P3'); assert.strictEqual(pr('P2'), 'P2'); assert.strictEqual(pr('medium priority'), 'P2'); assert.strictEqual(pr('high school outreach'), '');
+  assert.strictEqual(pr('critical priority'), 'P0'); assert.strictEqual(pr('priority: low'), 'P3'); assert.strictEqual(pr('P2'), 'P2'); assert.strictEqual(pr('medium priority'), 'P2'); assert.strictEqual(pr('high school outreach'), '');
 });
 test('review cases: two dates, a bare "the project", and the email in a title are not guessed', () => {
   let r = parse('Assign the x task to rahul@suraasa.com under the CRM project, P1, by 20 November, kickoff on 3 December');
@@ -130,6 +130,14 @@ test('review cases: two dates, a bare "the project", and the email in a title ar
   assert.strictEqual(r.task.projectId, ''); assert.ok(r.problems.includes('Choose a project.'));
   r = parse('Assign rahul@suraasa.com the logo task under the CRM project by tomorrow, P1'); assert.ok(!r.task.name.includes('@'), r.task.name);
   const long = 'a '.repeat(200000), t0 = Date.now(); parse(long); assert.ok(Date.now() - t0 < 500);
+});
+test('second review: ordinary title words are not read as a date, a priority or a project', () => {
+  let r = parse('Assign the Monday report task to rahul@suraasa.com under the CRM project by tomorrow, P1');
+  assert.strictEqual(r.task.due, '2026-11-06'); assert.strictEqual(r.task.name, 'Monday report');
+  r = parse('Assign the urgent care outreach task to rahul@suraasa.com under the CRM project by tomorrow'); assert.strictEqual(r.task.priority, ''); assert.ok(r.problems.includes('Choose a priority.'));
+  r = parse('Assign the report for teachers task to rahul@suraasa.com under the CRM project by tomorrow, P1');
+  assert.strictEqual(r.task.name, 'report for teachers'); assert.strictEqual(r.task.projectId, 'PRJ-01'); assert.deepStrictEqual(r.problems, []);
+  assert.strictEqual(parse('Assign the x task to rahul@suraasa.com under the CRM project, P1 by next Friday').task.due, '2026-11-13');
 });
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');
