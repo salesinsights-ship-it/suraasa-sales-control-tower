@@ -106,7 +106,7 @@ You never receive a notification for your own action.
 | Manager comment | Task owner | A Super Admin or Manager comments on the task |
 | Review requested | Whoever assigned it, the project's owner, answerable and managers, and the task owner | Status becomes In Review or Awaiting Approval |
 
-Every email has the task name, ID, project, priority, deadline and a direct link. One save sends one email per person per kind of event, listing every item. Reminders and overdue notices are one summary per person per day.
+Every email has the task name, ID, project, priority, deadline and a direct link. One save sends one email per person per kind of event, listing up to 30 items. Reminders and overdue notices are one summary per person per day.
 
 ## Automation
 

@@ -76,7 +76,7 @@ To remove someone, edit them and set **Access** to **Inactive**. Their access en
 
 ## 9. Manage permissions
 
-Change **Role** on the employee's record. It applies at their next request. To let a Manager work on a project, make them its owner or add them under **Managers who can assign work here**. To hide a project from most people, make it restricted.
+Change **Role** on the employee's record. It applies at their next request. Give each person a different name: a name two people share gives neither of them rights on older tasks, so assign those by email instead. To let a Manager work on a project, make them its owner or add them under **Managers who can assign work here**. To hide a project from most people, make it restricted.
 
 ## 10. Troubleshooting
 

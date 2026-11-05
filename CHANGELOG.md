@@ -25,6 +25,19 @@
 - The site adds security headers, and no longer lets the server link be changed in the browser.
 - The site will not talk to an older script.
 
+**Found by independent review, and fixed**
+- A Manager could slip someone else into a task on a project they do not manage.
+- An Employee could see a project's details by writing themselves a task on it.
+- Two people with the same name both got rights to tasks under that name.
+- A lost server reply could create two tasks, or two emails after Back and Confirm.
+- Unsent work could be saved in the name of the next person on a shared browser.
+- A test email could reach an employee after going live, and used up the real email.
+- The daily email limit used up an email's retries.
+- The upgrade could lose a column with a blank or repeated heading, and editing milestones blanked hand-added columns.
+- Task IDs broke after T-999. Text starting with `=` could run as a formula in the Sheet or in a downloaded CSV.
+- Direct Sheet edits showed restricted text to Viewers.
+- The one-line command no longer picks between two dates, or matches a project from a stray word.
+
 **Screens**
 - **Administration > Employees**: IDs, departments, designations, managers, status and search.
 - **Administration > Integrations**: the state of the Sheet, email, sign-in and automation, with no secrets shown.

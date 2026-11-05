@@ -54,7 +54,9 @@ Sign-in is required unless `AUTH_REQUIRED` is `false` **and** `AUTH_OFF_UNTIL` i
 
 The `requestId` is stored on the task as `assignKey`. Sending the same confirmation again returns the same task, even after the 10-minute replay memory has gone.
 
-When any save changes `owner` or `ownerEmail`, the server works out the other one. An email must belong to a registered, active person. A name is matched to an email only if exactly one person has that name.
+When any save changes `owner` or `ownerEmail`, the server works out the other one. An email must belong to a registered, active person. A name is matched to an email only if exactly one person has that name, and a name two people share gives neither of them any rights.
+
+The site repeats an unconfirmed save with the same `requestId`, so a lost reply cannot apply it twice. Unsaved work in a browser belongs to whoever typed it: if someone else signs in on that browser, it is discarded rather than sent in their name.
 
 ## Notifications
 
@@ -64,14 +66,16 @@ Every email is first written to `NotificationLog` as `queued`, in the same step 
 |---|---|
 | `queued` | Waiting to be sent |
 | `accepted` | Google's mail service took it. **This does not prove it reached the inbox.** Apps Script cannot see that |
-| `failed` | Not sent. Retried after 5 minutes, 15 minutes, 1 hour, then 6 hours |
+| `failed` | Not sent. Retried after 5 minutes, 15 minutes, 1 hour, then 6 hours. Hitting the daily email limit waits an hour and costs no attempt |
 | `abandoned` | Failed 5 times. A Super Admin can restart it |
-| `skipped` | Emails were turned off |
+| `skipped` | Emails were off when the event happened. Emails already queued simply wait until they are back on |
 | `created` | An in-app notification, on the `in-app` channel |
 
 `dedupeKey` stops the same notice going twice. `batchId` groups one person's notices from one save, or one day's reminders, into one email.
 
-**Test mode** is the default. Until someone chooses **Emails: go live**, every email goes to the script owner.
+**Test mode** is the default. Until someone chooses **Emails: go live**, every email goes to the script owner. Each row keeps the mode it was queued in, so a test notice can never reach an employee after going live, and a test does not use up the real email.
+
+One email lists at most 30 items, and points to the dashboard for the rest, to stay within Google's size limit.
 
 ## Database changes
 
@@ -113,7 +117,7 @@ All changes add to the Sheet. Nothing is dropped or renamed, and `setupSheet` is
 | Tasks | ownerEmail, assignedBy, assignedByEmail, assignedAt |
 | Projects | ownerEmail, accountableEmail |
 
-They sit after `_extra` so every older column stays where it is. An older script can still read the Sheet, which keeps the upgrade reversible.
+They sit after `_extra` so every older column stays where it is. An older script can still read the Sheet, which keeps the upgrade reversible. `setupSheet` opens the gap by inserting columns, so columns added by hand move with their formulas and formats. The script reads only its own columns, so hand-added ones never enter a record.
 
 **Also new, in `_extra`:** `assignKey` on tasks, `managerEmails` on projects.
 

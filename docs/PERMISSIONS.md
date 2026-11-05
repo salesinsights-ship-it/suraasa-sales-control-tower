@@ -46,7 +46,9 @@ Notes:
 - Notes are added only in your own name. Server stamps (`createdBy`, `updatedAt`, `originalDue` and so on) and record IDs cannot be set from outside.
 - In the Users tab, `management` means Super Admin and `employee` means Employee.
 - Only a Super Admin can change a person's role, so a Manager cannot raise their own access.
-- Employees (Task Owners) receive only their own tasks and subtasks from the server, plus risks, dependencies, decisions, updates and actions on the projects those tasks are in.
+- Employees (Task Owners) receive only their own tasks and subtasks from the server, plus risks, dependencies, decisions, updates and actions on projects where someone else gave them work. A task they wrote for themselves does not open up its project.
+- Direct edits to the Sheet (`sheet_edit`) appear to Super Admins only.
+- Restoring a deleted item is for Super Admins only.
 - There must always be one active Administrator.
 - A role change or deactivation takes effect on that person's next request.
 - To change what a role may do, edit `deny_` and `TASK_OWNER_FIELDS`. Permissions are configurable by role assignment in the Users tab, but not yet through a screen.
