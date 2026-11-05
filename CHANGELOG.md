@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.1, 5 November 2026
+
+- A change made in the Google Sheet now appears on open pages within about 5 seconds, with no refresh.
+- Rows added or removed in the Sheet count too, once **Turn on instant updates to the website** is clicked.
+- Two quick edits in a row can no longer leave a page out of date.
+
 ## 3.0.0, 5 November 2026
 
 **Sign-in**
