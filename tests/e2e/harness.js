@@ -37,10 +37,9 @@ async function page(browser, b, opts = {}) {
   await p.route(/accounts\.google\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.google={accounts:{id:{initialize(c){window.__gsi=c},renderButton(el){el.textContent="Sign in with Google"},disableAutoSelect(){}}}}' }));
   if (opts.session) await p.addInitScript(s => { try { if (!sessionStorage.getItem('x')) { localStorage.setItem('sct_session', s); sessionStorage.setItem('x', '1'); } } catch (e) {} }, opts.session);
   if (opts.me) await p.addInitScript(m => localStorage.setItem('sct_me', m), opts.me);
-  if (!opts.session && opts.person !== null) await p.addInitScript(e => { if (!sessionStorage.getItem('out')) localStorage.setItem('sct_person', e); }, opts.person || 'divya@suraasa.com');
   await p.goto(opts.url || 'file://' + path.join(ROOT, 'dist', 'index.html'));
   await p.waitForTimeout(opts.fonts ? 1500 : 450);
-  if (!opts.session && !opts.person && opts.person !== null) await p.evaluate(n => SCT.actAs(n), opts.me || '');
+  if (!opts.session && opts.person !== null) await p.evaluate(n => SCT.actAs(n), opts.me || '');
   return p;
 }
 module.exports = { backend, page, CLIENT };

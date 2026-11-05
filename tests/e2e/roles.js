@@ -26,7 +26,7 @@ const wait = (p, ms) => p.waitForTimeout(ms || 250);
   await a.selectOption('#mgmt-emp-filter', ''); await wait(a);
   ok('Administrator: completion rate is right', num(await text(a), 'Completion Rate') === Math.round(live.filter(x => x.status === 'Completed').length / live.length * 100));
   ok('Administrator: has Administration', !!(await a.$('#nav [data-v="admin"]')));
-  ok('Administrator: full New menu', (await a.$$eval('#menu-new button:not([hidden])', x => x.length)) === 6);
+  ok('Administrator: full New menu', (await a.$$eval('#menu-new button:not([hidden])', x => x.length)) === 7);
   await a.context().close();
 
   const e = await page(br, b, { session: ak });
@@ -61,7 +61,7 @@ const wait = (p, ms) => p.waitForTimeout(ms || 250);
 
   const o = await page(br, b, { session: hos });
   ok('Project Owner: sees projects, not Administration', !!(await o.$('#nav [data-v="portfolio"]')) && !(await o.$('#nav [data-v="admin"]')));
-  ok('Project Owner: can plan', (await o.$$eval('#menu-new button:not([hidden])', x => x.length)) === 6);
+  ok('Project Owner: can plan', (await o.$$eval('#menu-new button:not([hidden])', x => x.length)) === 7);
   await o.context().close();
 
   const w = await page(br, b, { session: v });

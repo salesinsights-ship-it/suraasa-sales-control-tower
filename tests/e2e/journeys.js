@@ -171,7 +171,7 @@ const srv = (b, s) => b.post(Object.assign({ action: 'pull' }, s ? { session: s 
     const b2 = backend(false); const q = await page(br, b2);
     await p.context().close().catch(() => {});
     q.net.down = true; await q.evaluate(() => { localStorage.clear(); }); await q.reload().catch(() => {}); await wait(q, 700);
-    ok('G5 a new browser with no connection shows an error, not old sample data', /Could not load the data/.test(await q.textContent('#main')), (await q.textContent('#main')).slice(0, 60));
+    ok('G5 a new browser with no connection shows an error, not old sample data', /could not be reached/.test(await q.textContent('#signin')), (await q.textContent('#signin')).slice(0, 80));
     await q.context().close();
   }
 

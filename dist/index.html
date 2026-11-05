@@ -1250,6 +1250,56 @@ a.btn { text-decoration: none; }
   border-color: var(--accent);
 }
 
+/* ---------- email-based assignment, dashboards, directory ---------- */
+.stats.s8 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stats.s8 .stat:nth-child(5) { border-left: 0; }
+.stats.s8 .stat:nth-child(n+5) { border-top: 1px solid var(--line); }
+.cmd { margin-bottom: 18px; }
+.cmd label { display: block; margin-bottom: 4px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.cmd-row { display: flex; gap: 8px; }
+.cmd-row input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sheet); color: var(--ink); font: inherit; font-size: 14px; }
+.cmd-row .btn { flex: none; }
+.emp-match { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 14px; }
+.emp-match:empty { display: none; }
+.emp-match > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.emp-match.ok { padding: 8px 10px; border-radius: 6px; background: var(--green-bg); }
+.emp-match.no { color: var(--red); }
+.emp-av { display: grid; flex: none; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 600; }
+.kv-g.kv-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
+.done-list { margin: 12px 0 0; padding: 0; list-style: none; }
+.done-list li { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.done-list li:last-child { border-bottom: 0; }
+.done-list .pill { justify-self: start; }
+.chart-g { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 40px; margin-bottom: 28px; }
+.hbars { display: grid; gap: 2px; margin-top: 6px; }
+.hb { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr) 44px; gap: 10px; align-items: center; width: 100%; min-height: 28px; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; }
+button.hb { cursor: pointer; border-radius: 4px; }
+button.hb:hover { background: var(--tint); }
+.hb-l { overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.hb-t { display: block; height: 10px; border-radius: 0 4px 4px 0; background: var(--tint); overflow: hidden; }
+.hb-t i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--accent); }
+.hb b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.load { display: block; width: 100%; max-width: 160px; height: 4px; margin-top: 4px; border-radius: 2px; background: var(--tint); overflow: hidden; }
+.load i { display: block; height: 100%; background: var(--accent); }
+.t-red { color: var(--red); }
+.signin-card .auth-err { margin-top: 12px; }
+@media (max-width: 1180px) { .stats.s8 { grid-template-columns: repeat(4, minmax(0, 1fr)); } .stats.s8 .stat:nth-child(4) { border-left: 1px solid var(--line); } .stats.s8 .stat:nth-child(n+4) { border-top: 0; } .stats.s8 .stat:nth-child(n+5) { border-top: 1px solid var(--line); } .chart-g { gap: 22px 28px; } }
+@media (max-width: 820px) {
+  .stats.s8 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats.s8 .stat { border-left: 0; border-top: 1px solid var(--line); }
+  .stats.s8 .stat:nth-child(-n+2) { border-top: 0; }
+  .stats.s8 .stat:nth-child(even) { border-left: 1px solid var(--line); }
+  .chart-g { grid-template-columns: minmax(0, 1fr); }
+  .cmd-row { flex-wrap: wrap; }
+  .cmd-row input { flex-basis: 100%; }
+  .hb { grid-template-columns: minmax(0, 120px) minmax(0, 1fr) 40px; }
+  .done-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .kv-g.kv-2 { grid-template-columns: minmax(0, 1fr); }
+}
+.mgmt-controls label { min-width: 0; max-width: 100%; }
+.mgmt-emp-select { min-width: 0; max-width: 100%; }
+.mgmt-controls .mgmt-search { min-width: 0; }
+
 </style>
 </head>
 <body>
@@ -1277,6 +1327,7 @@ a.btn { text-decoration: none; }
         <div class="menu-wrap needs-write">
           <button class="btn primary new" data-act="menu" data-m="new" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New</span></button>
           <div class="menu right" id="menu-new" role="menu">
+            <button role="menuitem" data-act="assign-task">Assign a task by email</button>
             <button role="menuitem" data-act="add-task">Task</button>
             <button role="menuitem" data-act="add-project">Project</button>
             <button role="menuitem" data-act="add-decision">Decision</button>
@@ -1530,7 +1581,7 @@ const ENGINE = (function () {
     (d.audit || []).forEach(a => {
       if (a.actorName === name) return;
       const go = a.taskId ? { task: a.taskId } : a.projectId ? { project: a.projectId } : {};
-      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
+      if ((a.action === 'owner_changed' || a.action === 'task_assigned') && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
       if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
       const tk = a.taskId ? d.tasks.find(t => t.id === a.taskId) : null;
       if (tk && d.mine(tk.owner)) {
@@ -1550,7 +1601,82 @@ const ENGINE = (function () {
     return out.filter(n => (seen.has(n.id) ? false : seen.add(n.id))).sort((a, b) => ({ red: 0, amber: 1, info: 2 }[a.level] - { red: 0, amber: 1, info: 2 }[b.level]) || String(b.ts).localeCompare(String(a.ts)));
   }
 
-  return { TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
+  // ---------- one-line task commands ----------
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const pad = n => String(n).padStart(2, '0');
+  const iso = d => d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  const realDate = (y, m, d) => { const x = new Date(Date.UTC(y, m - 1, d)); return x.getUTCMonth() === m - 1 && x.getUTCDate() === d ? iso(x) : ''; };
+  /** Finds a date in the text. Dates are read day first, as in India. Returns { date, text } or null. */
+  function findDate(text, today) {
+    const base = new Date(today + 'T00:00:00Z'), add = n => iso(new Date(base.getTime() + n * 86400000));
+    const mon = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    const month = w => MONTHS.findIndex(m => m.startsWith(w.toLowerCase().slice(0, 3))) + 1;
+    const year = (d, m) => { const y = base.getUTCFullYear(), c = realDate(y, m, d); return c && c >= today ? y : y + 1; };
+    let m;
+    if ((m = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))) return { date: realDate(+m[1], +m[2], +m[3]), text: m[0] };
+    if ((m = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/))) return { date: realDate(+m[3], +m[2], +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + mon + '\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[1], month(m[2])), month(m[2]), +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b' + mon + '\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[2], month(m[1])), month(m[1]), +m[2]), text: m[0] };
+    if ((m = text.match(/\btoday\b/i))) return { date: today, text: m[0] };
+    if ((m = text.match(/\btomorrow\b/i))) return { date: add(1), text: m[0] };
+    if ((m = text.match(/\bin\s+(\d{1,3})\s+days?\b/i))) return { date: add(+m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b(next\\s+|this\\s+)?(' + DAYS.join('|') + ')\\b', 'i')))) {
+      const want = DAYS.indexOf(m[2].toLowerCase()), now = base.getUTCDay();
+      let gap = (want - now + 7) % 7 || 7;
+      if (/^next/i.test(m[1] || '') && gap < 7 && want > now) gap += 7;
+      return { date: add(gap), text: m[0] };
+    }
+    return null;
+  }
+  /**
+   * Reads a sentence into a task. It only fills in what it can prove: a person must match an email
+   * exactly, a project must match one project, and anything else is left blank and listed in problems.
+   * Whatever it returns still goes through the confirmation step and every check on the server.
+   * d = { today, projects, employees }
+   */
+  function parseCommand(text, d) {
+    const task = { name: '', desc: '', projectId: '', ownerEmail: '', priority: '', due: '' }, problems = [];
+    let rest = String(text || '').trim();
+    const take = m => { rest = rest.replace(m, ' '); };
+    const words = { critical: 'P0', urgent: 'P0', high: 'P1', medium: 'P2', normal: 'P2', low: 'P3' };
+    let m = rest.match(/(?:description|details)\s*[:\-]\s*(.+)$/i);
+    if (m) { task.desc = m[1].trim(); take(m[0]); }
+    m = rest.match(/[^\s@<>(),;"']+@[^\s@<>(),;"']+\.[a-z]{2,}/i);
+    if (m) {
+      const mail = m[0].toLowerCase().replace(/[.,;]+$/, ''), hit = (d.employees || []).find(u => String(u.email).toLowerCase() === mail);
+      task.ownerEmail = mail;
+      if (!hit) problems.push(mail + ' is not a registered employee.');
+    } else problems.push('Add the employee\'s email.');
+    m = rest.match(/\b(critical|urgent|high|medium|normal|low)[\s-]*priority\b/i) || rest.match(/\bpriority\s*(?:is|of|:|-)?\s*(critical|urgent|high|medium|normal|low)\b/i);
+    if (m) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
+    else if ((m = rest.match(/\b(P[0-3])\b/))) { task.priority = m[1]; take(m[0]); }
+    else if ((m = rest.match(/\b(critical|urgent)\b/i))) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
+    else problems.push('Choose a priority.');
+    const clue = rest.match(/\b(?:deadline(?:\s+is|\s+of|:)?|due(?:\s+on|\s+by|:)?|by|before|on)\s+(.{3,40}?)(?:[.;]|$)/i);
+    const found = (clue && findDate(clue[1], d.today)) || findDate(rest, d.today);
+    if (found && found.date) {
+      task.due = found.date;
+      take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + found.text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
+    } else problems.push('Choose a deadline.');
+    if (task.due && task.due < d.today) problems.push('The deadline is in the past.');
+    const named = rest.match(/\b(?:under|for|in|on|to)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i) || rest.match(/\bproject\s*(?:is|:|-|called|named)?\s*["']?([^.,;"']+)["']?/i);
+    if (named) {
+      const want = named[1].trim(), low = want.toLowerCase(), list = d.projects || [];
+      const exact = list.filter(p => String(p.name).toLowerCase() === low || String(p.id).toLowerCase() === low);
+      const near = exact.length ? exact : list.filter(p => String(p.name).toLowerCase().includes(low));
+      if (near.length === 1) task.projectId = near[0].id;
+      else if (near.length) problems.push('"' + want + '" could be ' + near.slice(0, 3).map(p => p.name).join(' or ') + '. Choose one.');
+      else problems.push('No project you manage is called "' + want + '".');
+      take(named[0]);
+    } else problems.push('Choose a project.');
+    m = rest.match(/["\u201c]([^"\u201d]{2,})["\u201d]/) || rest.match(/\b(?:assign|create|add|give)\s+(?:the|a|an)?\s*(.+?)\s+task\b/i) || rest.match(/\b(?:task|title)\s*[:\-]\s*([^.;]+)/i);
+    if (m) task.name = m[1].replace(/\s+/g, ' ').trim();
+    if (!task.name || /^(new|a|an|the)$/i.test(task.name)) { task.name = ''; problems.push('Add a task title.'); }
+    return { task, problems };
+  }
+
+  return { parseCommand, TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
 })();
 if (typeof module !== 'undefined') module.exports = ENGINE;
 
@@ -1614,42 +1740,11 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   };
 
   let S = null; // State object
-  const ME = { role: 'Viewer', email: '', name: '', open: false, local: false }; // from the server, or from the sign-in on this page
-  const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Di4qDz4_bpKm7DB2SpjZV2dtOKJBBxS6-dnm99fk3lc/edit';
-  // The team and their sign-in keys. A key is a one-way hash, so the page holds no readable password.
-  const TEAM = [
-    { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'Administrator', keys: ['3d085fc6a361dff2b99daff2c333fe4ca2104dfbe28862d4d9cd7a534815c3b5', '89d68c644ed42105512dddf7fa648d57f33dac0fa87e332ac3d35a785da7c54b'] },
-    { name: 'Manish Pandey', email: 'manish@suraasa.com', role: 'Administrator', keys: ['8a745357a46b8a6282770353117d42439e52efcd4668eb0a8792515bebcf41b4', '93bac088a8457f6980b360ae88378e4836ba459d0c5e90acf8d23acf2708a734'] },
-    { name: 'Rishabh Khanna', email: 'rk@suraasa.com', role: 'Administrator', keys: ['a9cd52c2eb5cddd3fbb757f18c84563a94adc539465c713740b4fc8428a35bcc', 'db02967dcb45a179b7443cb9043d5348c17052aad28b4106ef254df7ea83f86c'] },
-    { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', role: 'Administrator', keys: ['252a6aecbd718f21af20a3759060d282a228cd0d8e69212bc99e94b6467de93c', '9aa861d5bc0ab2b569798ecd512498360c708b11d470540f53d98e108629c4de'] },
-    { name: 'Divya', email: 'divya@suraasa.com', role: 'Administrator', keys: ['21f59f60ae6996693fe800f78112428d1db93896cfc0e3e0190b8ee1370a627e', 'c4221783480e40760558f93cb63ad8098588d34cecc6b2e7edc23f9184a9fd79'] },
-    { name: 'Akhand Mishra', email: 'akhand@suraasa.com', role: 'Task Owner', keys: ['26bec9833931e03feb7b7a81fceb7627b3c99199e26655d6b4c9731b75bbd069', 'e92dc701282c640481e59ec18925f4724e07e35fa21ee5b4208c0d2b4dd1b077'] },
-    { name: 'Atishay', email: 'aj@suraasa.com', role: 'Task Owner', keys: ['535685bae8b6b67b0d81dc2706a7a6b21be12ba76345f775da43af6d7d2809af', '4b39fbc62b0970d83c375da9b1d8164984b3ce9526c6eb050e48777a043bca31'] },
-    { name: 'Sales Operations', email: 'salesinsights@suraasa.com', role: 'Task Owner', keys: ['b4e5519ffc0a259733bb72c500f4e93b94b3ba93672aa8eacc7bb3a66463a41b', '2bb2425b3ad834bdba5ecfb3cf10cd03d8aacbdaa5f8ccb2254d6db27349d67b'] },
-    { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', role: 'Task Owner', keys: ['390915ab1fd9bd9f4ac623f0a1766b39c8ab75d817967d3b3fd3c7a092379e08', '690d6d174f11e4fdf502f90aad477e98cc8817af216a8773a008984a6cc68e4a'] },
-    { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', role: 'Task Owner', keys: ['3ef241db9ac13e8205dead18367a61f05af4c28402be492b468555c97d8c525c', 'd0425f3d0f6e0374274462991c28977d0aef40081b95facaf6406e23e910aff6'] },
-    { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', role: 'Task Owner', keys: ['50e37a1b557664639d427ddf528192c9075c00a46b88cc84d67b0209499bc52f', '15f5b68a207197117b1bbd92a4ff49894f9d2e0e952a8243799d325240164778'] },
-    { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', role: 'Task Owner', keys: ['76f02e8c54e95b635dcc6661fd23851367b5f5b9eb946044a4ec2e01fd8c589c', '33f83f3be9f75443be74d08114597be8207e3746b3d179e695b1f26af07c39f9'] }
-  ];
-  const SHARED_KEY = '1f1741b0597df655a02203bfb278144b16822370d764ff7c26eacb7b7c909832';
-  const loginKey = async (email, pw) => {
-    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('suraasa-control-tower|' + email + '|' + pw));
-    return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
-  };
-  async function checkLogin(email, password) {
-    const mail = String(email || '').trim().toLowerCase(), pw = String(password || '').trim();
-    const u = TEAM.find(x => x.email === mail);
-    if (!u) return { error: 'No account found with this email.' };
-    const first = u.name.split(' ')[0].toLowerCase();
-    let ok = !!pw && pw.toLowerCase().includes(first) && pw.includes('2026');
-    if (!ok && pw) {
-      try { ok = u.keys.includes(await loginKey(mail, pw)) || (await loginKey('*', pw)) === SHARED_KEY; }
-      catch (e) { return { error: 'This browser could not check the password. Open the site over https.' }; }
-    }
-    return ok ? { user: u } : { error: 'Incorrect password for ' + mail + '.' };
-  }
-  const savedPerson = () => { try { return TEAM.find(x => x.email === localStorage.getItem('sct_person')) || null; } catch (e) { return null; } };
-  function applyPerson(u) { ME.role = u.role; ME.email = u.email; ME.name = u.name; ME.open = false; ME.local = true; UI.me = u.name; }
+  const ME = { role: 'Viewer', email: '', name: '', aliases: [], open: false }; // always from the server
+  // Set when the site is built. See build.js.
+  const CONFIG = {"apiUrl":"https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec"};
+  const ROLE_LABEL = { 'Administrator': 'Super Admin', 'Project Owner': 'Manager', 'Task Owner': 'Employee', 'Viewer': 'Viewer' };
+  const sheetLink = () => (window.SYNC && SYNC.sheetUrl) || '';
   const UI = {
     view: 'overview',
     projectId: null,
@@ -1698,6 +1793,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   const daysFromToday = s => { const d = dnum(s); return d == null ? null : d - dnum(todayStr()); };
   const fmt = s => { if (!s) return '<span class="tbd">TBD</span>'; if (!isDate(s)) return esc(s); const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); };
   const fmtShort = s => { if (!s || !isDate(s)) return ''; const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  const fmtLong = s => { if (!isDate(s)) return s || 'Not set'; return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); };
   const dueBadge = s => {
     if (!s || !isDate(s)) return '<span class="brief-tag">No due date</span>';
     const d = daysFromToday(s);
@@ -1740,17 +1836,12 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = '';
           let changed = false;
-          if (!S.meta.sync) {
-            S.meta.sync = { url: '', enabled: false, autoSync: false, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
-            changed = true;
-          } else if (S.meta.sync.enabled || S.meta.sync.url) {
-            S.meta.sync.url = '';
-            S.meta.sync.enabled = false;
-            S.meta.sync.autoSync = false;
-            S.meta.sync.status = 'idle';
-            S.meta.sync.error = null;
+          // Work typed while the site was disconnected from the Sheet has no base copy to compare with.
+          // It is kept aside, and can be downloaded from Administration, rather than lost.
+          if (!localStorage.getItem(BASE_KEY) && d.tasks.length && !localStorage.getItem('sct_browser_copy')) localStorage.setItem('sct_browser_copy', raw);
+          if (!S.meta.sync || S.meta.sync.url !== CONFIG.apiUrl || !S.meta.sync.enabled) {
+            S.meta.sync = Object.assign({}, S.meta.sync || {}, { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, status: 'idle', error: null });
             changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
@@ -1772,6 +1863,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       }
     } catch (e) { console.warn('localStorage read failed', e); }
     S = buildSeed();
+    S.meta.sync = { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
     save(false);
   }
 
@@ -2122,7 +2214,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       lower = [];
     }
     $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '') +
-      (seesAll() ? '<a class="nav-link" href="' + SHEET_URL + '" target="_blank" rel="noopener" aria-label="Open Google Sheet in a new tab">' + ico('sheet') + '<span>Open Google Sheet</span></a>' : '');
+      (sheetLink() ? '<a class="nav-link" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener" aria-label="Open Google Sheet in a new tab">' + ico('sheet') + '<span>Open Google Sheet</span></a>' : '');
     
     const tabs = (seesAll()) ?
       [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
@@ -2130,14 +2222,14 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const others = seesAll() ? NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower) : [];
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
-      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '<a role="menuitem" href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a></div></div>' : '');
+      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + (sheetLink() ? '<a role="menuitem" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '</div></div>' : '');
     $('#bell').innerHTML = ico('notifications') + (unread ? '<span class="count">' + unread + '</span>' : '');
     $('#bell').setAttribute('aria-label', 'Notifications' + (unread ? ', ' + unread + ' unread' : ''));
   }
 
   function renderMe() {
     document.body.classList.toggle('ro', !canWrite());
-    ['add-project', 'add-decision', 'add-risk', 'add-dep'].forEach(a => { const b = $('#menu-new [data-act="' + a + '"]'); if (b) b.hidden = !canPlan(); });
+    ['assign-task', 'add-project', 'add-decision', 'add-risk', 'add-dep'].forEach(a => { const b = $('#menu-new [data-act="' + a + '"]'); if (b) b.hidden = !canPlan(); });
     $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : ico('myprojects');
     $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Profile');
     const open = $('#menu-me').classList.contains('open');
@@ -2150,7 +2242,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         '<button data-act="open-profile">My Profile</button>';
     }
     $('#menu-me').innerHTML = accountInfo +
-      (seesAll() ? '<a href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') +
+      (sheetLink() ? '<a href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') +
       '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' +
       (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
     if (open) $('#menu-me').classList.add('open');
@@ -2172,7 +2264,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     hideTip();
     const y = window.SYNC;
     const first = y && y.config.enabled && !y.base;
-    $('#main').innerHTML = first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq);
+    $('#main').innerHTML = (ME.open ? '<p class="flag red"><span><b>Emergency access is on.</b> Anyone with the link can read and change this data until it ends by itself. Fix the Users tab, then wait for it to end.</span></p>' : '') + (first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq));
     if (keep) { try { const n = $(keep); if (n) n.focus(); } catch (e) { /* selector unavailable */ } }
     if (window.SYNC && window.SYNC.updateUI) window.SYNC.updateUI();
   }
@@ -2375,11 +2467,13 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
 
   function vEmployeeDashboard() {
     const meName = ME.name || UI.me || 'Employee';
-    const mineOnly = t => isMine(t.owner) || isMine(t.accountable);
+    const mineOnly = t => ownsT(t) || isMine(t.accountable);
     const myTasks = liveTasks().filter(t => !ENGINE.isCancelled(t) && mineOnly(t));
     const pendingTasks = myTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
     const inProgressTasks = myTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
     const completedTasks = myTasks.filter(t => t.status === 'Completed');
+    const overdueTasks = myTasks.filter(taskOverdue);
+    const upcoming = myTasks.filter(t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 14).sort((a, b) => a.due.localeCompare(b.due));
 
     const recentAudit = (S.audit || []).filter(a => {
       return a.actorEmail === ME.email || (a.taskId && myTasks.some(t => t.id === a.taskId));
@@ -2406,17 +2500,18 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       '<div class="emp-welcome-hero">' +
       '<div class="emp-welcome-text">' +
       '<h1>Welcome, ' + esc(meName) + '</h1>' +
-      '<p>' + esc(ME.email) + ' <span class="emp-role-badge">Employee</span></p>' +
+      '<p>' + esc([ME.email, ME.designation, ME.department].filter(Boolean).join(' · ')) + ' <span class="emp-role-badge">Employee</span></p>' +
       '</div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' +
       ico('myprojects') +
-      '<span>View & Edit Profile</span>' +
+      '<span>View Profile</span>' +
       '</button>' +
       '</div>' +
       '<div class="stats">' +
       stat('My Pending Tasks', pendingTasks.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
       stat('My In-Progress Tasks', inProgressTasks.length, '', 'Active & under review', 'nav', 'data-v="tasks"') +
       stat('My Completed Tasks', completedTasks.length, '', pct(completedTasks.length, myTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(completedTasks.length, myTasks.length), 'green']) +
+      stat('Overdue', overdueTasks.length, '', overdueTasks.length ? 'Needs you first' : 'Nothing late', 'nav', 'data-v="tasks"') +
       stat('Total Assigned Tasks', myTasks.length, '', 'Assigned to you', 'nav', 'data-v="tasks"') +
       '</div>' +
       '<div class="dash-g">' +
@@ -2425,7 +2520,9 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       (myTasks.length ? '<div class="rows">' + taskItems + '</div>' : emptyLine('No open tasks', 'You are all caught up! New tasks will appear here when assigned to you.')) +
       '</section>' +
       '<section class="panel">' +
-      '<div class="s-h"><h2>My Recent Activity & History</h2></div>' +
+      '<div class="s-h"><h2>Upcoming deadlines</h2></div>' +
+      (upcoming.length ? '<div class="facts-l">' + upcoming.slice(0, 6).map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort(t.due)) + '</b></button>').join('') + '</div>' : '<p class="quiet">Nothing is due in the next 14 days.</p>') +
+      '<div class="s-h" style="margin-top:22px"><h2>My Recent Activity & History</h2></div>' +
       (recentAudit.length ? '<ul class="tl">' + recentAudit.map(a => '<li><time>' + esc(shortTime(a.ts)) + '</time><span>' + esc(a.text) + '</span></li>').join('') + '</ul>' : '<p class="quiet">No activity recorded yet for your tasks.</p>') +
       '<h3 style="margin-top:20px;">Profile & Account</h3>' +
       '<div class="facts-l">' +
@@ -2436,10 +2533,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   }
 
   function vManagementDashboard(st, aq) {
-    const allTasks = liveTasks().filter(t => !ENGINE.isCancelled(t));
-    const allDone = liveTasks().filter(t => t.status === 'Completed');
-    const allPending = allTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
-    const allInProgress = allTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+    const everyTask = liveTasks().filter(t => !ENGINE.isCancelled(t));
 
     // One entry per person: "AK, Divya" is two people, and team or role names are not people.
     const notPeople = new Set((S.roles || []).filter(r => !/^Confirmed$|team/i.test(r.kind || '') || /^(Setters|Closers)$/.test(r.name)).map(r => r.name.toLowerCase()));
@@ -2448,13 +2542,19 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     (S.users || []).forEach(u => { if (u.name && u.active !== false) empSet.add(u.name); });
     const empList = Array.from(empSet).sort();
 
-    const filterEmp = UI.mgmtEmpFilter || '';
+    const filterEmp = UI.mgmtEmpFilter || '', filterProj = UI.mgmtProject || '';
     const searchQ = (UI.mgmtSearchQ || '').toLowerCase().trim();
+    const people = (S.directory || []).concat((S.users || []));
+    const emailOf = n => { const u = people.find(x => x.name === n); return u ? u.email : ''; };
+    const hasOwner = (t, n) => { const m = emailOf(n), own = String(t.ownerEmail || '').toLowerCase(); return own && m ? own.split(/\s*,\s*/).includes(m) : sameName(t.owner, n); };
+    const employees = empList.map(name => ({ name, has: t => hasOwner(t, name) }));
 
+    const allTasks = filterProj ? everyTask.filter(t => t.projectId === filterProj) : everyTask;
     let displayTasks = allTasks;
     if (filterEmp) {
-      displayTasks = displayTasks.filter(t => sameName(t.owner, filterEmp) || sameName(t.accountable, filterEmp));
+      displayTasks = displayTasks.filter(t => hasOwner(t, filterEmp) || sameName(t.accountable, filterEmp));
     }
+    const scoped = filterEmp ? displayTasks : allTasks, d = dashSplit(scoped);
     if (searchQ) {
       displayTasks = displayTasks.filter(t => {
         return (t.name || '').toLowerCase().includes(searchQ) ||
@@ -2478,11 +2578,15 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       '<div class="dash-h"><div><h1>Sales Management Control Tower</h1>' +
       '<p class="quiet">Executive Oversight &bull; ' + new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</p></div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' + ico('myprojects') + '<span>' + esc(ME.name || 'Management') + ' (Profile)</span></button></div>' +
-      '<div class="stats">' +
-      stat('Total Tasks', allTasks.length, '', 'Across all active projects', 'nav', 'data-v="tasks"') +
-      stat('Pending Tasks', allPending.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
-      stat('In-Progress Tasks', allInProgress.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(allInProgress.length, allTasks.length), 'blue']) +
-      stat('Completed Tasks', allDone.length, '', pct(allDone.length, allTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(allDone.length, allTasks.length), 'green']) +
+      (canPlan() ? '<form class="cmd no-print" data-act="cmd-form"><label for="cmd-text">Assign in one line</label><div class="cmd-row"><input id="cmd-text" autocomplete="off" placeholder="Assign the high priority website redesign task to name@suraasa.com under the CRM project by 10 November 2026"><button class="btn" type="submit">Review</button><button class="btn primary" type="button" data-act="assign-task">Assign a task</button></div></form>' : '') +
+      '<div class="stats s8">' +
+      stat('Total Tasks', d.total, '', filterEmp || filterProj ? 'With these filters' : 'Across all active projects', 'nav', 'data-v="tasks"') +
+      stat('Assigned', d.assigned.length, 'of ' + d.total, 'Have a confirmed owner', 'go-unassigned') +
+      stat('Pending Tasks', d.pending.length, '', 'Not started, backlog or on hold', 'nav', 'data-v="tasks"') +
+      stat('In-Progress Tasks', d.active.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(d.active.length, d.total), 'blue']) +
+      stat('Completed Tasks', d.done.length, '', pct(d.done.length, d.total) + '% complete', 'nav', 'data-v="tasks"', [pct(d.done.length, d.total), 'green']) +
+      stat('Overdue', d.overdue.length, '', d.overdue.length ? 'Past their deadline' : 'Nothing late', 'nav', 'data-v="tasks"') +
+      stat('Completion Rate', pct(d.done.length, d.total) + '%', '', d.done.length + ' of ' + d.total + ' tasks', 'nav', 'data-v="reports"') +
       stat('Total Employees', empList.length, '', 'Tracked task assignees', 'go-unassigned') +
       '</div>' +
       '<div class="mgmt-controls no-print">' +
@@ -2493,7 +2597,11 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       '<select class="mgmt-emp-select" id="mgmt-emp-filter">' +
       '<option value="">All Employees (' + empList.length + ')</option>' +
       empList.map(emp => '<option value="' + esc(emp) + '" ' + (filterEmp === emp ? 'selected' : '') + '>' + esc(emp) + '</option>').join('') +
+      '</select></label>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink-2);"><span>Project:</span><select class="mgmt-emp-select" id="mgmt-proj-filter"><option value="">All Projects</option>' +
+      liveProjects().map(p => '<option value="' + esc(p.id) + '" ' + (filterProj === p.id ? 'selected' : '') + '>' + esc(p.name) + '</option>').join('') +
       '</select></label></div>' +
+      dashCharts(scoped, employees) +
       '<div class="dash-g">' +
       '<section class="panel">' +
       '<div class="s-h"><h2>All Employee Tasks (' + displayTasks.length + (filterEmp ? ' for ' + esc(filterEmp) : '') + ')</h2><button class="linkbtn" data-act="nav" data-v="tasks">View Full Tasks Grid</button></div>' +
@@ -2505,13 +2613,13 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       '<h3>Tasks per Employee</h3>' +
       '<div class="facts-l">' +
       empList.slice(0, 8).map(emp => {
-        const count = allTasks.filter(t => sameName(t.owner, emp) && !ENGINE.isDone(t)).length;
+        const count = allTasks.filter(t => hasOwner(t, emp) && !ENGINE.isDone(t)).length;
         return '<button class="fl" data-act="filter-emp-quick" data-emp="' + esc(emp) + '"><span>' + esc(emp) + '</span><b>' + count + ' active</b></button>';
       }).join('') +
       '</div>' +
       '<h3 style="margin-top:20px;">Execution Breakdown</h3>' +
       '<div class="facts-l">' +
-      '<div class="fl"><span>Completion Rate</span><b>' + pct(allDone.length, allTasks.length) + '%</b></div>' +
+      '<div class="fl"><span>Completion Rate</span><b>' + pct(d.done.length, d.total) + '%</b></div>' +
       '<div class="fl"><span>Blocked / Slipping</span><b>' + allTasks.filter(t => t.status === 'Blocked').length + ' blocked</b></div>' +
       '<div class="fl"><span>In Review</span><b>' + allTasks.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)).length + ' review</b></div>' +
       '</div></section></div></div>';
@@ -2520,7 +2628,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   function vOverviewLegacy(st, aq) {
     if (taskOnly() && UI.me) return vHomeTask();
     const me = UI.me;
-    const mineT = t => !me || isMine(t.owner) || isMine(t.accountable);
+    const mineT = t => !me || ownsT(t) || isMine(t.accountable);
     const tasks = liveTasks().filter(t => !ENGINE.isCancelled(t)).filter(mineT);
     const openT = tasks.filter(ENGINE.isOpen);
     const dec = S.decisions.filter(d => openDec(d) && mineMatch(d.owner)).sort((a, b) => (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
@@ -2793,7 +2901,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const f = UI.taskFilter === 'pending' && UI.me && !UI.tasksTouched ? 'my' : UI.taskFilter;
     const wk = t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) <= 7;
     const F = {
-      all: () => true, my: t => UI.me && (isMine(t.owner) || isMine(t.accountable)) && ENGINE.isOpen(t),
+      all: () => true, my: t => UI.me && (ownsT(t) || isMine(t.accountable)) && ENGINE.isOpen(t),
       overdue: taskOverdue, week: wk, pending: ENGINE.isOpen, completed: t => t.status === 'Completed', cancelled: ENGINE.isCancelled, blocked: t => t.status === 'Blocked', review: t => ['In Review', 'Awaiting Approval'].includes(t.status),
       parked: t => t.status === 'On Hold', dropped: ENGINE.isCancelled,
       approval: t => (t.status === 'Awaiting Approval' || t.status === 'In Review' || t.kind === 'Decision') && ENGINE.isOpen(t),
@@ -2814,7 +2922,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const active = ['tproject', 'tprio', 'towner', 'tweek'].filter(k => ff[k]).length;
     const narrow = active > 0 || f !== 'pending';
     let body;
-    if (UI.tview === 'board') body = boardView(base.filter(f === 'completed' ? F.completed : t => (f === 'pending' ? !ENGINE.isCancelled(t) : (F[f] || F.pending)(t) || (f === 'my' && UI.me && isMine(t.owner) && t.status === 'Completed'))));
+    if (UI.tview === 'board') body = boardView(base.filter(f === 'completed' ? F.completed : t => (f === 'pending' ? !ENGINE.isCancelled(t) : (F[f] || F.pending)(t) || (f === 'my' && UI.me && ownsT(t) && t.status === 'Completed'))));
     else if (UI.tview === 'calendar') body = calendarView(list);
     else if (!list.length) {
       body = f === 'my' && !UI.me ? '' : emptyLine('No tasks here', f === 'pending' ? 'Add a task to get started.' : 'Try another view above.');
@@ -2893,7 +3001,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       const go = allowed.filter(t => !stuck.includes(t));
       if (!confirm('Change ' + set.join(', ') + ' on ' + plural(go.length, 'task') + '?' + (skipped + stuck.length ? ' ' + plural(skipped + stuck.length, 'task') + ' will be left as they are.' : ''))) return false;
       go.forEach(t => {
-        if (o.owner) t.owner = o.owner;
+        if (o.owner) { t.owner = o.owner; t.ownerEmail = ''; }
         if (o.due) t.due = o.due;
         if (o.priority) t.priority = o.priority;
         if (o.status && t.status !== o.status) applyStatus(t, o.status, '');
@@ -3201,6 +3309,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   }
 
   // ---------- Data & settings ----------
+  const browserCopy = () => { try { return localStorage.getItem('sct_browser_copy') || ''; } catch (e) { return ''; } };
   function vData() {
     const sz = (() => { try { return Math.round((localStorage.getItem(KEY) || '').length / 1024); } catch (e) { return '?'; } })();
     const sync = (S.meta && S.meta.sync) || { url: '', enabled: false, autoSync: true, status: 'idle' };
@@ -3217,31 +3326,31 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     <section class="sec" id="sync-card"><div class="s-h"><h2>Google Sheet</h2><span class="pill ${stateWord[1]}">${stateWord[0]}</span></div>
       <p class="quiet">Changes here save to the Sheet, and edits in the Sheet appear here. Last synced ${sync.lastSync ? new Date(sync.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet'}.</p>
       ${sync.error ? '<p class="flag">' + esc(sync.error) + '</p>' : ''}
-      <div class="btnrow"><a class="btn" href="${SHEET_URL}" target="_blank" rel="noopener">Open Google Sheet</a><button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Send everything to Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div>
-      <details class="acc"><summary>${CHEV}Connection settings</summary><div class="acc-bd"><div class="form one">
-        <div class="f"><label for="sync-url-input">Apps Script web app URL</label><div class="btnrow nowrap"><input id="sync-url-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(sync.url || '')}"><button class="btn" data-act="save-sync-config">Save</button></div></div>
-        <label class="check"><input type="checkbox" id="sync-auto-input" ${sync.autoSync !== false ? 'checked' : ''}> Save to the Sheet automatically</label>
-      </div></div></details></section>
+      <div class="btnrow">${sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : ''}<button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Save changes now</button><button class="btn" data-act="sync-test">Test connection</button></div></section>
     <section class="sec"><h2>Download</h2><div class="btnrow"><button class="btn" data-act="export-csv" data-what="projects">Projects</button><button class="btn" data-act="export-csv" data-what="tasks">Tasks</button><button class="btn" data-act="export-csv" data-what="risks">Risks</button><button class="btn" data-act="export-csv" data-what="dependencies">Dependencies</button><button class="btn" data-act="export-csv" data-what="decisions">Decisions</button><button class="btn" data-act="export-json">Full backup</button><button class="btn" data-act="print-portfolio">Print projects</button></div></section>
     <details class="acc"><summary>${CHEV}Dropdown lists</summary><div class="acc-bd"><div class="rows">${optRows}</div></div></details>
     <details class="acc"><summary>${CHEV}Restore from a backup</summary><div class="acc-bd"><label class="f"><span class="quiet">Choose a backup file. It replaces everything here after you confirm.</span><input type="file" id="importFile" accept="application/json,.json"></label></div></details>
     <details class="acc"><summary>${CHEV}History (${S.activity.length})</summary><div class="acc-bd">${S.activity.slice(0, 60).map(a => '<div class="comment"><p>' + esc(a.text) + '</p><span class="quiet">' + new Date(a.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</span></div>').join('')}</div></details>
     <details class="acc"><summary>${CHEV}Data summary</summary><div class="acc-bd"><p class="quiet">${plural(S.projects.length, 'project')}, ${plural(S.tasks.length, 'task')}, ${plural(S.projects.reduce((a, p) => a + (p.milestones || []).length, 0), 'milestone')}, ${plural(S.risks.length, 'risk')}, ${plural(S.dependencies.length, 'dependency', 'dependencies')}, ${plural(S.decisions.length, 'decision')}, ${plural(S.updates.length, 'weekly update')}. Using ${sz} KB in this browser.</p></div></details>
-    <details class="acc"><summary>${CHEV}Reset</summary><div class="acc-bd"><p class="quiet">Replaces everything in this browser with the original data from the 30 Oct 2026 brief.</p><button class="btn danger" data-act="reset">Reset to original data</button></div></details>`;
+    <details class="acc"><summary>${CHEV}Reset this browser</summary><div class="acc-bd"><p class="quiet">Throws away the copy in this browser and reloads from the Google Sheet. The Sheet does not change.</p><button class="btn danger" data-act="reset">Reload from the Sheet</button></div></details>
+    ${browserCopy() ? '<details class="acc"><summary>' + CHEV + 'Work saved in this browser</summary><div class="acc-bd"><p class="quiet">This browser held a copy that was never saved to the Sheet, from when the site was disconnected. Download it to check nothing is missing.</p><button class="btn" data-act="download-copy">Download the copy</button></div></details>' : ''}`;
   }
 
   // ---------- people and permissions (the Sheet backend enforces the same rules) ----------
   const sameName = (field, name) => !!name && !/^\s*tbd/i.test(String(field || '')) && String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === String(name).trim().toLowerCase());
-  const isMine = v => sameName(v, UI.me);
-  const ownsP = p => !!p && (isMine(p.owner) || isMine(p.accountable));
-  const roleName = () => ME.local ? (ME.role === 'Administrator' ? 'Management' : 'Employee') : ME.role;
+  const isMine = v => sameName(v, UI.me) || (ME.aliases || []).some(a => sameName(v, a));
+  // A registered email decides. Older records fall back to the exact name, as on the server.
+  const holds = (rec, name, mail) => { const m = String(rec[mail] || '').toLowerCase(); return m && ME.email ? m.split(/\s*,\s*/).includes(ME.email) : isMine(rec[name]); };
+  const ownsT = t => holds(t, 'owner', 'ownerEmail');
+  const ownsP = p => !!p && (holds(p, 'owner', 'ownerEmail') || holds(p, 'accountable', 'accountableEmail') || (p.managerEmails || []).includes(ME.email));
+  const roleName = () => ROLE_LABEL[ME.role] || ME.role;
   const isAdmin = () => ME.role === 'Administrator';
   const seesAll = () => ME.role !== 'Task Owner';
   const canPlan = () => ME.role === 'Administrator' || ME.role === 'Project Owner';
   const canWrite = () => ME.role !== 'Viewer';
   const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
   const canManageT = t => canManageP(P(t.projectId));
-  const canWorkT = t => canManageT(t) || (canWrite() && isMine(t.owner));
+  const canWorkT = t => canManageT(t) || (canWrite() && ownsT(t));
   const taskOnly = () => ME.role === 'Task Owner' || (ME.open && !!UI.me && !S.projects.some(ownsP));
   const liveProjects = () => S.projects.filter(p => !p.archivedAt);
   const liveTasks = () => { const off = new Set(S.projects.filter(p => p.archivedAt).map(p => p.id)); return S.tasks.filter(t => !off.has(t.projectId)); };
@@ -3504,7 +3613,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       '<section class="ts"><h3>Links and files</h3>' + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
       '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
       '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
-      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
     const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
     $('#modal-root').innerHTML = h;
     $('#modal-root')._dirty = false;
@@ -3572,7 +3681,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
 
   // ---------- task owner home ----------
   function vHomeTask() {
-    const mine = liveTasks().filter(t => isMine(t.owner));
+    const mine = liveTasks().filter(ownsT);
     const open = mine.filter(ENGINE.isOpen);
     const d = t => isDate(t.due) ? daysFromToday(t.due) : null;
     const late = open.filter(t => d(t) != null && d(t) < 0), today = open.filter(t => d(t) === 0), week = open.filter(t => d(t) != null && d(t) >= 0 && d(t) <= 7);
@@ -3624,11 +3733,225 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const list = myNotifications(), read = readSet();
     const unread = list.filter(n => !read.has(n.id)).length;
     const f = UI.notifTab;
+    if (f === 'log') return '<div class="page-h"><h1>Notifications</h1></div><div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length], ['log', 'Email log']], f) + '</div>' + notifLogView();
     const shown = f === 'unread' ? list.filter(n => !read.has(n.id)) : list;
     return `<div class="page-h"><h1>Notifications</h1>${unread ? '<button class="btn" data-act="notif-all">Mark all as read</button>' : ''}</div>
-      ${UI.me ? '<div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length]], f) + '</div>' : ''}
+      ${UI.me ? '<div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length]].concat(canPlan() ? [['log', 'Email log']] : []), f) + '</div>' : ''}
       ${!UI.me ? emptyLine('Choose your name to see your notifications', 'Use the person icon at the top right.') : shown.length ? '<div class="rows">' + shown.map(n => '<div class="r r-note' + (read.has(n.id) ? ' is-read' : '') + '" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'><span class="mark ' + ({ red: 'red', amber: 'amber', info: 'ring' }[n.level]) + '"></span><span class="r-main"><button class="r-t" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'>' + esc(n.text) + '</button><span class="r-s">' + esc(n.kind) + (n.ts ? ', ' + esc(shortTime(n.ts)) : '') + '</span></span>' + (read.has(n.id) ? '' : '<button class="linkbtn" data-act="notif-read" data-n="' + esc(n.id) + '">Mark as read</button>') + '</div>').join('') + '</div>' : emptyLine('You are all caught up', 'Nothing needs your attention right now.')}
       <details class="acc"><summary>${CHEV}Choose what you see</summary><div class="acc-bd"><p class="quiet">Saved in this browser.</p>${NOTIF_GROUPS.map(g => '<label class="chk"><input type="checkbox" data-act="notif-pref" data-g="' + esc(g[0]) + '" ' + (notifOff().has(g[0]) ? '' : 'checked') + '><span>' + esc(g[0]) + '</span></label>').join('')}</div></details>`;
+  }
+
+  // ---------- assigning work by email ----------
+  const PRIO_WORD = { P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' };
+  const prioLabel = p => PRIO_WORD[p] ? PRIO_WORD[p] + ' (' + p + ')' : (p || 'Not set');
+  const prioOptions = () => opt('priorities').map(p => [p, prioLabel(p)]);
+  const dirFind = mail => (S.directory || []).find(u => u.email === String(mail || '').trim().toLowerCase());
+  const dirEmails = () => (S.directory || []).map(u => u.email);
+  const empCard = u => u ? '<span class="emp-av">' + esc(initials(u.name)) + '</span><span><b>' + esc(u.name) + '</b><span class="quiet">' + esc([u.designation, u.department, u.employeeId].filter(Boolean).join(' · ') || u.email) + '</span></span>' : '';
+  function showEmployeeMatch(input, box) {
+    if (!box) return;
+    const v = input.value.trim(), u = dirFind(v);
+    box.className = 'emp-match' + (u ? ' ok' : v ? ' no' : '');
+    box.innerHTML = u ? empCard(u) : v ? '<span>No registered employee has this exact email.</span>' : '';
+  }
+  function assignForm(pre, problems) {
+    const mine = liveProjects().filter(canManageP);
+    if (!canPlan() || !mine.length) { toast(canPlan() ? 'You do not manage a project yet. Ask a Super Admin to add you to one.' : 'Only Super Admins and Managers can assign tasks.', true); return; }
+    const here = UI.view === 'project' && canManageP(P(UI.projectId)) ? UI.projectId : '';
+    const vals = Object.assign({ priority: 'P2', projectId: here }, pre || {});
+    openForm('Assign a task', [
+      { k: 'name', label: 'Task title', req: true, full: true },
+      { k: 'desc', label: 'Description', type: 'textarea', full: true, rows: 3 },
+      { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, blank: 'Choose a project', req: true, full: true, options: mine.map(p => [p.id, p.name]) },
+      { k: 'ownerEmail', label: 'Employee\'s official email', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
+      { k: 'priority', label: 'Priority', type: 'select', req: true, options: prioOptions() },
+      { k: 'due', label: 'Deadline', type: 'date', req: true }
+    ], vals, o => {
+      if (!dirFind(o.ownerEmail)) { $('#ferr').textContent = o.ownerEmail + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
+      if (o.due < todayStr()) { $('#ferr').textContent = 'The deadline is in the past.'; return false; }
+      assignConfirm(o, uid('ASSIGN') + Date.now());
+      return false;
+    }, '', 'Review assignment');
+    const box = $('#emp-match'), input = $('#mform [name="ownerEmail"]');
+    showEmployeeMatch(input, box);
+    input.addEventListener('input', () => showEmployeeMatch(input, box));
+    if ((problems || []).length) $('#ferr').textContent = problems.join(' ');
+  }
+  function assignConfirm(o, req) {
+    const u = dirFind(o.ownerEmail), p = P(o.projectId), root = $('#modal-root');
+    const row = (l, v) => '<div><dt>' + esc(l) + '</dt><dd>' + esc(v) + '</dd></div>';
+    root.innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Confirm this assignment</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb">' +
+      '<div class="emp-match ok">' + empCard(u) + '</div>' +
+      '<dl class="kv-g kv-2">' + row('Task', o.name) + row('Project', p ? p.name : o.projectId) + row('Priority', prioLabel(o.priority)) + row('Deadline', fmtLong(o.due)) + row('Email', u.email) + row('Assigned by', ME.name || UI.me) + '</dl>' +
+      (o.desc ? '<section class="ts"><h3>Description</h3><p>' + esc(o.desc) + '</p></section>' : '') +
+      '<p class="quiet">Confirming saves the task to the Google Sheet, emails ' + esc(u.name) + ', and puts it on their dashboard.</p><div class="ferr" id="ferr" role="alert"></div></div>' +
+      '<div class="mf"><button class="btn" data-act="assign-back">Back</button><button class="btn primary" id="assign-go" data-act="assign-send">Confirm assignment</button></div></div></div>';
+    root._assign = { o, req, busy: false };
+    root._dirty = false;
+    root._onSave = assignSend;
+  }
+  async function assignSend() {
+    const root = $('#modal-root'), a = root._assign, btn = $('#assign-go');
+    if (!a || a.busy) return;
+    a.busy = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Assigning'; }
+    const stop = msg => { a.busy = false; if (btn) { btn.disabled = false; btn.textContent = 'Confirm assignment'; } const e = $('#ferr'); if (e) e.textContent = msg; };
+    let r;
+    try { r = await SYNC.assign(a.o, a.req); }
+    catch (e) { return stop('Could not reach the Sheet, and the task may not be saved yet. Press Confirm again: it cannot create a second task.'); }
+    if (!r) return;
+    if (!r.ok) return r.field ? assignForm(a.o, [r.error]) : stop(r.error || 'The task was not saved.');
+    assignDone(r);
+  }
+  function emailLine(n) {
+    if (!n) return ['grey', 'No email', 'You assigned this to yourself, so no email was needed.'];
+    const to = n.recipientName + ' (' + n.recipientEmail + ')';
+    const note = /^Test mode/.test(n.errorDetails || '') ? ' ' + n.errorDetails + '.' : '';
+    if (n.deliveryStatus === 'accepted') return ['green', 'Email accepted', 'Google\'s mail service accepted it for ' + to + '. It cannot confirm the inbox received it.' + note];
+    if (n.deliveryStatus === 'queued') return ['amber', 'Email queued', 'It will go to ' + to + ' within a few minutes.'];
+    if (n.deliveryStatus === 'failed') return ['red', 'Email failed', 'Not sent to ' + to + ' (' + (n.errorDetails || 'unknown error') + '). It will retry by itself.'];
+    if (n.deliveryStatus === 'skipped') return ['grey', 'Email off', 'Emails are turned off, so nothing was sent to ' + to + '.'];
+    return ['red', 'Email stopped', 'Stopped after repeated failures: ' + (n.errorDetails || 'unknown error') + '.'];
+  }
+  function assignDone(r) {
+    const t = r.task, notes = r.notified || [], mail = notes.find(n => n.channel === 'email'), inApp = notes.find(n => n.channel === 'in-app');
+    const who = (r.employee && r.employee.name) || t.owner;
+    const line = (tone, head, text) => '<li><span class="pill ' + tone + '">' + esc(head) + '</span><span>' + esc(text) + '</span></li>';
+    const em = emailLine(mail);
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(t.id) + (r.duplicate ? ' was already assigned' : ' assigned to ' + who) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb"><p>' + esc(t.name) + '</p><ul class="done-list">' +
+      line('green', 'Saved', 'In the Google Sheet as ' + t.id + '.') + line(em[0], em[1], em[2]) +
+      line(inApp ? 'green' : 'grey', inApp ? 'In-app' : 'No alert', inApp ? 'A notification is waiting for ' + who + '.' : 'No in-app notification was needed.') +
+      line('green', 'Audit', 'Recorded with your name and the time.') + line('green', 'Dashboard', 'Shown on ' + who + '\'s dashboard the next time it refreshes.') +
+      '</ul></div><div class="mf"><button class="btn" data-act="assign-open" data-id="' + esc(t.id) + '">Open task</button><button class="btn" data-act="assign-again">Assign another</button><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
+    $('#modal-root')._dirty = false;
+    $('#modal-root')._onSave = closeModal;
+  }
+  function reassignForm(t) {
+    UI.taskId = null;
+    openForm('Reassign "' + t.name + '"', [
+      { k: 'ownerEmail', label: 'New owner\'s official email', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
+      { k: 'reason', label: 'Reason, recorded on the task', full: true }
+    ], {}, o => {
+      const u = dirFind(o.ownerEmail);
+      if (!u) { $('#ferr').textContent = o.ownerEmail + ' is not a registered employee.'; return false; }
+      if (t.ownerEmail === u.email) { $('#ferr').textContent = u.name + ' already owns this task.'; return false; }
+      if (!isTBD(t.owner) && !o.reason) { $('#ferr').textContent = 'Give a reason for changing the owner.'; return false; }
+      if (o.reason) addNote(t, 'update', 'Owner changed from ' + t.owner + ' to ' + u.name + ': ' + o.reason);
+      t.ownerEmail = u.email; t.owner = u.name;
+      stampTask(t);
+      save(true); closeModal(); render(); openTask(t.id);
+      toast(t.id + ' reassigned to ' + u.name);
+    }, '', 'Reassign');
+    const box = $('#emp-match'), input = $('#mform [name="ownerEmail"]');
+    input.addEventListener('input', () => showEmployeeMatch(input, box));
+  }
+  function runCommand() {
+    const box = $('#cmd-text'), text = box ? box.value.trim() : '';
+    if (!text) { toast('Type a command first.', true); return; }
+    const r = ENGINE.parseCommand(text, { today: todayStr(), projects: liveProjects().filter(canManageP), employees: S.directory || [] });
+    if (!r.problems.length) { UI.taskId = null; assignConfirm(r.task, uid('ASSIGN') + Date.now()); return; }
+    assignForm(r.task, r.problems);
+  }
+
+  // ---------- notification log ----------
+  const EVENT_NAME = { task_assigned: 'Task assigned', task_reassigned: 'Task reassigned', project_assigned: 'Project assigned', deadline_reminder: 'Deadline reminder', task_overdue: 'Task overdue', task_completed: 'Task completed', manager_comment: 'Manager comment', review_requested: 'Review requested', test_email: 'Test email' };
+  const DELIVERY = { accepted: ['green', 'Accepted by mail service'], queued: ['amber', 'Queued'], failed: ['red', 'Failed, will retry'], abandoned: ['red', 'Stopped'], skipped: ['grey', 'Not sent'], created: ['blue', 'Created'] };
+  async function loadNotifLog() {
+    UI.logBusy = true;
+    try { const r = await SYNC.request({ action: 'notification_log' }); UI.notifLog = r.ok ? r.rows : []; UI.logError = r.ok ? '' : (r.error || 'The log could not be loaded.'); }
+    catch (e) { UI.notifLog = []; UI.logError = 'The log could not be loaded. Check your connection.'; }
+    UI.logBusy = false; render();
+  }
+  function notifLogView() {
+    if (UI.notifLog === undefined) { if (!UI.logBusy) loadNotifLog(); return '<p class="quiet">Loading the log.</p>'; }
+    const f = UI.logFilter || 'email', rows = UI.notifLog.filter(r => f === 'all' ? true : f === 'problems' ? ['failed', 'abandoned'].includes(r.deliveryStatus) : r.channel === f);
+    const head = '<div class="bar-row">' + seg('logf', [['email', 'Emails'], ['in-app', 'In-app'], ['problems', 'Problems'], ['all', 'All']], f) + '<div class="btnrow"><button class="btn" data-act="log-refresh">Refresh</button>' + (isAdmin() ? '<button class="btn" data-act="log-retry">Retry all failed</button>' : '') + '</div></div>' +
+      '<p class="quiet">Accepted means Google\'s mail service took the email. It cannot show whether the email reached the inbox.</p>' + (UI.logError ? '<p class="flag red">' + esc(UI.logError) + '</p>' : '');
+    if (!rows.length) return head + emptyLine('Nothing here yet', 'Notifications appear here as soon as work is assigned.');
+    return head + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Event</th><th>Recipient</th><th>Task</th><th>Status</th><th>Tries</th><th>Details</th>' + (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(r => {
+      const d = DELIVERY[r.deliveryStatus] || ['grey', r.deliveryStatus];
+      return '<tr><td class="nw">' + esc(shortTime(r.ts)) + '</td><td>' + esc(EVENT_NAME[r.eventType] || r.eventType) + '</td><td>' + esc(r.recipientName || '') + '<br><span class="quiet">' + esc(r.recipientEmail) + '</span></td><td>' + (r.taskId ? '<button class="linkbtn" data-act="open-task" data-id="' + esc(r.taskId) + '">' + esc(r.taskId) + '</button>' : esc(r.projectId || '')) + '</td><td><span class="pill ' + d[0] + '">' + esc(d[1]) + '</span></td><td>' + esc(r.channel === 'email' ? r.attempts : '') + '</td><td>' + esc(r.errorDetails || '') + '</td>' +
+        (isAdmin() ? '<td class="nw">' + (r.channel === 'email' && ['failed', 'abandoned'].includes(r.deliveryStatus) ? '<button class="btn sm" data-act="log-retry" data-id="' + esc(r.notificationId) + '">Retry</button>' : r.channel === 'email' && r.eventType !== 'test_email' && r.deliveryStatus === 'accepted' ? '<button class="btn sm" data-act="log-resend" data-id="' + esc(r.notificationId) + '">Resend</button>' : '') + '</td>' : '') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  // ---------- integrations ----------
+  async function loadIntegrations() {
+    UI.integBusy = true;
+    try { UI.integ = await SYNC.request({ action: 'integration_status' }); }
+    catch (e) { UI.integ = { ok: false, error: 'The server could not be reached.' }; }
+    UI.integBusy = false; render();
+  }
+  function vIntegrations() {
+    const s = UI.integ;
+    if (s === undefined) { if (!UI.integBusy) loadIntegrations(); return '<p class="quiet">Checking each connection.</p>'; }
+    if (!s.ok) return '<p class="flag red">' + esc(s.error || 'Could not read the status.') + '</p><button class="btn" data-act="integ-refresh">Try again</button>';
+    const sync = S.meta.sync || {}, row = (l, v) => '<div><dt>' + esc(l) + '</dt><dd>' + esc(v) + '</dd></div>';
+    const yes = (ok, a, b) => '<span class="pill ' + (ok ? 'green' : 'amber') + '">' + esc(ok ? a : b) + '</span>';
+    const e = s.email, modeWord = e.mode === 'live' ? 'Live: employees receive emails' : e.mode === 'test' ? 'Test mode: all emails go to ' + e.testTo : 'Turned off';
+    return '<div class="bar-row"><p class="quiet">The state of each connection, read just now from the server. No keys or secrets are shown.</p><button class="btn" data-act="integ-refresh">Refresh</button></div>' +
+      (e.mode === 'test' ? '<p class="flag"><span><b>Emails are in test mode.</b> Nobody but ' + esc(e.testTo) + ' receives them. Use Control Tower &gt; Emails: go live in the Sheet when you are ready.</span></p>' : '') +
+      (!s.automation.retry ? '<p class="flag"><span><b>Retries and reminders are off.</b> Use Control Tower &gt; Turn on daily backup, reminders and email retries in the Sheet.</span></p>' : '') +
+      (s.sheet.problems.length ? '<p class="flag red"><span>' + esc(s.sheet.problems.join(' ')) + '</span></p>' : '') +
+      '<section class="sec"><div class="s-h"><h2>Google Sheet</h2>' + yes(!s.sheet.problems.length, 'Connected', 'Needs repair') + '</div><dl class="kv-g">' + row('Last change', s.sheet.updatedAt ? shortTime(s.sheet.updatedAt) : 'None yet') + row('Changed by', s.sheet.updatedBy || 'Unknown') + row('Version', String(s.sheet.version)) + row('Last sync here', sync.lastSync ? shortTime(sync.lastSync) : 'Not yet') + row('Saves waiting here', String(SYNC.pending() ? diffOps(SYNC.base, S).length : 0)) + row('Server version', 'API ' + s.api) + '</dl><div class="btnrow">' + (sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '<button class="btn" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div></section>' +
+      '<section class="sec"><div class="s-h"><h2>Email</h2>' + yes(e.mode === 'live', 'Live', e.mode === 'test' ? 'Test mode' : 'Off') + '</div><dl class="kv-g">' + row('Mode', modeWord) + row('Sent from', e.sender || 'Unknown') + row('Left today', String(e.quota)) + row('Accepted', String(e.accepted)) + row('Queued', String(e.queued)) + row('Failed, retrying', String(e.failed)) + row('Stopped', String(e.abandoned)) + row('Last accepted', e.lastAcceptedAt ? shortTime(e.lastAcceptedAt) : 'None yet') + '</dl><div class="btnrow"><button class="btn" data-act="log-retry">Retry failed emails</button><button class="btn" data-act="integ-test-email">Send a test email to me</button><button class="btn" data-act="admintab" data-tab="log">Open notification log</button></div></section>' +
+      '<section class="sec"><div class="s-h"><h2>Sign-in</h2>' + yes(s.auth.required && s.auth.clientIdSet, 'Protected', s.auth.required ? 'Client ID missing' : 'Emergency access is open') + '</div><dl class="kv-g">' + row('Google sign-in', s.auth.clientIdSet ? 'Set up' : 'Not set up') + row('Allowed domain', '@' + s.auth.domain) + row('Active employees', s.directory.active + ' of ' + s.directory.total) + row('Super Admins', String(s.directory.admins)) + '</dl></section>' +
+      '<section class="sec"><div class="s-h"><h2>Automation</h2>' + yes(s.automation.retry && s.automation.daily && s.automation.backup, 'Running', 'Not all on') + '</div><dl class="kv-g">' + row('Email retries', s.automation.retry ? 'Every 5 minutes' : 'Off') + row('Reminders', s.automation.daily ? 'Every morning' : 'Off') + row('Backup', s.automation.backup ? 'Every night' : 'Off') + '</dl></section>';
+  }
+
+  // ---------- employee directory ----------
+  function vEmployees() {
+    const q = String(UI.empQ || '').toLowerCase(), us = (S.users || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const shown = us.filter(u => !q || [u.name, u.email, u.department, u.designation, u.employeeId, ROLE_LABEL[u.role]].join(' ').toLowerCase().includes(q));
+    const byMail = m => { const x = us.find(u => u.email === m); return x ? x.name : m; };
+    return '<div class="bar-row"><label class="fsel"><span>Search</span><input id="emp-q" value="' + esc(UI.empQ || '') + '" aria-label="Search employees"></label><p class="quiet">' + plural(us.filter(u => u.active).length, 'active employee') + ' of ' + us.length + '</p><button class="btn primary" data-act="add-user">Add employee</button></div>' +
+      (shown.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Employee</th><th>Role</th><th>Department</th><th>Designation</th><th>Manager</th><th>Status</th></tr></thead><tbody>' + shown.map(u => '<tr data-act="edit-user" data-id="' + esc(u.email) + '"><td class="nw">' + esc(u.employeeId || '') + '</td><td><button class="r-t linkbtn" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><br><span class="quiet">' + esc(u.email) + '</span></td><td class="nw">' + esc(ROLE_LABEL[u.role] || u.role) + '</td><td>' + esc(u.department || '') + '</td><td>' + esc(u.designation || '') + '</td><td>' + esc(u.managerEmail ? byMail(u.managerEmail) : '') + '</td><td><span class="pill ' + (u.active ? 'green' : 'grey') + '">' + (u.active ? 'Active' : 'Inactive') + '</span></td></tr>').join('') + '</tbody></table></div>' : emptyLine(us.length ? 'No one matches' : 'No employees yet', us.length ? 'Try a different search.' : 'Add your team here or in the Users tab of the Sheet.'));
+  }
+
+  // ---------- dashboard charts: real data, one hue, every value written out ----------
+  function hbars(rows, unit) {
+    const max = Math.max(1, ...rows.map(r => r.n));
+    return '<div class="hbars">' + rows.map(r => '<' + (r.act ? 'button' : 'div') + ' class="hb"' + (r.act ? ' data-act="' + r.act + '" ' + (r.attrs || '') : '') + ' data-tip="' + esc(r.label + '|' + (r.tip || r.n + ' ' + (unit || 'tasks'))) + '"><span class="hb-l">' + esc(r.label) + '</span><span class="hb-t"><i style="width:' + Math.max(r.n ? 2 : 0, r.n / (r.max || max) * 100) + '%"></i></span><b>' + esc(r.show !== undefined ? r.show : r.n) + '</b></' + (r.act ? 'button' : 'div') + '>').join('') + '</div>';
+  }
+  function dashSplit(list) {
+    const open = list.filter(ENGINE.isOpen), done = list.filter(ENGINE.isDone);
+    const active = open.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+    return { total: list.length, done, open, active, pending: open.filter(t => !active.includes(t)), overdue: open.filter(taskOverdue), assigned: list.filter(t => !isTBD(t.owner)) };
+  }
+  function weeklyDone(list) {
+    const start = addDays(weekStart(), -49), weeks = [];
+    for (let i = 0; i < 8; i++) { const from = addDays(start, i * 7), to = addDays(from, 6); weeks.push({ label: fmtShort(from), n: list.filter(t => ENGINE.isDone(t) && isDate(String(t.completedAt).slice(0, 10)) && String(t.completedAt).slice(0, 10) >= from && String(t.completedAt).slice(0, 10) <= to).length }); }
+    return weeks;
+  }
+  function dashCharts(list, employees) {
+    const stages = [['Not started', t => t.status === 'Not Started' || t.status === 'Backlog'], ['In progress', t => t.status === 'In Progress'], ['In review', t => ['In Review', 'Awaiting Approval', 'Changes Requested'].includes(t.status)], ['Blocked', t => t.status === 'Blocked'], ['On hold', t => t.status === 'On Hold'], ['Completed', ENGINE.isDone]];
+    const byStage = stages.map(s => ({ label: s[0], n: list.filter(s[1]).length }));
+    const openList = list.filter(ENGINE.isOpen);
+    const byPrio = opt('priorities').map(p => ({ label: prioLabel(p), n: openList.filter(t => t.priority === p).length }));
+    const projects = liveProjects().map(p => { const ts = list.filter(t => t.projectId === p.id); return { p, ts, pct: projectProgress(p.id) }; }).filter(x => x.ts.length).sort((a, b) => b.ts.filter(ENGINE.isOpen).length - a.ts.filter(ENGINE.isOpen).length).slice(0, 8);
+    const soon = openList.filter(t => isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 14).sort((a, b) => a.due.localeCompare(b.due));
+    const weeks = weeklyDone(list);
+    const rows = employees.map(e => { const ts = list.filter(t => e.has(t)), s = dashSplit(ts); return { e, s }; }).filter(x => x.s.total).sort((a, b) => b.s.open.length - a.s.open.length);
+    const most = Math.max(1, ...rows.map(r => r.s.open.length));
+    return '<div class="chart-g">' +
+      '<section class="panel"><div class="s-h"><h2>Tasks by stage</h2></div>' + hbars(byStage) + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Open tasks by priority</h2></div>' + hbars(byPrio) + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Project progress</h2></div>' + (projects.length ? hbars(projects.map(x => ({ label: x.p.name, n: x.pct, max: 100, show: x.pct + '%', tip: x.ts.filter(ENGINE.isDone).length + ' of ' + x.ts.length + ' tasks done', act: 'open', attrs: 'data-id="' + esc(x.p.id) + '"' }))) : '<p class="quiet">No projects match these filters.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Completed per week</h2></div>' + (weeks.some(w => w.n) ? hbars(weeks.map(w => ({ label: 'Week of ' + w.label, n: w.n }))) : '<p class="quiet">No completions in the last 8 weeks.</p>') + '</section>' +
+      '</div><div class="dash-g">' +
+      '<section class="panel"><div class="s-h"><h2>Employee workload</h2></div>' + (rows.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Assigned</th><th>Completed</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead><tbody>' + rows.map(x => '<tr><td><button class="linkbtn" data-act="filter-emp-quick" data-emp="' + esc(x.e.name) + '">' + esc(x.e.name) + '</button><span class="load" aria-hidden="true"><i style="width:' + x.s.open.length / most * 100 + '%"></i></span></td><td>' + x.s.total + '</td><td>' + x.s.done.length + '</td><td>' + x.s.open.length + '</td><td>' + (x.s.overdue.length ? '<b class="t-red">' + x.s.overdue.length + '</b>' : '0') + '</td><td>' + pct(x.s.done.length, x.s.total) + '%</td></tr>').join('') + '</tbody></table></div>' : '<p class="quiet">No confirmed owners match these filters.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Upcoming deadlines</h2></div>' + (soon.length ? '<div class="facts-l">' + soon.slice(0, 8).map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort(t.due)) + '</b></button>').join('') + '</div>' : '<p class="quiet">Nothing is due in the next 14 days.</p>') + '</section></div>';
+  }
+
+  // ---------- links from emails ----------
+  function openFromLink() {
+    const m = location.hash.match(/^#(task|project)=(.+)$/);
+    if (!m) return;
+    let id = '';
+    try { id = decodeURIComponent(m[2]); } catch (e) { /* a broken link opens nothing */ }
+    history.replaceState(null, '', location.pathname + location.search);
+    if (m[1] === 'task') { if (S.tasks.some(t => t.id === id)) openTask(id); else toast('This task is not available to you, or it no longer exists.', true); }
+    else if (P(id)) go('project', { id }); else toast('This project is not available to you, or it no longer exists.', true);
   }
 
   // ---------- reports ----------
@@ -3684,12 +4007,14 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   function vAdmin() {
     if (!isAdmin()) return emptyLine('This page is for administrators', 'Ask an administrator if you need something changed here.');
     const t = UI.adminTab;
-    const tabs = [['users', 'Users'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
+    const tabs = [['users', 'Employees'], ['integrations', 'Integrations'], ['log', 'Notification log'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
     let body = '';
     if (t === 'users') {
-      const us = S.users || [];
-      body = (ME.open || ME.local ? '<p class="flag"><span><b>Google sign-in is off.</b> The sign-in on this page does not protect the data: anyone with the Apps Script link can read and change it. See SETUP_SIGN_IN.md to turn it on.</span></p>' : '') +
-        (SYNC.api >= 3 ? '<div class="bar-row"><p class="quiet">' + plural(us.length, 'user') + '</p><button class="btn primary" data-act="add-user">Add user</button></div><div class="rows">' + us.map(u => '<div class="r r-user" data-act="edit-user" data-id="' + esc(u.email) + '"><span class="av">' + esc(initials(u.name || u.email)) + '</span><span class="r-main"><button class="r-t" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><span class="r-s">' + esc(u.email) + '</span></span><span class="r-who">' + esc(u.role) + '</span><span class="r-when"><span class="when">' + (u.active ? 'Active' : 'Inactive') + '</span></span></div>').join('') + '</div>' : '<p class="quiet">Update the Apps Script to manage users here. See SETUP_GOOGLE_SHEET.md.</p>');
+      body = vEmployees();
+    } else if (t === 'integrations') {
+      body = vIntegrations();
+    } else if (t === 'log') {
+      body = notifLogView();
     } else if (t === 'audit') {
       const q = UI.auditQ.toLowerCase();
       const all = (S.audit || []).filter(a => !q || (a.text + ' ' + a.actorName + ' ' + a.entityId).toLowerCase().includes(q));
@@ -3709,13 +4034,23 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   function userForm(u) {
     const isNew = !u;
     u = u || { email: '', name: '', role: 'Task Owner', active: true };
-    const f = [{ k: 'name', label: 'Name used on tasks and projects', type: 'datalist', options: people(), req: true, full: true, hint: 'Must match the name in owner fields, or their work will not show as theirs.' }];
-    if (isNew) f.push({ k: 'email', label: 'Suraasa email', type: 'email', req: true, full: true });
-    f.push({ k: 'role', label: 'Role', type: 'select', full: true, options: ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'] }, { k: 'active', label: 'Access', type: 'select', full: true, options: [['true', 'Active'], ['false', 'Inactive']] });
-    openForm(isNew ? 'Add user' : u.email, f, Object.assign({}, u, { active: String(u.active !== false) }), o => {
-      if (isNew) { const email = o.email.toLowerCase(); if ((S.users || []).some(x => x.email === email)) { $('#ferr').textContent = 'This user already exists.'; return false; } S.users = (S.users || []).concat([{ email, name: o.name, role: o.role, active: o.active === 'true' }]); }
-      else Object.assign(u, { name: o.name, role: o.role, active: o.active === 'true' });
-      commit('User ' + (isNew ? o.email : u.email) + ' saved');
+    const f = [{ k: 'name', label: 'Full name, as used on tasks and projects', type: 'datalist', options: people(), req: true, full: true }];
+    if (isNew) f.push({ k: 'email', label: 'Official email', type: 'email', req: true, full: true, hint: 'This is how work is assigned. It cannot be changed later.' });
+    else f.push({ k: 'emailShown', label: 'Official email', type: 'static', text: u.email + (u.employeeId ? ' · ' + u.employeeId : '') });
+    f.push({ k: 'role', label: 'Role', type: 'select', options: Object.keys(ROLE_LABEL).map(r => [r, ROLE_LABEL[r]]) },
+      { k: 'active', label: 'Access', type: 'select', options: [['true', 'Active'], ['false', 'Inactive']] },
+      { k: 'department', label: 'Department' }, { k: 'designation', label: 'Designation' },
+      { k: 'managerEmail', label: 'Manager\'s email', type: 'datalist', options: (S.users || []).filter(x => x.active && x.email !== u.email).map(x => x.email) },
+      { k: 'joiningDate', label: 'Joining date', type: 'date' },
+      { k: 'aliases', label: 'Other names on older tasks (comma separated)', full: true, hint: 'For example Head of Sales. Tasks under these names count as theirs.' });
+    openForm(isNew ? 'Add employee' : (u.name || u.email), f, Object.assign({}, u, { active: String(u.active !== false), aliases: (u.aliases || []).join(', ') }), o => {
+      const rec = { name: o.name, role: o.role, active: o.active === 'true', department: o.department, designation: o.designation, managerEmail: o.managerEmail.toLowerCase(), joiningDate: o.joiningDate, aliases: strToList(o.aliases) };
+      if (isNew) {
+        const email = o.email.trim().toLowerCase();
+        if ((S.users || []).some(x => x.email === email)) { $('#ferr').textContent = 'This employee already exists.'; return false; }
+        S.users = (S.users || []).concat([Object.assign({ email }, rec)]);
+      } else Object.assign(u, rec);
+      commit('Employee ' + (isNew ? o.email : u.email) + ' saved');
     });
   }
 
@@ -3724,10 +4059,10 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const box = $('#signin');
     if (!box) return;
     box.hidden = false;
-    if (!SYNC.auth || !SYNC.auth.required) return showPasswordSignIn(msg);
     const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
     box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa Google account.</p></div>' +
       (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') + '<div id="gsi"></div></div>';
+    if (!SYNC.auth || !SYNC.auth.clientId) return showSignInError(SYNC.serverOld ? 'The server needs updating before anyone can sign in. Follow docs/DEPLOYMENT.md.' : SYNC.unreachable ? 'The server could not be reached. Check your connection and refresh the page.' : 'Google sign-in has not been set up yet. Ask your administrator.');
     const start = () => {
       try {
         google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
@@ -3740,36 +4075,13 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     s.onerror = () => showSignInError('Google sign-in could not load. Check your connection and refresh the page.');
     document.head.appendChild(s);
   }
-  function showPasswordSignIn(msg) {
-    const box = $('#signin');
-    const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
-    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa email</p></div>' +
-      '<form class="auth-form" id="form-signin" novalidate>' + (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') +
-      '<div class="auth-field"><label for="si-email">Official Suraasa email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="username"></div>' +
-      '<div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password"></div>' +
-      '<button type="submit" class="auth-btn">Sign in</button>' +
-      '<p class="auth-sub">Forgot your password? Ask Sales Operations.</p></form></div>';
-    $('#form-signin').addEventListener('submit', async e => {
-      e.preventDefault();
-      const email = $('#si-email').value, btn = $('#form-signin .auth-btn');
-      btn.disabled = true;
-      const r = await checkLogin(email, $('#si-pw').value);
-      if (r.error) { showPasswordSignIn(r.error); $('#si-email').value = email; return; }
-      try { localStorage.setItem('sct_person', r.user.email); } catch (x) { /* stays for this tab */ }
-      applyPerson(r.user);
-      box.hidden = true;
-      await SYNC.boot();
-      render();
-    });
-    if ($('#si-email')) $('#si-email').focus();
-  }
   function showSignInError(msg) { const g = $('#gsi'); if (g) g.innerHTML = '<div class="auth-err" role="alert">' + esc(msg) + '</div>'; }
 
   // ---------- profile ----------
   function openProfileModal() {
     closeModal();
     const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + esc(v || '') + '</dd></div>';
-    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb"><dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', ME.role) + '</dl><p class="quiet">Your name and role are set by an administrator, because your name links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb"><dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
   }
 
   // ---------- forms ----------
@@ -3782,13 +4094,13 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     const ph = proposed ? ' placeholder="' + esc(proposed.proposed ? 'Proposed: ' + proposed.name : 'Not decided yet') + '"' : '';
     let inp;
     if (f.type === 'textarea') inp = '<textarea id="' + id + '" name="' + f.k + '" rows="' + (f.rows || 3) + '">' + esc(v) + '</textarea>';
-    else if (f.type === 'select') inp = '<select id="' + id + '" name="' + f.k + '">' + (f.allowBlank ? '<option value="">None</option>' : '') + f.options.map(o => {
+    else if (f.type === 'select') inp = '<select id="' + id + '" name="' + f.k + '">' + (f.allowBlank ? '<option value="">' + esc(f.blank || 'None') + '</option>' : '') + f.options.map(o => {
       const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o;
       return '<option value="' + esc(ov) + '" ' + (String(v) === String(ov) ? 'selected' : '') + '>' + esc(ol) + '</option>';
     }).join('') + '</select>';
     else if (f.type === 'datalist') inp = '<input id="' + id + '" name="' + f.k + '" list="dl-' + f.k + '" value="' + esc(v) + '"' + ph + ' autocomplete="off"><datalist id="dl-' + f.k + '">' + f.options.map(o => '<option value="' + esc(o) + '">').join('') + '</datalist>';
     else inp = '<input id="' + id + '" name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.readonly ? 'readonly ' : '') + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>';
-    return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
+    return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + (f.after || '') + '</div>';
   }
 
   function openForm(title, fields, vals, onSave, extraBtn, saveLabel) {
@@ -3892,6 +4204,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       { k: 'start', label: 'Start date', type: 'date' },
       { k: 'due', label: 'Target end', type: 'date', hint: 'Leave blank if ongoing' },
       { k: 'nextAction', label: 'Next action', full: true },
+      { k: 'managerEmails', label: 'Managers who can assign work here (emails, comma separated)', type: 'datalist', options: dirEmails(), full: true, more: true },
       { k: 'outcome', label: 'Expected outcome', type: 'textarea', full: true, more: true },
       { k: 'problem', label: 'Problem', type: 'textarea', full: true, more: true },
       { k: 'impact', label: 'Business impact', type: 'textarea', full: true, more: true },
@@ -4160,6 +4473,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       o.weight = +o.weight || 1;
       const stage = o.stage; delete o.stage;
       const reason = o.reason; delete o.reason;
+      if (!isNew && o.owner !== t.owner) o.ownerEmail = ''; // a changed name is matched again on the server
       if (stage && statusToStage(o.status) !== stage) o.status = stageToStatus(stage);
       if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
       if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
@@ -4487,7 +4801,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   // Saves are sent one changed field at a time. The Sheet checks each change against what
   // this browser last saw, so two people can work at once without overwriting each other.
   const COLL = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id', decisions: 'id', actions: 'id', updates: 'id', programs: 'id', roles: 'name' };
-  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue']);
+  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt']);
   const APPEND_ONLY = new Set(['notes', 'comments']);
   function canon(v) {
     if (v === null || v === undefined || v === '') return '';
@@ -4549,12 +4863,12 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   }
 
   const SYNC = {
-    api: 0, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
+    api: 0, auth: { required: true }, session: '', sheetUrl: '', serverOld: false, unreachable: false, version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
     get config() {
-      if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+      if (!S.meta.sync) S.meta.sync = { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
     },
-    get apiUrl() { return this.config.url; },
+    get apiUrl() { return CONFIG.apiUrl; },
     init() {
       try {
         this.session = localStorage.getItem('sct_session') || '';
@@ -4582,8 +4896,9 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
     needSignIn(msg) {
       this.session = '';
-      ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.open = false; ME.local = false; UI.me = '';
+      ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.aliases = []; ME.open = false; UI.me = ''; this.sheetUrl = '';
       try { localStorage.removeItem('sct_session'); localStorage.removeItem('sct_person'); } catch (e) { /* private window */ }
+      const m = $('#main'); if (m) m.innerHTML = '';
       this.checking = false;
       showSignIn(msg);
     },
@@ -4591,48 +4906,47 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       try {
         const r = await this.request({ action: 'login', idToken });
         if (!r.ok) return showSignIn(r.error);
+        if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
         this.session = r.session;
         try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
         $('#signin').hidden = true;
         await this.pull(true);
       } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
     },
-    signOut() {
+    async signOut() {
       if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      try { await this.request({ action: 'logout' }); } catch (e) { /* the session still ends by itself */ }
       this.needSignIn('');
       // Leave no copy of the work on a shared computer.
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); } catch (e) { /* private window */ }
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_browser_copy'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
     // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
-      const person = savedPerson();
-      if (person) applyPerson(person);
-      if (!this.config.enabled || !this.config.url) { if (!person) showSignIn(''); return; }
+      if (!this.apiUrl) { this.unreachable = true; return this.needSignIn('This site has no server link. Set CT_API_URL when building it.'); }
       this.checking = true; this.setStatus('syncing');
-      try {
-        const p = await this.get('ping');
-        this.api = p.api || 1;
-        this.auth = p.auth || { required: false };
-        ME.open = !this.auth.required;
-        if (this.auth.required) {
-          if (ME.local) { ME.local = false; ME.role = 'Viewer'; ME.email = ''; ME.name = ''; UI.me = ''; }
-          if (!this.session) return this.needSignIn('');
-        } else {
-          if (!person) { this.checking = false; this.setStatus('connected'); return showSignIn(''); }
-          ME.open = false;
-        }
-        await this.pull(true);
-      } catch (e) {
+      let p;
+      try { p = await this.get('ping'); }
+      catch (e) {
+        this.checking = false;
         this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.');
-        if (!person && !this.session) { this.checking = false; return showSignIn(''); }
+        if (!this.session) { this.unreachable = true; return this.needSignIn(''); }
+        this.updateUI(); render();
+        return;
       }
+      this.api = p.api || 1;
+      this.auth = p.auth || { required: true };
+      // An older script has no sign-in. Nothing is read from it or sent to it.
+      if (this.api < 4) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
+      if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; }
+      else if (!this.session) { this.checking = false; return this.needSignIn(''); }
+      await this.pull(true);
       this.checking = false; this.updateUI();
       render();
     },
     normalise(state, prev) {
-      ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
+      ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash', 'directory'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
       state.options = state.options || prev.options || {};
       state.governance = state.governance || prev.governance || { cadence: {}, rag: {}, classification: [] };
       state.meta = Object.assign({}, state.meta || {}, { sync: prev.meta.sync });
@@ -4695,17 +5009,18 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       if (this.busy) { this.again = true; return; }
       this.setStatus('syncing');
       try {
-        const data = this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull');
+        const data = await this.request({ action: 'pull' });
         if (data.auth === true) return this.needSignIn(data.error);
         if (data.error && !data.ok) throw new Error(data.error);
         const state = data.state || data;
         if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The server sent something unexpected.');
-        if (data.me && !ME.local) {
-          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || '';
-          if (this.auth.required) { UI.me = ME.name; ME.open = false; }
+        if (data.me) {
+          Object.assign(ME, data.me, { open: false });
+          UI.me = ME.name;
         }
+        this.sheetUrl = data.sheetUrl || '';
         if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
-        const left = this.rebase(this.limitToPerson(state), data.version !== undefined ? data.version : this.version, drop);
+        const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
         this.config.lastSync = nowIso();
         this.setStatus('connected');
         this.config.error = null;
@@ -4720,8 +5035,16 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       }
       this.updateUI();
       render();
+      openFromLink();
     },
-    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(this.limitToPerson(d.state), d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
+    /** One confirmed assignment. The same requestId is safe to send again. */
+    async assign(task, requestId) {
+      const r = await this.request({ action: 'assign', requestId, task });
+      if (r.auth === true) { closeModal(); this.needSignIn(r.error); return null; }
+      if (r.ok) await this.pull(true);
+      return r;
+    },
+    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
     onLocalChange() {
       if (!this.config.enabled || !this.config.url || this.config.autoSync === false) return;
       this.setStatus('syncing');
@@ -4730,18 +5053,10 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
     },
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
-      if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
-      if (!ME.local && !this.session) return; // nothing is sent before someone signs in
+      if (!this.apiUrl) { toast('The Google Sheet is not connected.', true); return; }
+      if (!ME.open && !this.session) return; // nothing is sent before someone signs in
       if (this.busy) { this.again = true; return; }
-      if (this.api < 3 && this.api !== 0) return this.legacyPush();
-      if (this.api === 0) {
-        try {
-          const p = await this.get('ping');
-          this.api = p && p.api ? p.api : 1;
-          this.auth = p && p.auth ? p.auth : { required: false };
-        } catch (e) { return this.fail(e); }
-        if (this.api < 3) return this.legacyPush();
-      }
+      if (this.api < 4) return;
       if (!this.base) { this.setStatus('connected'); return; }
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
@@ -4749,11 +5064,6 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       const requestId = uid('REQ') + Date.now();
       try {
         const res = await this.request({ action: 'apply', requestId, ops });
-        if (res && !res.ok && res.error && res.error.toLowerCase().includes('unknown action')) {
-          this.api = 1;
-          this.busy = false;
-          return this.legacyPush();
-        }
         this.busy = false;
         if (res.auth === true) return this.needSignIn(res.error);
         if (res.rejected) return this.refused(res.rejected, ops);
@@ -4762,7 +5072,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         (res.stamped || []).forEach(st => {
           [S, this.base].forEach(state => {
             const r = (state[st.c] || []).find(x => String(x[COLL[st.c]]) === String(st.id));
-            if (r) ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue'].forEach(k => { if (st[k]) r[k] = st[k]; });
+            if (r) { ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt'].forEach(k => { if (st[k]) r[k] = st[k]; }); ['ownerEmail', 'accountableEmail'].forEach(k => { if (st[k] !== undefined) r[k] = st[k]; }); }
           });
         });
         if ((res.entries || []).length) { [S, this.base].forEach(state => { state.audit = res.entries.concat(state.audit || []).slice(0, 600); }); if (UI.taskId && $('#modal')) renderTaskPanel(); else if (UI.view === 'project') render(); }
@@ -4798,59 +5108,9 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       render();
       if (UI.taskId && $('#modal')) renderTaskPanel();
     },
-    // With the page's own sign-in the server sends everything, so the page limits what an employee sees.
-    limitToPerson(state) {
-      this.full = null;
-      if (!ME.local || ME.role !== 'Task Owner') return state;
-      const name = ME.name.toLowerCase();
-      const own = v => !/^\s*tbd/i.test(String(v || '')) && String(v || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === name);
-      const mine = new Set(), theirs = new Set();
-      state.tasks.forEach(t => { if (own(t.owner) || own(t.accountable)) { mine.add(t.id); theirs.add(t.projectId); } });
-      for (let grew = true; grew;) { grew = false; state.tasks.forEach(t => { if (!mine.has(t.id) && t.parent && mine.has(t.parent)) { mine.add(t.id); grew = true; } }); }
-      const view = Object.assign({}, state, { tasks: state.tasks.filter(t => mine.has(t.id)), activity: [], users: [], trash: [] });
-      view.projects = state.projects.map(p => theirs.has(p.id) ? p : { id: p.id, name: p.name, status: p.status, priority: '', workstreams: [], milestones: [], raci: [], comments: [] });
-      ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { view[k] = (state[k] || []).filter(r => r.projectId ? theirs.has(r.projectId) : own(r.owner)); });
-      view.audit = (state.audit || []).filter(r => r.taskId ? mine.has(r.taskId) : theirs.has(r.projectId));
-      view.snapshots = (state.snapshots || []).filter(r => theirs.has(r.projectId));
-      const shown = {};
-      ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { shown[k] = new Set(view[k].map(r => r.id)); });
-      shown.projects = theirs;
-      this.full = { state, shown };
-      return view;
-    },
-    // The old script replaces whole tabs, so it must receive the rows an employee cannot see as well.
-    withHiddenRows(state) {
-      if (!this.full) return state;
-      const { state: all, shown } = this.full, out = Object.assign({}, state, { activity: (state.activity || []).concat(all.activity || []) });
-      Object.keys(shown).forEach(k => {
-        const now = new Map((state[k] || []).map(r => [r.id, r])), had = new Set((all[k] || []).map(r => r.id));
-        out[k] = (all[k] || []).filter(r => !shown[k].has(r.id) || now.has(r.id)).map(r => shown[k].has(r.id) ? now.get(r.id) : r)
-          .concat((state[k] || []).filter(r => !had.has(r.id)));
-      });
-      return out;
-    },
-    async legacyPush() {
-      if (this.busy) { this.again = true; return; }
-      if (!this.base) { this.setStatus('connected'); return; } // never send a copy that did not come from the Sheet
-      if (ME.local && ME.role === 'Task Owner' && !this.full) { this.unsent = true; return this.pull(true); } // an employee's copy alone would replace the Sheet
-      this.busy = true; this.setStatus('syncing');
-      try {
-        const state = this.withHiddenRows(Object.assign({}, S)); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
-        const data = await this.request({ action: 'push', baseVersion: this.config.baseVersion, client: 'website', state });
-        this.busy = false;
-        if (data.conflict) {
-          await this.pull(true); // the version moves only once the newer data is merged, even if a panel delays that
-          return;
-        }
-        if (data.error || data.ok === false) throw new Error(data.error || 'The Sheet refused the save.');
-        this.config.baseVersion = data.version; this.version = data.version; this.base = clone(S); this.persistBase();
-        this.config.lastSync = nowIso(); this.unsent = false; this.setStatus('connected'); save(false);
-        if (this.again) { this.again = false; this.legacyPush(); }
-      } catch (err) { this.busy = false; this.fail(err); }
-    },
     async poll() {
-      if (!ME.local && !this.session) return;
-      if (!this.config.url || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
+      if (!ME.open && !this.session) return;
+      if (!this.apiUrl || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
       try {
         const data = await this.get('version');
         if (this.unsent) return this.flush();
@@ -4859,7 +5119,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
     },
     async dailySnapshot() {
-      if (this.api < 3 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
+      if (this.api < 4 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
       const date = todayStr();
       if ((S.snapshots || []).some(r => r.date === date)) return;
       const rows = portfolioRows().map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
@@ -5042,6 +5302,32 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
 
       // Tasks
       'add-task': () => taskForm(null, el.dataset.pid),
+      'assign-task': () => assignForm(),
+      'assign-back': () => { const a = $('#modal-root')._assign; assignForm(a.o); },
+      'assign-send': assignSend,
+      'assign-again': () => { closeModal(); assignForm(); },
+      'assign-open': () => { closeModal(); openTask(id); },
+      'reassign-task': () => { const t = S.tasks.find(x => x.id === id); if (t) reassignForm(t); },
+      logf: () => { UI.logFilter = el.dataset.tab; render(); },
+      'log-refresh': () => { UI.notifLog = undefined; render(); },
+      'log-retry': async () => {
+        const r = await SYNC.request({ action: 'notification_retry', id: id || '' });
+        toast(r.ok ? plural(r.requeued, 'email') + ' sent for retry' : r.error, !r.ok);
+        UI.notifLog = undefined; UI.integ = undefined; render();
+      },
+      'log-resend': async () => {
+        if (!confirm('Send this email again?')) return;
+        const r = await SYNC.request({ action: 'notification_resend', id });
+        toast(r.ok ? 'Email sent again' : r.error, !r.ok);
+        UI.notifLog = undefined; render();
+      },
+      'integ-refresh': () => { UI.integ = undefined; render(); },
+      'integ-test-email': async () => {
+        const r = await SYNC.request({ action: 'test_email' });
+        toast(r.ok ? 'Test email accepted for ' + r.recipientEmail : 'Test email failed: ' + r.error, !r.ok);
+        UI.integ = undefined; render();
+      },
+      'download-copy': () => download('control_tower_browser_copy_' + todayStr() + '.json', browserCopy(), 'application/json'),
       'edit-task': () => { UI.taskId = null; taskForm(S.tasks.find(t => t.id === id)); },
       'add-subtask': () => { const t = S.tasks.find(x => x.id === id); UI.taskId = null; taskForm(null, t.projectId, t.id); },
       'del-task': () => {
@@ -5175,35 +5461,16 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
           if (card) card.scrollIntoView({ behavior: 'smooth' });
         }, 100);
       },
-      'save-sync-config': () => {
-        const urlInput = $('#sync-url-input');
-        const autoInput = $('#sync-auto-input');
-        const url = (urlInput ? urlInput.value.trim() : '');
-        const auto = autoInput ? autoInput.checked : true;
-        S.meta.sync = S.meta.sync || {};
-        S.meta.sync.url = url;
-        S.meta.sync.enabled = !!url;
-        S.meta.sync.autoSync = auto;
-        S.meta.sync.status = url ? 'connected' : 'idle';
-        S.meta.sync.error = null;
-        save(false);
-        render();
-        toast('Sync configuration saved!');
-      },
       'sync-pull': () => SYNC.pull(false),
       'sync-retry': () => SYNC.boot(),
       'report-clear': () => { UI.report = { from: '', to: '' }; render(); },
       'sync-push': () => SYNC.push(),
       'sync-test': async () => {
-        const url = ($('#sync-url-input') ? $('#sync-url-input').value.trim() : (S.meta.sync && S.meta.sync.url)) || '';
-        if (!url) { toast('Please enter a Web App URL first.', true); return; }
-        toast('Testing connection to Google Sheet...');
+        toast('Testing the connection');
         try {
-          const sep = url.includes('?') ? '&' : '?';
-          const res = await fetch(url + sep + '_=' + Date.now());
-          const d = await res.json();
-          if (d.error && !d.ok) throw new Error(d.error);
-          toast('Connection successful! Google Sheet: ' + (d.sheet || 'Connected') + ' (v' + (d.version !== undefined ? d.version : 1) + ')');
+          const d = await SYNC.get('ping');
+          if (d.api < 4) throw new Error('the server needs updating');
+          toast('Connected. Sheet version ' + d.version + '.');
         } catch (err) {
           toast('Connection failed: ' + err.message, true);
         }
@@ -5258,7 +5525,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       tcal: () => { UI.tcal = el.dataset.m; render(); },
       'tfilter-go': () => { UI.tasksTouched = true; go('tasks', { tab: el.dataset.f }); },
       ntab: () => { UI.notifTab = el.dataset.tab; render(); },
-      admintab: () => { UI.adminTab = el.dataset.tab; render(); },
+      admintab: () => { UI.adminTab = el.dataset.tab; if (el.dataset.tab === 'integrations') UI.integ = undefined; if (el.dataset.tab === 'log') UI.notifLog = undefined; render(); },
       'notif-read': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); render(); },
       'notif-all': () => { const r = readSet(); myNotifications().forEach(n => r.add(n.id)); writeRead(r); render(); },
       'notif-open': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); const g = JSON.parse(el.dataset.go); if (g.view) { UI.taskFilter = g.filter || UI.taskFilter; UI.tasksTouched = true; go(g.view); } else if (g.task) { render(); openTask(g.task); } else if (g.project) go('project', { id: g.project }); else render(); },
@@ -5314,6 +5581,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
 
   document.addEventListener('change', e => {
     if (e.target && e.target.id === 'mgmt-emp-filter') { UI.mgmtEmpFilter = e.target.value; render(); return; }
+    if (e.target && e.target.id === 'mgmt-proj-filter') { UI.mgmtProject = e.target.value; render(); return; }
     const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act; const id = el.dataset.id;
     if (act === 'filter') { UI.filters[el.dataset.k] = el.value; render(); }
     else if (act === 'sort-sel') { UI.sort[el.dataset.t] = el.value; render(); }
@@ -5348,6 +5616,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   document.addEventListener('input', e => {
     if (e.target.id === 'tu-text' && UI.taskId) { try { localStorage.setItem('sct_draft_' + UI.taskId, e.target.value); } catch (err) { /* private window */ } }
     if (e.target.id === 'audit-q') { UI.auditQ = e.target.value; render(); const q = $('#audit-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    if (e.target.id === 'emp-q') { UI.empQ = e.target.value; render(); const q = $('#emp-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     if (e.target && e.target.id === 'mgmt-search-q') {
       UI.mgmtSearchQ = e.target.value;
       render();
@@ -5403,6 +5672,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   });
 
   document.addEventListener('submit', e => {
+    if (e.target.id !== undefined && e.target.matches('form[data-act="cmd-form"]')) { e.preventDefault(); runCommand(); return; }
     const f = e.target.closest('form[data-act="add-comment"]');
     if (!f) return;
     e.preventDefault();
@@ -5469,6 +5739,8 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   document.addEventListener('focusin', e => {
     if (e.target.id === 'q' && e.target.value.trim()) showFind();
   });
+
+  window.addEventListener('hashchange', () => { if (S && (SYNC.session || ME.open)) openFromLink(); });
 
   // ---------- boot ----------
   initTheme();

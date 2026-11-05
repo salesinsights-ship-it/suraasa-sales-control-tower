@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// The Apps Script web app the site talks to. Set CT_API_URL in Vercel to point a preview at a test Sheet.
+// This is an address, not a secret: the script itself refuses anyone without a Google sign-in.
+const API_URL = process.env.CT_API_URL || 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec';
 const parts = [
   'src/shell_head.html',
   'src/styles.css',
@@ -31,6 +34,7 @@ const shell = {
 contents[parts.indexOf('src/seed.js')] = 'function buildSeed() { const s = ' + JSON.stringify(shell) + '; s.meta.seeded = s.meta.savedAt = new Date().toISOString(); return s; }';
 
 const b64 = f => 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'assets/logo', f)).toString('base64');
+contents[parts.indexOf('src/app.js')] = contents[parts.indexOf('src/app.js')].replace(/\/\*CONFIG\*\/.*?\/\*END\*\//, JSON.stringify({ apiUrl: API_URL }));
 const bundle = contents.join('\n')
   .replace(/\{\{LOGO_LIGHT\}\}/g, b64('suraasa-logo-light-bg.png'))
   .replace(/\{\{LOGO_DARK\}\}/g, b64('suraasa-logo-dark-bg.png'));

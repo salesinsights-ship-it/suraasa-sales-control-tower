@@ -225,7 +225,7 @@ const ENGINE = (function () {
     (d.audit || []).forEach(a => {
       if (a.actorName === name) return;
       const go = a.taskId ? { task: a.taskId } : a.projectId ? { project: a.projectId } : {};
-      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
+      if ((a.action === 'owner_changed' || a.action === 'task_assigned') && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
       if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
       const tk = a.taskId ? d.tasks.find(t => t.id === a.taskId) : null;
       if (tk && d.mine(tk.owner)) {
@@ -245,6 +245,81 @@ const ENGINE = (function () {
     return out.filter(n => (seen.has(n.id) ? false : seen.add(n.id))).sort((a, b) => ({ red: 0, amber: 1, info: 2 }[a.level] - { red: 0, amber: 1, info: 2 }[b.level]) || String(b.ts).localeCompare(String(a.ts)));
   }
 
-  return { TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
+  // ---------- one-line task commands ----------
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const pad = n => String(n).padStart(2, '0');
+  const iso = d => d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  const realDate = (y, m, d) => { const x = new Date(Date.UTC(y, m - 1, d)); return x.getUTCMonth() === m - 1 && x.getUTCDate() === d ? iso(x) : ''; };
+  /** Finds a date in the text. Dates are read day first, as in India. Returns { date, text } or null. */
+  function findDate(text, today) {
+    const base = new Date(today + 'T00:00:00Z'), add = n => iso(new Date(base.getTime() + n * 86400000));
+    const mon = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    const month = w => MONTHS.findIndex(m => m.startsWith(w.toLowerCase().slice(0, 3))) + 1;
+    const year = (d, m) => { const y = base.getUTCFullYear(), c = realDate(y, m, d); return c && c >= today ? y : y + 1; };
+    let m;
+    if ((m = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))) return { date: realDate(+m[1], +m[2], +m[3]), text: m[0] };
+    if ((m = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/))) return { date: realDate(+m[3], +m[2], +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + mon + '\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[1], month(m[2])), month(m[2]), +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b' + mon + '\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[2], month(m[1])), month(m[1]), +m[2]), text: m[0] };
+    if ((m = text.match(/\btoday\b/i))) return { date: today, text: m[0] };
+    if ((m = text.match(/\btomorrow\b/i))) return { date: add(1), text: m[0] };
+    if ((m = text.match(/\bin\s+(\d{1,3})\s+days?\b/i))) return { date: add(+m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b(next\\s+|this\\s+)?(' + DAYS.join('|') + ')\\b', 'i')))) {
+      const want = DAYS.indexOf(m[2].toLowerCase()), now = base.getUTCDay();
+      let gap = (want - now + 7) % 7 || 7;
+      if (/^next/i.test(m[1] || '') && gap < 7 && want > now) gap += 7;
+      return { date: add(gap), text: m[0] };
+    }
+    return null;
+  }
+  /**
+   * Reads a sentence into a task. It only fills in what it can prove: a person must match an email
+   * exactly, a project must match one project, and anything else is left blank and listed in problems.
+   * Whatever it returns still goes through the confirmation step and every check on the server.
+   * d = { today, projects, employees }
+   */
+  function parseCommand(text, d) {
+    const task = { name: '', desc: '', projectId: '', ownerEmail: '', priority: '', due: '' }, problems = [];
+    let rest = String(text || '').trim();
+    const take = m => { rest = rest.replace(m, ' '); };
+    const words = { critical: 'P0', urgent: 'P0', high: 'P1', medium: 'P2', normal: 'P2', low: 'P3' };
+    let m = rest.match(/(?:description|details)\s*[:\-]\s*(.+)$/i);
+    if (m) { task.desc = m[1].trim(); take(m[0]); }
+    m = rest.match(/[^\s@<>(),;"']+@[^\s@<>(),;"']+\.[a-z]{2,}/i);
+    if (m) {
+      const mail = m[0].toLowerCase().replace(/[.,;]+$/, ''), hit = (d.employees || []).find(u => String(u.email).toLowerCase() === mail);
+      task.ownerEmail = mail;
+      if (!hit) problems.push(mail + ' is not a registered employee.');
+    } else problems.push('Add the employee\'s email.');
+    m = rest.match(/\b(critical|urgent|high|medium|normal|low)[\s-]*priority\b/i) || rest.match(/\bpriority\s*(?:is|of|:|-)?\s*(critical|urgent|high|medium|normal|low)\b/i);
+    if (m) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
+    else if ((m = rest.match(/\b(P[0-3])\b/))) { task.priority = m[1]; take(m[0]); }
+    else if ((m = rest.match(/\b(critical|urgent)\b/i))) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
+    else problems.push('Choose a priority.');
+    const clue = rest.match(/\b(?:deadline(?:\s+is|\s+of|:)?|due(?:\s+on|\s+by|:)?|by|before|on)\s+(.{3,40}?)(?:[.;]|$)/i);
+    const found = (clue && findDate(clue[1], d.today)) || findDate(rest, d.today);
+    if (found && found.date) {
+      task.due = found.date;
+      take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + found.text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
+    } else problems.push('Choose a deadline.');
+    if (task.due && task.due < d.today) problems.push('The deadline is in the past.');
+    const named = rest.match(/\b(?:under|for|in|on|to)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i) || rest.match(/\bproject\s*(?:is|:|-|called|named)?\s*["']?([^.,;"']+)["']?/i);
+    if (named) {
+      const want = named[1].trim(), low = want.toLowerCase(), list = d.projects || [];
+      const exact = list.filter(p => String(p.name).toLowerCase() === low || String(p.id).toLowerCase() === low);
+      const near = exact.length ? exact : list.filter(p => String(p.name).toLowerCase().includes(low));
+      if (near.length === 1) task.projectId = near[0].id;
+      else if (near.length) problems.push('"' + want + '" could be ' + near.slice(0, 3).map(p => p.name).join(' or ') + '. Choose one.');
+      else problems.push('No project you manage is called "' + want + '".');
+      take(named[0]);
+    } else problems.push('Choose a project.');
+    m = rest.match(/["\u201c]([^"\u201d]{2,})["\u201d]/) || rest.match(/\b(?:assign|create|add|give)\s+(?:the|a|an)?\s*(.+?)\s+task\b/i) || rest.match(/\b(?:task|title)\s*[:\-]\s*([^.;]+)/i);
+    if (m) task.name = m[1].replace(/\s+/g, ' ').trim();
+    if (!task.name || /^(new|a|an|the)$/i.test(task.name)) { task.name = ''; problems.push('Add a task title.'); }
+    return { task, problems };
+  }
+
+  return { parseCommand, TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
 })();
 if (typeof module !== 'undefined') module.exports = ENGINE;

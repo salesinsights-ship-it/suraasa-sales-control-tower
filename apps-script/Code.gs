@@ -1153,7 +1153,7 @@ function apply_(body, a, preloaded) {
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: ts, updatedBy: a.name || 'website' });
   if (failure) return { ok: false, version: v, error: 'Only part of this save reached the Sheet (' + String(failure.message || failure) + ').' };
-  var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved, notified: told.notified };
+  var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved || plan.some(function (p) { return p.users; }), notified: told.notified };
   res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return a.role === 'Administrator' || !o.projectId || o.entityType !== 'users'; });
   try { cache.put(replayKey, JSON.stringify(res), 600); } catch (x) { /* very large reply: skip the replay cache */ }
   return res;
@@ -1522,7 +1522,7 @@ function sendBatch_(rows) {
     sh.getRange(r._row, at, 1, 5).setValues([[status, String(tries), ts, wait, r.errorDetails]]);
     if (status === 'skipped') return;
     var kind = r.taskId ? 'task' : 'project', id = r.taskId || r.projectId;
-    audit.push(emailAudit_(r.taskId, r.projectId, kind, id, r.actorEmail, r.actorName, status === 'accepted' ? 'email_sent' : 'email_failed', r.recipientName, status === 'accepted' ? 'Email for ' + r.eventType + ' accepted by the mail service for ' + r.recipientEmail + (note ? ' (' + note + ')' : '') + '. Delivery to the inbox is not confirmed.' : 'Email for ' + r.eventType + ' to ' + r.recipientEmail + ' failed: ' + error, ts, r.requestId));
+    audit.push(emailAudit_(r.taskId, r.projectId, kind, id, r.actorEmail, r.actorName, status === 'accepted' ? 'email_sent' : 'email_failed', r.recipientName, status === 'accepted' ? '"' + (EVENT_TITLE[r.eventType] || r.eventType) + '" email accepted by the mail service for ' + r.recipientEmail + (note ? ' (' + note + ')' : '') + '. Delivery to the inbox is not confirmed.' : '"' + (EVENT_TITLE[r.eventType] || r.eventType) + '" email to ' + r.recipientEmail + ' failed: ' + error, ts, r.requestId));
   });
   return audit;
 }
