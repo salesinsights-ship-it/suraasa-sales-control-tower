@@ -281,7 +281,7 @@ const ENGINE = (function () {
    */
   function parseCommand(text, d) {
     const task = { name: '', desc: '', projectId: '', ownerEmail: '', priority: '', due: '' }, problems = [];
-    let rest = String(text || '').trim();
+    let rest = String(text || '').trim().slice(0, 1000);
     const take = m => { rest = rest.replace(m, ' '); };
     const words = { critical: 'P0', urgent: 'P0', high: 'P1', medium: 'P2', normal: 'P2', low: 'P3' };
     let m = rest.match(/(?:description|details)\s*[:\-]\s*(.+)$/i);
@@ -290,6 +290,7 @@ const ENGINE = (function () {
     if (m) {
       const mail = m[0].toLowerCase().replace(/[.,;]+$/, ''), hit = (d.employees || []).find(u => String(u.email).toLowerCase() === mail);
       task.ownerEmail = mail;
+      take(new RegExp('(?:\\bto\\s+)?' + m[0].replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
       if (!hit) problems.push(mail + ' is not a registered employee.');
     } else problems.push('Add the employee\'s email.');
     m = rest.match(/\b(critical|urgent|high|medium|normal|low)[\s-]*priority\b/i) || rest.match(/\bpriority\s*(?:is|of|:|-)?\s*(critical|urgent|high|medium|normal|low)\b/i);
@@ -297,18 +298,22 @@ const ENGINE = (function () {
     else if ((m = rest.match(/\b(P[0-3])\b/))) { task.priority = m[1]; take(m[0]); }
     else if ((m = rest.match(/\b(critical|urgent)\b/i))) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
     else problems.push('Choose a priority.');
-    const clue = rest.match(/\b(?:deadline(?:\s+is|\s+of|:)?|due(?:\s+on|\s+by|:)?|by|before|on)\s+(.{3,40}?)(?:[.;]|$)/i);
-    const found = (clue && findDate(clue[1], d.today)) || findDate(rest, d.today);
-    if (found && found.date) {
-      task.due = found.date;
-      take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + found.text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
-    } else problems.push('Choose a deadline.');
+    // Two different dates in one sentence: asking is better than picking one.
+    const dates = []; let scan = rest, hit = findDate(scan, d.today);
+    while (hit && dates.length < 5) { if (hit.date && !dates.some(x => x.date === hit.date)) dates.push(hit); scan = scan.replace(hit.text, ' '); hit = findDate(scan, d.today); }
+    if (dates.length === 1) {
+      task.due = dates[0].date;
+      take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + dates[0].text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
+    } else if (dates.length > 1) problems.push('This mentions more than one date. Choose the deadline.');
+    else problems.push('Choose a deadline.');
     if (task.due && task.due < d.today) problems.push('The deadline is in the past.');
-    const named = rest.match(/\b(?:under|for|in|on|to)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i) || rest.match(/\bproject\s*(?:is|:|-|called|named)?\s*["']?([^.,;"']+)["']?/i);
-    if (named) {
-      const want = named[1].trim(), low = want.toLowerCase(), list = d.projects || [];
+    const named = rest.match(/\b(?:under|for|in|on)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i) || rest.match(/\bproject\s*(?::|-|called|named)\s*["']?([^.,;"']+)["']?/i);
+    const want = named ? named[1].trim() : '';
+    if (want && !/^(the|a|an|this|that|our|my)$/i.test(want)) {
+      const low = want.toLowerCase(), list = d.projects || [];
       const exact = list.filter(p => String(p.name).toLowerCase() === low || String(p.id).toLowerCase() === low);
-      const near = exact.length ? exact : list.filter(p => String(p.name).toLowerCase().includes(low));
+      const word = new RegExp('(^|[^a-z0-9])' + low.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&') + '($|[^a-z0-9])', 'i');
+      const near = exact.length ? exact : low.length < 3 ? [] : list.filter(p => word.test(String(p.name)));
       if (near.length === 1) task.projectId = near[0].id;
       else if (near.length) problems.push('"' + want + '" could be ' + near.slice(0, 3).map(p => p.name).join(' or ') + '. Choose one.');
       else problems.push('No project you manage is called "' + want + '".');

@@ -135,8 +135,8 @@ function setupSheet() {
     var sameHeader = existing.length >= cols.length && cols.every(function (c, i) { return existing[i] === c; });
     if (!sameHeader) {
       if (sh.getLastRow() > 0 && existing.join('') !== '') {
-        // header exists but differs — migrate data by column name
-        migrateColumns_(sh, existing, cols);
+        // The usual upgrade: open a gap after _extra. Everything to its right moves with its formulas and formats.
+        if (!insertTail_(sh, s, existing)) migrateColumns_(sh, existing, cols); // header differs: move data by column name
       } else {
         sh.getRange(1, 1, 1, cols.length).setValues([cols]);
       }
@@ -195,16 +195,33 @@ function setupSheet() {
   try { SpreadsheetApp.getUi().alert('Control Tower sheet is ready.\n\nYour data was kept. Next: check the Users tab, then Deploy > Manage deployments > New version. See docs/DEPLOYMENT.md.'); } catch (e) {}
 }
 
+function insertTail_(sh, s, existing) {
+  var base = s.cols.concat([EXTRA]), tail = s.tail || [];
+  if (!tail.length || !base.every(function (c, i) { return existing[i] === c; }) || tail.some(function (c) { return existing.indexOf(c) >= 0; })) return false;
+  sh.insertColumnsAfter(base.length, tail.length);
+  sh.getRange(1, base.length + 1, 1, tail.length).setValues([tail]);
+  return true;
+}
+/** Values with any formulas in place, so rewriting a block of cells does not turn a formula into its result. */
+function gridOf_(rng) {
+  var vals = rng.getValues(), forms = rng.getFormulas();
+  return vals.map(function (r, i) { return r.map(function (v, j) { return forms[i][j] || v; }); });
+}
 function migrateColumns_(sh, oldCols, newCols) {
   var n = sh.getLastRow();
-  var data = n > 1 ? sh.getRange(2, 1, n - 1, oldCols.length).getValues() : [];
-  // Columns someone added by hand move to the right. They are never dropped.
-  var all = newCols.concat(oldCols.filter(function (c) { return c !== '' && newCols.indexOf(c) < 0; }));
-  ensureCols_(sh, Math.max(all.length, oldCols.length));
-  var out = data.map(function (row) { return all.map(function (c) { var i = oldCols.indexOf(c); return i >= 0 ? row[i] : ''; }); });
-  sh.getRange(1, 1, 1, all.length).setValues([all]);
-  if (out.length) { sh.getRange(2, 1, out.length, all.length).setValues(out); }
-  if (oldCols.length > all.length) sh.getRange(1, all.length + 1, n, oldCols.length - all.length).clearContent();
+  var data = n > 1 ? gridOf_(sh.getRange(2, 1, n - 1, oldCols.length)) : [];
+  // Each column is tracked by its position, so a blank or repeated heading cannot lose or overwrite data.
+  var from = newCols.map(function (c) { return oldCols.indexOf(c); }), heads = newCols.slice();
+  oldCols.forEach(function (c, i) {
+    if (from.indexOf(i) >= 0) return;
+    if (c === '' && !data.some(function (r) { return r[i] !== '' && r[i] != null; })) return;
+    from.push(i); heads.push(c); // added by hand: moves to the right, never dropped
+  });
+  ensureCols_(sh, Math.max(heads.length, oldCols.length));
+  var out = data.map(function (row) { return from.map(function (i) { return i >= 0 ? row[i] : ''; }); });
+  sh.getRange(1, 1, 1, heads.length).setValues([heads]);
+  if (out.length) { sh.getRange(2, 1, out.length, heads.length).setValues(out); }
+  if (oldCols.length > heads.length) sh.getRange(1, heads.length + 1, n, oldCols.length - heads.length).clearContent();
 }
 
 // ------------------------------------------------------------
@@ -379,12 +396,13 @@ function readTab_(ss, s, idsNeeded) {
   var data = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
   var out = [];
   var usedIds = {};
+  var ours = {}; allCols_(s).forEach(function (c) { ours[c] = true; }); // columns added by hand stay in the Sheet, out of the records
   if (s.id) data.forEach(function (r) { var v = r[header.indexOf(s.id)]; if (v !== '' && v != null) usedIds[String(v)] = true; });
   data.forEach(function (r, ri) {
     if (r.every(function (v) { return v === '' || v == null; })) return; // blank row
     var o = {};
     header.forEach(function (h, i) {
-      if (!h) return;
+      if (!h || !ours[h]) return;
       var v = r[i];
       if (h === EXTRA) { if (v) { try { var ex = JSON.parse(v); Object.keys(ex).forEach(function (k) { o[k] = ex[k]; }); } catch (x) {} } return; }
       if (s.tail && s.tail.indexOf(h) >= 0 && (v === '' || v == null) && o[h] !== undefined) return;
@@ -490,11 +508,14 @@ function cell_(v) {
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'number') return String(v);
   var s = String(v);
+  if (/^'=/.test(s)) return s.slice(1);
   // Accept dates typed as dd/mm/yyyy or dd-mm-yyyy and normalise to yyyy-mm-dd
   var m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
   return s;
 }
+/** Text from people is never allowed to run as a formula in the Sheet. */
+function safeCell_(v) { return typeof v === 'string' && v.charAt(0) === '=' ? "'" + v : v; }
 function toBool_(v) { if (typeof v === 'boolean') return v; var s = String(v == null ? '' : v).trim().toLowerCase(); return s === 'true' || s === 'yes' || s === '1'; }
 function splitList_(v) {
   if (v == null || v === '') return [];
@@ -609,7 +630,7 @@ function directory_() {
 function nextEmployeeId_(users) {
   var top = 0;
   users.forEach(function (u) { var m = String(u.employeeId || '').match(/^EMP-(\d+)$/); if (m) top = Math.max(top, Number(m[1])); });
-  return 'EMP-' + ('00' + (top + 1)).slice(-3);
+  return 'EMP-' + (top + 1 < 100 ? ('00' + (top + 1)).slice(-3) : String(top + 1));
 }
 /** Gives everyone already in the Users tab an ID. Existing IDs never change. */
 function backfillEmployeeIds_() {
@@ -663,17 +684,21 @@ function actor_(body) {
   var s;
   try { s = JSON.parse(raw); } catch (x) { return null; }
   if (!s || !s.e || Date.now() > s.x) { cache.remove(key); return null; }
-  var u = userByEmail_(s.e);
+  var all = users_(), u = all.filter(function (x) { return x.email === s.e; })[0];
   if (!u || !u.active) { cache.remove(key); return null; }
   if (Date.now() - s.t > 600000) { s.t = Date.now(); cache.put(key, JSON.stringify(s), SESSION_IDLE_SECONDS); } // still in use, so the idle limit moves on
-  return publicUser_(u);
+  // A name two people share belongs to neither of them: only their email counts.
+  var me = publicUser_(u);
+  me.nameShared = peopleNamed_(u.name, all).length > 1;
+  me.aliases = me.aliases.filter(function (n) { return peopleNamed_(n, all).length === 1; });
+  return me;
 }
 function authError_() { return { ok: false, auth: true, error: 'Your session has ended. Sign in again.' }; }
 
 // ---------- what a person may see and do ----------
 /** True only for a confirmed name. "TBD — proposed: AK" gives AK no rights, and "AK" never matches "Mak". */
 function isMine_(field, a) {
-  var names = typeof a === 'string' ? [a] : [a.name].concat(a.aliases || []);
+  var names = typeof a === 'string' ? [a] : (a.nameShared ? [] : [a.name]).concat(a.aliases || []);
   names = names.filter(Boolean).map(function (n) { return String(n).trim().toLowerCase(); });
   if (!names.length || /^\s*tbd/i.test(String(field || ''))) return false;
   return String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(function (x) { return names.indexOf(x.trim().toLowerCase()) >= 0; });
@@ -685,6 +710,14 @@ function holds_(rec, nameField, emailField, a) {
   return isMine_(rec[nameField], a);
 }
 function ownsTask_(t, a) { return holds_(t, 'owner', 'ownerEmail', a); }
+/** Exactly this one person, so a list with someone else in it cannot pass as "my own task". */
+function soleOwner_(t, a) {
+  var mails = String(t.ownerEmail || '').toLowerCase().split(/\s*,\s*/).filter(Boolean);
+  if (mails.length) return mails.length === 1 && !!a.email && mails[0] === a.email;
+  return ownerNames_(t.owner).length === 1 && isMine_(t.owner, a);
+}
+/** Work someone else gave this person. A task they wrote for themselves gives them no view of the project. */
+function givenWork_(t, a) { return (ownsTask_(t, a) || isMine_(t.accountable, a)) && !(a.email && String(t.assignedByEmail || '').toLowerCase() === a.email); }
 function ownsProject_(p, a) { return !!p && (holds_(p, 'owner', 'ownerEmail', a) || holds_(p, 'accountable', 'accountableEmail', a) || (!!a.email && (p.managerEmails || []).indexOf(a.email) >= 0)); }
 function canSeeProject_(p, tasks, a) {
   if (a.role === 'Administrator' || !p.restricted) return true;
@@ -700,12 +733,12 @@ function scopeState_(state, a) {
     state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
   });
   var general = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
-  state.audit = (state.audit || []).filter(function (r) { return r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0; });
+  state.audit = (state.audit || []).filter(function (r) { return r.action !== 'sheet_edit' && (r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0); });
   state.snapshots = (state.snapshots || []).filter(function (r) { return seen[r.projectId]; });
   if (a.role === 'Task Owner') {
     // Employees see their own tasks and subtasks, and only what belongs to the projects those tasks are in.
     var mine = {}, theirs = {};
-    state.tasks.forEach(function (t) { if (ownsTask_(t, a) || isMine_(t.accountable, a)) { mine[t.id] = true; theirs[t.projectId] = true; } });
+    state.tasks.forEach(function (t) { if (ownsTask_(t, a) || isMine_(t.accountable, a)) mine[t.id] = true; if (givenWork_(t, a)) theirs[t.projectId] = true; });
     var grew = true;
     while (grew) {
       grew = false;
@@ -733,7 +766,7 @@ function changedFields_(cur, next) {
   Object.keys(keys).forEach(function (k) { if (STAMPS.indexOf(k) < 0 && canon_(cur ? cur[k] : '') !== canon_(next ? next[k] : '')) out.push(k); });
   return out;
 }
-function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.projectId === pid && (ownsTask_(t, a) || isMine_(t.accountable, a)); }); }
+function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.projectId === pid && givenWork_(t, a); }); }
 /** Returns a refusal message, or '' when allowed. Checked on the server for every record. */
 function deny_(a, coll, cur, next, st) {
   if (a.role === 'Administrator') return '';
@@ -767,9 +800,9 @@ function deny_(a, coll, cur, next, st) {
   }
   if (coll === 'tasks' && !cur && next && next.parent) {
     var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
-    return parent && parent.projectId === next.projectId && ownsTask_(parent, a) ? '' : 'You can add subtasks only to your own tasks.';
+    return parent && parent.projectId === next.projectId && ownsTask_(parent, a) && soleOwner_(next, a) ? '' : 'You can add subtasks only to your own tasks, for yourself.';
   }
-  if (coll === 'tasks' && !cur && next) return ownsTask_(next, a) ? '' : 'You can add tasks only for yourself. Set yourself as the owner.';
+  if (coll === 'tasks' && !cur && next) return soleOwner_(next, a) ? '' : 'You can add tasks only for yourself. Set yourself as the owner.';
   if (coll === 'updates' && !cur) return a.role !== 'Task Owner' || hasWorkIn_(rec.projectId, st, a) ? '' : 'You can add updates only to projects you have tasks in.';
   return 'You do not have permission to change this.';
 }
@@ -868,18 +901,19 @@ function mergeAppend_(current, base, incoming) {
 /** People add notes in their own name, and change or remove only their own. Project owners may tidy. */
 function noteProblem_(f, cur, next, a, canManage) {
   if (a.open) return '';
-  var nameOf = function (n) { return String(n.who || n.author || '').trim().toLowerCase(); };
+  var signed = function (n) { return [n.who, n.author].filter(Boolean).map(function (x) { return String(x).trim().toLowerCase(); }); };
   var me = String(a.name || '').trim().toLowerCase();
+  var byMe = function (n) { var w = signed(n); return w.length > 0 && w.every(function (x) { return x === me; }); };
   var was = {}, seen = {}, bad = '';
   (cur[f] || []).forEach(function (n) { was[noteKey_(n)] = n; });
   (next[f] || []).forEach(function (n) {
     var k = noteKey_(n), o = was[k];
     seen[k] = true;
-    if (!o) { if (nameOf(n) !== me) bad = 'You can only add notes in your own name.'; return; }
-    if (canon_(o) !== canon_(n) && !canManage && nameOf(o) !== me) bad = 'You can only edit your own notes.';
-    if (nameOf(o) !== nameOf(n)) bad = 'The author of a note cannot be changed.';
+    if (!o) { if (!byMe(n)) bad = 'You can only add notes in your own name.'; return; }
+    if (canon_(o) !== canon_(n) && !canManage && !byMe(o)) bad = 'You can only edit your own notes.';
+    if (signed(o).join() !== signed(n).join()) bad = 'The author of a note cannot be changed.';
   });
-  Object.keys(was).forEach(function (k) { if (!seen[k] && !canManage && nameOf(was[k]) !== me) bad = 'You can only remove your own notes.'; });
+  Object.keys(was).forEach(function (k) { if (!seen[k] && !canManage && !byMe(was[k])) bad = 'You can only remove your own notes.'; });
   return bad;
 }
 
@@ -949,7 +983,7 @@ function appendRows_(tab, rows) {
   ensureRows_(sh, at + rows.length - 1);
   var rng = sh.getRange(at, 1, rows.length, rows[0].length);
   rng.setNumberFormat('@');
-  rng.setValues(rows);
+  rng.setValues(rows.map(function (r) { return r.map(safeCell_); }));
 }
 function readAudit_(limit) {
   var sh = SpreadsheetApp.getActive().getSheetByName(AUDIT_SHEET);
@@ -1048,6 +1082,7 @@ function apply_(body, a, preloaded) {
       if (!op.rec) return reject('This record no longer exists.', 'missing');
       next = JSON.parse(JSON.stringify(op.rec));
       next[idField] = op.id;
+      if (a.role !== 'Administrator') delete op.restoreOf; // restoring keeps the old stamps, so only a Super Admin may
       if (!op.restoreOf) STAMPS.forEach(function (k) { delete next[k]; });
     } else {
       next = JSON.parse(JSON.stringify(cur));
@@ -1073,9 +1108,10 @@ function apply_(body, a, preloaded) {
     var denied = deny_(a, op.c, cur, next, st);
     if (denied) return reject(denied, 'denied');
     var problem = '';
-    if (cur) APPEND_ONLY.forEach(function (f) {
-      var owner = op.c === 'projects' ? cur : st.projects.filter(function (p) { return p.id === cur.projectId; })[0];
-      problem = problem || (canon_(cur[f]) !== canon_(next[f]) ? noteProblem_(f, cur, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
+    var earlier = cur || {};
+    if (!op.restoreOf) APPEND_ONLY.forEach(function (f) {
+      var owner = op.c === 'projects' ? earlier : st.projects.filter(function (p) { return p.id === next.projectId; })[0];
+      problem = problem || (canon_(earlier[f]) !== canon_(next[f]) ? noteProblem_(f, earlier, next, a, a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(owner, a))) : '');
     });
     if (problem) return reject(problem, 'denied');
     if (schemaFor_(op.c) && oversize_(op.c, next)) return reject('This record has grown too long for the Sheet. Remove some notes or text and try again.', 'invalid');
@@ -1187,7 +1223,7 @@ function rowValues_(s, o) {
     if (v == null) return '';
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
-  }).concat([Object.keys(extra).length ? JSON.stringify(extra) : '']).concat((s.tail || []).map(function (c) { return o[c] == null ? '' : String(o[c]); }));
+  }).concat([Object.keys(extra).length ? JSON.stringify(extra) : '']).concat((s.tail || []).map(function (c) { return o[c] == null ? '' : String(o[c]); })).map(safeCell_);
 }
 function rowOfId_(sh, col, id) {
   var n = sh.getLastRow(); if (n < 2) return -1;
@@ -1220,21 +1256,24 @@ function deleteSheetRow_(sh, row) {
 function replaceNested_(ss, s, projectId, rows) {
   // Build the whole tab, then write it in one go: nothing is deleted before its replacement exists.
   var sh = ss.getSheetByName(s.tab);
-  var width = Math.max(sh.getLastColumn(), s.cols.length + 1);
+  var width = Math.max(sh.getLastColumn(), s.cols.length + 1), known = s.cols.length + 1;
   var last = sh.getLastRow();
-  var col = s.cols.indexOf('projectId');
-  var kept = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues().filter(function (r) { return String(r[col]) !== String(projectId); }) : [];
-  var fresh = rows.map(function (o) {
+  var col = s.cols.indexOf('projectId'), idCol = s.id ? s.cols.indexOf(s.id) : -1;
+  var grid = last >= 2 ? gridOf_(sh.getRange(2, 1, last - 1, width)) : [];
+  var kept = grid.filter(function (r) { return String(r[col]) !== String(projectId); });
+  var theirs = grid.filter(function (r) { return String(r[col]) === String(projectId); });
+  var fresh = rows.map(function (o, i) {
     var v = rowValues_(s, Object.assign({}, o, { projectId: projectId }));
-    while (v.length < width) v.push('');
+    // Columns added by hand stay with their row: matched by ID, or by position where a tab has no ID.
+    var old = idCol >= 0 ? theirs.filter(function (r) { return String(r[idCol]) === String(o[s.id]); })[0] : theirs[i];
+    while (v.length < width) v.push(old ? old[v.length] : '');
     return v;
   });
   var all = kept.concat(fresh);
   if (all.length) {
     ensureRows_(sh, all.length + 1);
-    var rng = sh.getRange(2, 1, all.length, width);
-    rng.setNumberFormat('@');
-    rng.setValues(all);
+    sh.getRange(2, 1, all.length, known).setNumberFormat('@');
+    sh.getRange(2, 1, all.length, width).setValues(all);
   }
   if (last - 1 > all.length) sh.getRange(all.length + 2, 1, last - 1 - all.length, width).clearContent();
 }
@@ -1253,7 +1292,7 @@ function writeUser_(cur, next) {
   USER_COLS.forEach(function (c) {
     if (at[c] === undefined) return;
     var v = c === 'active' ? (next.active ? 'TRUE' : 'FALSE') : c === 'name' ? (next.rawName || next.name) : next[c];
-    vals[at[c]] = String(v == null ? '' : v);
+    vals[at[c]] = safeCell_(String(v == null ? '' : v));
   });
   var rng = sh.getRange(row, 1, 1, width);
   rng.setNumberFormat('@');
@@ -1322,7 +1361,7 @@ function nextTaskId_(tasks) {
   var top = 0, look = function (id) { var m = String(id).match(/^T-(\d+)$/); if (m) top = Math.max(top, Number(m[1])); };
   tasks.forEach(function (t) { look(t.id); });
   readTable_(TRASH_SHEET, TRASH_COLS).forEach(function (t) { if (t.collection === 'tasks') look(t.recordId); }); // a deleted task's ID is never reused
-  return 'T-' + ('00' + (top + 1)).slice(-3);
+  return 'T-' + (top + 1 < 100 ? ('00' + (top + 1)).slice(-3) : String(top + 1));
 }
 
 // ---------- assigning a task by email ----------
@@ -1338,8 +1377,8 @@ function assign_(body, a) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return { ok: false, code: 'invalid', field: 'due', error: 'Choose a deadline.' };
   ensureSystemTabs_();
   var pulled = pull_(), st = pulled.state, users = users_();
-  var again = st.tasks.filter(function (x) { return x.assignKey === reqId; })[0];
-  if (again) return { ok: true, duplicate: true, version: pulled.version, task: again, notified: notifiedFor_(reqId) };
+  var again = st.tasks.filter(function (x) { return x.assignKey === reqId && (a.role === 'Administrator' || x.assignedByEmail === a.email); })[0];
+  if (again) return { ok: true, duplicate: true, version: pulled.version, task: again, notified: notifiedFor_(reqId, a) };
   var who = users.filter(function (u) { return u.email === email; })[0];
   if (!who) return { ok: false, code: 'unknown_employee', field: 'ownerEmail', error: email + ' is not a registered employee.' };
   if (!who.active) return { ok: false, code: 'inactive_employee', field: 'ownerEmail', error: who.name + ' (' + email + ') is inactive.' };
@@ -1361,20 +1400,23 @@ function assign_(body, a) {
 // ---------- notifications ----------
 // Every email starts as a "queued" row in NotificationLog, so nothing is lost if sending fails.
 // "accepted" means Google's mail service took it. Nobody can see from here whether it reached the inbox.
-var NOTIF_COLS = ['notificationId', 'ts', 'channel', 'eventType', 'recipientEmail', 'recipientName', 'taskId', 'projectId', 'subject', 'deliveryStatus', 'attempts', 'lastAttemptAt', 'nextAttemptAt', 'errorDetails', 'dedupeKey', 'batchId', 'actorEmail', 'actorName', 'requestId', 'payload'];
-var EMAIL_MAX_ATTEMPTS = 5, RETRY_MINUTES = [5, 15, 60, 360], SEND_NOW = 5, DEDUPE_WINDOW = 6000;
+var NOTIF_COLS = ['notificationId', 'ts', 'channel', 'eventType', 'recipientEmail', 'recipientName', 'taskId', 'projectId', 'subject', 'deliveryStatus', 'attempts', 'lastAttemptAt', 'nextAttemptAt', 'errorDetails', 'dedupeKey', 'batchId', 'actorEmail', 'actorName', 'requestId', 'payload', 'emailMode'];
+var EMAIL_MAX_ATTEMPTS = 5, RETRY_MINUTES = [5, 15, 60, 360], SEND_NOW = 5, DEDUPE_WINDOW = 6000, EMAIL_MAX_ITEMS = 30;
 var EVENT_TITLE = { task_assigned: 'New Task Assigned', task_reassigned: 'Task Reassigned to You', project_assigned: 'New Project Assigned', deadline_reminder: 'Deadline Reminder', task_overdue: 'Task Overdue', task_completed: 'Task Completed', manager_comment: 'New Comment on Your Task', review_requested: 'Task Review Requested' };
 var EVENT_INTRO = { task_assigned: 'A new task has been assigned to you.', task_reassigned: 'A task has been reassigned to you.', project_assigned: 'A project has been assigned to you.', deadline_reminder: 'This task is coming up to its deadline.', task_overdue: 'This task is past its deadline.', task_completed: 'This task has been marked as completed.', manager_comment: 'There is a new comment on your task.', review_requested: 'This task is waiting for a review.' };
 var EVENT_GROUP = { task_assigned: 'assign', task_reassigned: 'assign', project_assigned: 'assign', deadline_reminder: 'daily', task_overdue: 'daily', task_completed: 'completed', manager_comment: 'comment', review_requested: 'review' };
 
 /** off: nothing is sent. test: everything goes to one address. live: employees receive their own. */
+function testAddress_() {
+  var to = props_().getProperty('EMAIL_TEST_TO') || '';
+  try { to = to || Session.getEffectiveUser().getEmail(); } catch (x) { /* shown as a failure when sending */ }
+  return to;
+}
 function emailMode_() {
   var p = props_();
   if (p.getProperty('ASSIGN_EMAIL') === 'off') return { mode: 'off' };
   if (p.getProperty('EMAIL_MODE') === 'live') return { mode: 'live' };
-  var to = p.getProperty('EMAIL_TEST_TO') || '';
-  try { to = to || Session.getEffectiveUser().getEmail(); } catch (x) { /* shown as a failure when sending */ }
-  return { mode: 'test', to: to };
+  return { mode: 'test', to: testAddress_() };
 }
 function itemOf_(kind, rec, proj) {
   return { kind: kind, id: rec.id, name: rec.name, project: proj ? proj.name : '', projectId: proj ? proj.id : '', priority: rec.priority || '', due: rec.due || '', desc: String((kind === 'task' ? rec.desc : rec.objective) || '').slice(0, 600), status: rec.status || '', by: '', note: '' };
@@ -1447,14 +1489,15 @@ function readNotifs_(limit) {
 function queue_(events, ts, reqId, actor, batchOf) {
   ensureSystemTabs_();
   var seen = {}; readNotifs_().forEach(function (r) { seen[r.dedupeKey] = true; });
-  var off = emailMode_().mode === 'off', rows = [];
+  var mode = emailMode_().mode, off = mode === 'off', rows = [];
   events.forEach(function (ev) {
-    var key = [ev.type, ev.item.id, ev.user.email, ev.key || reqId].join('|');
+    // A test email must not use up the real one that going live is meant to send.
+    var key = (mode === 'test' ? 'test|' : '') + [ev.type, ev.item.id, ev.user.email, ev.key || reqId].join('|');
     if (seen[key]) return; // this person already has this exact notice
     seen[key] = true;
     var base = { ts: ts, eventType: ev.type, recipientEmail: ev.user.email, recipientName: ev.user.name, taskId: ev.item.kind === 'task' ? ev.item.id : '', projectId: ev.item.projectId, subject: EVENT_TITLE[ev.type] + ': ' + short_(ev.item.name), attempts: 0, actorEmail: ev.item.byEmail || actor.email || '', actorName: ev.item.by || actor.name || '', requestId: reqId };
     rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'in-app', deliveryStatus: 'created', dedupeKey: 'inapp|' + key }));
-    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'email', deliveryStatus: off ? 'skipped' : 'queued', errorDetails: off ? 'Emails are turned off' : '', dedupeKey: key, batchId: batchOf(ev), payload: JSON.stringify(ev.item) }));
+    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'email', deliveryStatus: off ? 'skipped' : 'queued', errorDetails: off ? 'Emails are turned off' : '', dedupeKey: key, batchId: batchOf(ev), payload: JSON.stringify(ev.item), emailMode: mode }));
   });
   if (rows.length) appendRows_(NOTIF_SHEET, rows.map(notifRow_));
   return rows;
@@ -1467,10 +1510,11 @@ function notify_(done, a, users, st, ts, reqId) {
   var queued = queue_(found.events, ts, reqId, a, function (ev) { return [ev.user.email, EVENT_GROUP[ev.type], reqId].join('|'); });
   var batches = {}; queued.forEach(function (r) { if (r.batchId && r.deliveryStatus === 'queued') batches[r.batchId] = true; });
   audit = audit.concat(deliver_({ batches: batches, limit: SEND_NOW }));
-  return { audit: audit, notified: notifiedFor_(reqId) };
+  return { audit: audit, notified: notifiedFor_(reqId, a) };
 }
-function notifiedFor_(reqId) {
-  return readNotifs_(600).filter(function (r) { return r.requestId === reqId; }).map(function (r) {
+/** Only what this person's own action caused. */
+function notifiedFor_(reqId, a) {
+  return readNotifs_(600).filter(function (r) { return r.requestId === reqId && (a.open || r.actorEmail === a.email); }).map(function (r) {
     return { channel: r.channel, eventType: r.eventType, recipientEmail: r.recipientEmail, recipientName: r.recipientName, deliveryStatus: r.deliveryStatus, errorDetails: r.errorDetails };
   });
 }
@@ -1480,8 +1524,9 @@ function emailAudit_(taskId, projectId, kind, id, actorEmail, actorName, action,
 /** Sends what is due. Failures wait and try again, then stop at EMAIL_MAX_ATTEMPTS so a bad address cannot retry forever. */
 function deliver_(opts) {
   opts = opts || {};
+  if (emailMode_().mode === 'off') return []; // queued emails wait, so nothing is lost by turning emails off for a while
   var now = Date.now(), groups = {}, order = [];
-  readNotifs_().forEach(function (r) {
+  readNotifs_(opts.batches ? 2000 : 1e9).forEach(function (r) {
     if (r.channel !== 'email') return;
     if (r.deliveryStatus !== 'queued' && !(r.deliveryStatus === 'failed' && (!r.nextAttemptAt || Date.parse(r.nextAttemptAt) <= now))) return;
     if (opts.batches && !opts.batches[r.batchId]) return;
@@ -1494,35 +1539,31 @@ function deliver_(opts) {
 }
 function retryTime_(attempt) { return new Date(Date.now() + RETRY_MINUTES[Math.min(attempt - 1, RETRY_MINUTES.length - 1)] * 60000).toISOString(); }
 function sendBatch_(rows) {
-  var first = rows[0], ts = new Date().toISOString(), mode = emailMode_(), note = '', status = 'accepted', error = '', wait = '';
-  if (mode.mode === 'off') { status = 'skipped'; note = 'Emails are turned off'; }
-  else {
-    try {
-      if (MailApp.getRemainingDailyQuota() < 1) throw new Error('daily email limit reached');
-      var mail = renderEmail_(rows), to = first.recipientEmail;
-      if (mode.mode === 'test') {
-        if (!mode.to) throw new Error('test mode has no address to send to');
-        mail.subject = '[TEST for ' + to + '] ' + mail.subject;
-        to = mode.to; note = 'Test mode: sent to ' + to + ' instead of the employee';
-      }
-      var msg = { to: to, subject: mail.subject, body: mail.body, htmlBody: mail.html, name: 'Suraasa Control Tower' };
-      if (first.actorEmail) msg.replyTo = first.actorEmail;
-      MailApp.sendEmail(msg);
-    } catch (err) {
-      error = short_(err && err.message || err);
-      var tries = Number(first.attempts || 0) + 1;
-      status = tries >= EMAIL_MAX_ATTEMPTS ? 'abandoned' : 'failed';
-      wait = status === 'failed' ? retryTime_(tries) : '';
+  var first = rows[0], ts = new Date().toISOString(), note = '', error = '', quota = false;
+  try {
+    if (MailApp.getRemainingDailyQuota() < 1) { quota = true; throw new Error('daily email limit reached'); }
+    var mail = renderEmail_(rows), to = first.recipientEmail;
+    // A row keeps the mode it was queued in, so a test notice never reaches an employee after going live.
+    if (first.emailMode !== 'live') {
+      var box = testAddress_();
+      if (!box) throw new Error('test mode has no address to send to');
+      mail.subject = '[TEST for ' + to + '] ' + mail.subject;
+      to = box; note = 'Test mode: sent to ' + to + ' instead of the employee';
     }
-  }
+    var msg = { to: to, subject: mail.subject, body: mail.body, htmlBody: mail.html, name: 'Suraasa Control Tower' };
+    if (first.actorEmail) msg.replyTo = first.actorEmail;
+    MailApp.sendEmail(msg);
+  } catch (err) { error = short_(err && err.message || err); }
   var sh = SpreadsheetApp.getActive().getSheetByName(NOTIF_SHEET), at = NOTIF_COLS.indexOf('deliveryStatus') + 1, audit = [];
   rows.forEach(function (r) {
-    var tries = Number(r.attempts || 0) + (status === 'skipped' ? 0 : 1);
+    // Running out of the daily allowance is not the email's fault, so it costs no attempt.
+    var tries = Number(r.attempts || 0) + (quota ? 0 : 1);
+    var status = !error ? 'accepted' : tries >= EMAIL_MAX_ATTEMPTS ? 'abandoned' : 'failed';
+    var wait = status !== 'failed' ? '' : quota ? new Date(Date.now() + 3600000).toISOString() : retryTime_(tries);
     r.deliveryStatus = status; r.attempts = tries; r.lastAttemptAt = ts; r.nextAttemptAt = wait; r.errorDetails = error || note;
     sh.getRange(r._row, at, 1, 5).setValues([[status, String(tries), ts, wait, r.errorDetails]]);
-    if (status === 'skipped') return;
-    var kind = r.taskId ? 'task' : 'project', id = r.taskId || r.projectId;
-    audit.push(emailAudit_(r.taskId, r.projectId, kind, id, r.actorEmail, r.actorName, status === 'accepted' ? 'email_sent' : 'email_failed', r.recipientName, status === 'accepted' ? '"' + (EVENT_TITLE[r.eventType] || r.eventType) + '" email accepted by the mail service for ' + r.recipientEmail + (note ? ' (' + note + ')' : '') + '. Delivery to the inbox is not confirmed.' : '"' + (EVENT_TITLE[r.eventType] || r.eventType) + '" email to ' + r.recipientEmail + ' failed: ' + error, ts, r.requestId));
+    var kind = r.taskId ? 'task' : 'project', id = r.taskId || r.projectId, title = EVENT_TITLE[r.eventType] || r.eventType;
+    audit.push(emailAudit_(r.taskId, r.projectId, kind, id, r.actorEmail, r.actorName, status === 'accepted' ? 'email_sent' : 'email_failed', r.recipientName, status === 'accepted' ? '"' + title + '" email accepted by the mail service for ' + r.recipientEmail + (note ? ' (' + note + ')' : '') + '. Delivery to the inbox is not confirmed.' : '"' + title + '" email to ' + r.recipientEmail + ' failed: ' + error, ts, r.requestId));
   });
   return audit;
 }
@@ -1534,9 +1575,11 @@ function niceDate_(v) {
 function prioLabel_(p) { return PRIO_WORDS[p] ? PRIO_WORDS[p] + ' (' + p + ')' : (p || 'Not set'); }
 /** Plain and HTML versions from the same facts. All values are escaped: task text comes from people. */
 function renderEmail_(rows) {
-  var list = rows.map(function (r) { var it = JSON.parse(r.payload || '{}'); it.type = r.eventType; return it; });
-  var one = list.length === 1, first = list[0], who = rows[0].recipientName || 'there', group = EVENT_GROUP[first.type];
-  var title = one ? EVENT_TITLE[first.type] : group === 'assign' ? list.length + ' New Items Assigned' : group === 'daily' ? list.length + ' Tasks Need Your Attention' : list.length + ' ' + EVENT_TITLE[first.type];
+  var all = rows.map(function (r) { var it = JSON.parse(r.payload || '{}'); it.type = r.eventType; return it; });
+  var list = all.slice(0, EMAIL_MAX_ITEMS), extra = all.length - list.length; // Google limits the size of one email
+  if (all.length > 5) list.forEach(function (i) { i.desc = ''; });
+  var one = all.length === 1, first = list[0], who = rows[0].recipientName || 'there', group = EVENT_GROUP[first.type];
+  var title = one ? EVENT_TITLE[first.type] : group === 'assign' ? all.length + ' New Items Assigned' : group === 'daily' ? all.length + ' Tasks Need Your Attention' : all.length + ' ' + EVENT_TITLE[first.type];
   var intro = one ? EVENT_INTRO[first.type] : group === 'assign' ? 'These items have been assigned to you.' : group === 'daily' ? 'These tasks are due soon or overdue.' : 'These items need your attention.';
   var byWord = first.type === 'task_completed' ? 'Completed By' : first.type === 'manager_comment' ? 'Comment By' : first.type === 'review_requested' ? 'Requested By' : first.type === 'deadline_reminder' || first.type === 'task_overdue' ? '' : 'Assigned By';
   var facts = function (i) {
@@ -1552,7 +1595,7 @@ function renderEmail_(rows) {
   var button = function (i) { return i.kind === 'project' ? 'View Project' : 'View Task'; };
   var text = 'Hello ' + who + ',\n\n' + intro + '\n\n' + list.map(function (i) {
     return facts(i).map(function (f) { return f[0] + ': ' + f[1]; }).join('\n') + (i.note ? '\n\nComment:\n' + i.note : '') + (i.desc ? '\n\nDescription:\n' + i.desc : '') + '\n\n' + button(i) + ': ' + itemLink_(i.kind, i.id);
-  }).join('\n\n---\n\n') + '\n\nPlease log in to your dashboard to review and update your task.\n\nRegards,\nSuraasa Sales Control Tower';
+  }).join('\n\n---\n\n') + (extra ? '\n\n...and ' + extra + ' more on your dashboard.' : '') + '\n\nPlease log in to your dashboard to review and update your task.\n\nRegards,\nSuraasa Sales Control Tower';
   var card = function (i) {
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;margin:0 0 16px"><tr><td style="padding:16px 20px">' +
       '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + facts(i).map(function (f, n) { return '<tr><td style="padding:4px 12px 4px 0;color:#64748b;font-size:13px;width:110px;vertical-align:top">' + escHtml_(f[0]) + '</td><td style="padding:4px 0;color:#0f172a;font-size:14px' + (n === 0 ? ';font-weight:600' : '') + '">' + escHtml_(f[1]) + '</td></tr>'; }).join('') + '</table>' +
@@ -1560,7 +1603,7 @@ function renderEmail_(rows) {
       (i.desc ? '<p style="margin:14px 0 0;color:#64748b;font-size:13px">Description</p><p style="margin:4px 0 0;color:#0f172a;font-size:14px;white-space:pre-wrap">' + escHtml_(i.desc) + '</p>' : '') +
       '<p style="margin:16px 0 2px"><a href="' + escHtml_(itemLink_(i.kind, i.id)) + '" style="display:inline-block;background:#225BA5;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 18px;border-radius:6px">' + button(i) + '</a></p></td></tr></table>';
   };
-  var html = '<div style="background:#f1f5f9;padding:24px 12px;font-family:Inter,Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px"><tr><td style="background:#0f172a;border-radius:10px 10px 0 0;padding:16px 24px;color:#ffffff;font-size:15px;font-weight:600">Suraasa Sales Control Tower</td></tr><tr><td style="padding:24px"><h1 style="margin:0 0 12px;color:#0f172a;font-size:20px">' + escHtml_(title) + '</h1><p style="margin:0 0 6px;color:#0f172a;font-size:14px">Hello ' + escHtml_(who) + ',</p><p style="margin:0 0 18px;color:#334155;font-size:14px">' + escHtml_(intro) + '</p>' + list.map(card).join('') + '<p style="margin:8px 0 0;color:#334155;font-size:14px">Please log in to your dashboard to review and update your task.</p><p style="margin:16px 0 0;color:#334155;font-size:14px">Regards,<br>Suraasa Sales Control Tower</p></td></tr></table></div>';
+  var html = '<div style="background:#f1f5f9;padding:24px 12px;font-family:Inter,Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px"><tr><td style="background:#0f172a;border-radius:10px 10px 0 0;padding:16px 24px;color:#ffffff;font-size:15px;font-weight:600">Suraasa Sales Control Tower</td></tr><tr><td style="padding:24px"><h1 style="margin:0 0 12px;color:#0f172a;font-size:20px">' + escHtml_(title) + '</h1><p style="margin:0 0 6px;color:#0f172a;font-size:14px">Hello ' + escHtml_(who) + ',</p><p style="margin:0 0 18px;color:#334155;font-size:14px">' + escHtml_(intro) + '</p>' + list.map(card).join('') + (extra ? '<p style="margin:0 0 12px;color:#334155;font-size:14px">And ' + extra + ' more on your dashboard.</p>' : '') + '<p style="margin:8px 0 0;color:#334155;font-size:14px">Please log in to your dashboard to review and update your task.</p><p style="margin:16px 0 0;color:#334155;font-size:14px">Regards,<br>Suraasa Sales Control Tower</p></td></tr></table></div>';
   return { subject: title + ' - ' + APP, body: text, html: html };
 }
 function escHtml_(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
@@ -1609,7 +1652,7 @@ function notificationLog_(a) {
 function notificationRetry_(body, a) {
   if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can retry emails.' };
   var sh = SpreadsheetApp.getActive().getSheetByName(NOTIF_SHEET), at = NOTIF_COLS.indexOf('deliveryStatus') + 1, batches = {}, n = 0;
-  readNotifs_().forEach(function (r) {
+  readNotifs_(1e9).forEach(function (r) {
     if (r.channel !== 'email' || (r.deliveryStatus !== 'failed' && r.deliveryStatus !== 'abandoned')) return;
     if (body.id && r.notificationId !== body.id) return;
     sh.getRange(r._row, at, 1, 5).setValues([['queued', '0', r.lastAttemptAt, '', r.errorDetails]]);
@@ -1620,21 +1663,21 @@ function notificationRetry_(body, a) {
 }
 function notificationResend_(body, a) {
   if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can resend emails.' };
-  var r = readNotifs_().filter(function (x) { return x.notificationId === body.id && x.channel === 'email'; })[0];
+  var r = readNotifs_(1e9).filter(function (x) { return x.notificationId === body.id && x.channel === 'email'; })[0];
   if (!r) return { ok: false, code: 'missing', error: 'That notification was not found.' };
   var id = 'N-' + Utilities.getUuid(), ts = new Date().toISOString(), req = 'resend-' + id;
-  var copy = Object.assign({}, r, { notificationId: id, ts: ts, deliveryStatus: 'queued', attempts: 0, lastAttemptAt: '', nextAttemptAt: '', errorDetails: 'Resent by ' + (a.name || a.email), dedupeKey: req, batchId: req, requestId: req });
+  var copy = Object.assign({}, r, { notificationId: id, ts: ts, deliveryStatus: 'queued', attempts: 0, lastAttemptAt: '', nextAttemptAt: '', errorDetails: 'Resent by ' + (a.name || a.email), dedupeKey: req, batchId: req, requestId: req, emailMode: emailMode_().mode === 'live' ? 'live' : 'test' });
   appendRows_(NOTIF_SHEET, [notifRow_(copy)]);
   var batches = {}; batches[req] = true;
   appendRows_(AUDIT_SHEET, deliver_({ batches: batches, limit: 1 }));
-  return { ok: true, notified: notifiedFor_(req) };
+  return { ok: true, notified: readNotifs_(50).filter(function (x) { return x.requestId === req; }).map(function (x) { return { deliveryStatus: x.deliveryStatus, errorDetails: x.errorDetails }; }) };
 }
 /** Health of every moving part, for the Integrations screen. Holds no secrets. */
 function integrationStatus_(a) {
   if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can see this.' };
   ensureSystemTabs_();
   var cfg = authCfg_(), m = metaMap_(), mode = emailMode_(), users = users_(), count = {}, lastAccepted = '';
-  readNotifs_().forEach(function (r) { if (r.channel !== 'email') return; count[r.deliveryStatus] = (count[r.deliveryStatus] || 0) + 1; if (r.deliveryStatus === 'accepted' && r.lastAttemptAt > lastAccepted) lastAccepted = r.lastAttemptAt; });
+  readNotifs_(1e9).forEach(function (r) { if (r.channel !== 'email') return; count[r.deliveryStatus] = (count[r.deliveryStatus] || 0) + 1; if (r.deliveryStatus === 'accepted' && r.lastAttemptAt > lastAccepted) lastAccepted = r.lastAttemptAt; });
   var triggers = [];
   try { triggers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); }); } catch (x) { /* reported as not running */ }
   var quota = 0;
@@ -1786,7 +1829,9 @@ function replaceAkWithAnkitKhanna() {
 
 // ---------- history of progress ----------
 function snapshot_(body, a) {
-  var rows = (body.rows || []).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)) && r.projectId; });
+  var mine = null;
+  if (a.role !== 'Administrator') { mine = {}; pull_().state.projects.forEach(function (p) { if (ownsProject_(p, a)) mine[p.id] = true; }); }
+  var rows = (body.rows || []).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)) && r.projectId && (!mine || mine[r.projectId]); });
   if (!rows.length) return { ok: true, added: 0 };
   var have = {}; readTable_(SNAP_SHEET, SNAP_COLS).forEach(function (r) { have[r.date + '|' + r.projectId] = true; });
   var fresh = rows.filter(function (r) { return !have[r.date + '|' + r.projectId]; }).map(function (r) { return SNAP_COLS.map(function (c) { return String(r[c] == null ? '' : r[c]); }); });

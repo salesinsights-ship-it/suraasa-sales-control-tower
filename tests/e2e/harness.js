@@ -31,6 +31,7 @@ async function page(browser, b, opts = {}) {
     if (p.net.down) return r.abort();
     const q = r.request();
     const out = q.method() === 'POST' ? b.post(JSON.parse(q.postData())) : b.get(Object.fromEntries(new URL(q.url()).searchParams));
+    if (p.net.loseReply && q.method() === 'POST' && p.net.loseReply(JSON.parse(q.postData()))) { p.net.loseReply = null; return r.abort(); } // it arrived, but the answer never came back
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(out) });
   });
   await p.route(/fonts\.(googleapis|gstatic)/, r => opts.fonts ? r.continue() : r.abort());

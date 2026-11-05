@@ -16,13 +16,14 @@ class Sheet {
   insertRowsAfter(after, n) { this.maxRows += n; }
   getFrozenRows() { return this.frozen; }
   getMaxColumns() { return this.maxCols || 60; }
-  insertColumnsAfter(after, n) { this.maxCols = (this.maxCols || 60) + n; }
+  insertColumnsAfter(after, n) { this.maxCols = (this.maxCols || 60) + n; this.cells.forEach(r => { if (r && r.length > after) r.splice(after, 0, ...Array(n).fill('')); }); }
   getRange(row, col, nr = 1, nc = 1) {
     if (row < 1 || col < 1 || nr < 1 || nc < 1) throw new Error(`Bad range ${row},${col},${nr},${nc}`);
     if (row + nr - 1 > this.maxRows) throw new Error('The coordinates of the range are outside the dimensions of the sheet.');
     const sh = this;
     const api = {
       getValues() { const out = []; for (let r = 0; r < nr; r++) { const line = []; for (let c = 0; c < nc; c++) { const v = (sh.cells[row - 1 + r] || [])[col - 1 + c]; line.push(v == null ? '' : v); } out.push(line); } return out; },
+      getFormulas() { return api.getValues().map(r => r.map(v => (typeof v === 'string' && v[0] === '=' ? v : ''))); },
       setValues(vals) {
         if (vals.length !== nr || vals[0].length !== nc) throw new Error(`Size mismatch ${vals.length}x${vals[0].length} vs ${nr}x${nc}`);
         vals.forEach(line => line.forEach(v => { if (String(v).length > 50000) throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.'); }));

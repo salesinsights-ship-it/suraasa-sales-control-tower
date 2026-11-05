@@ -2071,7 +2071,7 @@
     box.className = 'emp-match' + (u ? ' ok' : v ? ' no' : '');
     box.innerHTML = u ? empCard(u) : v ? '<span>No registered employee has this exact email.</span>' : '';
   }
-  function assignForm(pre, problems) {
+  function assignForm(pre, problems, req) {
     const mine = liveProjects().filter(canManageP);
     if (!canPlan() || !mine.length) { toast(canPlan() ? 'You do not manage a project yet. Ask a Super Admin to add you to one.' : 'Only Super Admins and Managers can assign tasks.', true); return; }
     const here = UI.view === 'project' && canManageP(P(UI.projectId)) ? UI.projectId : '';
@@ -2086,7 +2086,7 @@
     ], vals, o => {
       if (!dirFind(o.ownerEmail)) { $('#ferr').textContent = o.ownerEmail + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
       if (o.due < todayStr()) { $('#ferr').textContent = 'The deadline is in the past.'; return false; }
-      assignConfirm(o, uid('ASSIGN') + Date.now());
+      assignConfirm(o, req || uid('ASSIGN') + Date.now());
       return false;
     }, '', 'Review assignment');
     const box = $('#emp-match'), input = $('#mform [name="ownerEmail"]');
@@ -2110,14 +2110,14 @@
   async function assignSend() {
     const root = $('#modal-root'), a = root._assign, btn = $('#assign-go');
     if (!a || a.busy) return;
-    a.busy = true;
+    a.busy = true; a.sent = true;
     if (btn) { btn.disabled = true; btn.textContent = 'Assigning'; }
     const stop = msg => { a.busy = false; if (btn) { btn.disabled = false; btn.textContent = 'Confirm assignment'; } const e = $('#ferr'); if (e) e.textContent = msg; };
     let r;
     try { r = await SYNC.assign(a.o, a.req); }
     catch (e) { return stop('Could not reach the Sheet, and the task may not be saved yet. Press Confirm again: it cannot create a second task.'); }
     if (!r) return;
-    if (!r.ok) return r.field ? assignForm(a.o, [r.error]) : stop(r.error || 'The task was not saved.');
+    if (!r.ok) return r.field ? assignForm(a.o, [r.error], a.req) : stop(r.error || 'The task was not saved.');
     assignDone(r);
   }
   function emailLine(n) {
@@ -2135,7 +2135,7 @@
     const who = (r.employee && r.employee.name) || t.owner;
     const line = (tone, head, text) => '<li><span class="pill ' + tone + '">' + esc(head) + '</span><span>' + esc(text) + '</span></li>';
     const em = emailLine(mail);
-    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(t.id) + (r.duplicate ? ' was already assigned' : ' assigned to ' + who) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb"><p>' + esc(t.name) + '</p><ul class="done-list">' +
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(t.id) + (r.duplicate ? ' was already assigned' : ' assigned to ' + esc(who)) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb"><p>' + esc(t.name) + '</p><ul class="done-list">' +
       line('green', 'Saved', 'In the Google Sheet as ' + t.id + '.') + line(em[0], em[1], em[2]) +
       line(inApp ? 'green' : 'grey', inApp ? 'In-app' : 'No alert', inApp ? 'A notification is waiting for ' + who + '.' : 'No in-app notification was needed.') +
       line('green', 'Audit', 'Recorded with your name and the time.') + line('green', 'Dashboard', 'Shown on ' + who + '\'s dashboard the next time it refreshes.') +
@@ -3053,6 +3053,7 @@
   function csv(rows, cols) {
     const q = v => {
       v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (/^[=+@\t\r-]/.test(v) && !/^-?\d/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
       return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     };
     return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n');
@@ -3129,7 +3130,8 @@
     return String(v);
   }
   const noteKey = n => n.id || (String(n.ts) + '|' + String(n.who || n.author || ''));
-  const sameRecord = (a, b) => [...new Set(Object.keys(a).concat(Object.keys(b)))].every(k => SERVER_ONLY.has(k) || k[0] === '_' || canon(a[k]) === canon(b[k]));
+  const SERVER_WORKS_OUT = new Set(['ownerEmail', 'accountableEmail']);
+  const sameRecord = (a, b) => [...new Set(Object.keys(a).concat(Object.keys(b)))].every(k => SERVER_ONLY.has(k) || SERVER_WORKS_OUT.has(k) || k[0] === '_' || canon(a[k]) === canon(b[k]));
   function diffOps(base, cur) {
     const ops = [];
     Object.keys(COLL).forEach(c => {
@@ -3237,7 +3239,7 @@
       try { await this.request({ action: 'logout' }); } catch (e) { /* the session still ends by itself */ }
       this.needSignIn('');
       // Leave no copy of the work on a shared computer.
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_browser_copy'); } catch (e) { /* private window */ }
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_browser_copy'); localStorage.removeItem('sct_owner'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
@@ -3334,6 +3336,10 @@
         const state = data.state || data;
         if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The server sent something unexpected.');
         if (data.me) {
+          // Unsaved work belongs to whoever typed it. It is never sent in the name of the next person on this browser.
+          let last = '';
+          try { last = localStorage.getItem('sct_owner') || ''; localStorage.setItem('sct_owner', data.me.email); } catch (e) { /* private window */ }
+          if (last && last !== data.me.email) { this.base = null; this.sending = null; toast('Unsaved changes from the previous person on this browser were discarded.', true); }
           Object.assign(ME, data.me, { open: false });
           UI.me = ME.name;
         }
@@ -3373,20 +3379,24 @@
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
       if (!this.apiUrl) { toast('The Google Sheet is not connected.', true); return; }
-      if (!ME.open && !this.session) return; // nothing is sent before someone signs in
+      if (!ME.open && (!this.session || !ME.email)) return; // nothing is sent before we know who is signed in
       if (this.busy) { this.again = true; return; }
       if (this.api < 4) return;
       if (!this.base) { this.setStatus('connected'); return; }
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
       this.busy = true;
-      const requestId = uid('REQ') + Date.now();
+      // Until a save is acknowledged, a retry of the same change keeps its ID, so a lost reply cannot apply it twice.
+      const sig = JSON.stringify(ops);
+      if (!this.sending || this.sending.sig !== sig) this.sending = { sig, id: uid('REQ') + Date.now() };
+      const requestId = this.sending.id;
       try {
         const res = await this.request({ action: 'apply', requestId, ops });
         this.busy = false;
         if (res.auth === true) return this.needSignIn(res.error);
+        this.sending = null;
         if (res.rejected) return this.refused(res.rejected, ops);
-        if (!res.ok) throw new Error(res.error || 'The Sheet refused the save.');
+        if (!res.ok) { this.sending = { sig, id: requestId }; throw new Error(res.error || 'The Sheet refused the save.'); }
         ops.forEach(o => applyOp(this.base, o));
         (res.stamped || []).forEach(st => {
           [S, this.base].forEach(state => {
@@ -3622,7 +3632,7 @@
       // Tasks
       'add-task': () => taskForm(null, el.dataset.pid),
       'assign-task': () => assignForm(),
-      'assign-back': () => { const a = $('#modal-root')._assign; assignForm(a.o); },
+      'assign-back': () => { const a = $('#modal-root')._assign; assignForm(a.o, [], a.sent ? a.req : ''); }, // after a send, the same ID stops a second task
       'assign-send': assignSend,
       'assign-again': () => { closeModal(); assignForm(); },
       'assign-open': () => { closeModal(); openTask(id); },

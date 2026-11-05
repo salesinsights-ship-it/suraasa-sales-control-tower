@@ -123,5 +123,13 @@ test('priority words and P numbers both work; "high" in a title is not a priorit
   const pr = t => parse('Assign the x task to rahul@suraasa.com under the CRM project by tomorrow ' + t).task.priority;
   assert.strictEqual(pr('critical'), 'P0'); assert.strictEqual(pr('priority: low'), 'P3'); assert.strictEqual(pr('P2'), 'P2'); assert.strictEqual(pr('medium priority'), 'P2'); assert.strictEqual(pr('high school outreach'), '');
 });
+test('review cases: two dates, a bare "the project", and the email in a title are not guessed', () => {
+  let r = parse('Assign the x task to rahul@suraasa.com under the CRM project, P1, by 20 November, kickoff on 3 December');
+  assert.strictEqual(r.task.due, ''); assert.ok(r.problems.some(x => /more than one date/.test(x)));
+  r = E.parseCommand('Assign the x task to rahul@suraasa.com for the project by tomorrow, P1', { today: '2026-11-05', projects: [{ id: 'P', name: 'Theatre Workshops' }], employees: CMD.employees });
+  assert.strictEqual(r.task.projectId, ''); assert.ok(r.problems.includes('Choose a project.'));
+  r = parse('Assign rahul@suraasa.com the logo task under the CRM project by tomorrow, P1'); assert.ok(!r.task.name.includes('@'), r.task.name);
+  const long = 'a '.repeat(200000), t0 = Date.now(); parse(long); assert.ok(Date.now() - t0 < 500);
+});
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

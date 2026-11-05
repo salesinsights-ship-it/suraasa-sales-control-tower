@@ -146,6 +146,40 @@ function company() {
   await shot(m, 'phone-assign');
   await m.context().close();
 
+  // lost replies and shared computers
+  {
+    const c = company(), s1 = c.sessionFor('admin@suraasa.com').session, n = () => srv(c, s1).tasks.length, pid = srv(c, s1).projects[1].id;
+    const q = await page(br, c, { session: s1 }); await wait(q, 500);
+    const start = n();
+    q.net.loseReply = x => x.action === 'assign';
+    await q.click('.cmd [data-act="assign-task"]'); await wait(q);
+    await q.fill('#mform [name="name"]', 'Lost reply'); await q.selectOption('#mform [name="projectId"]', pid); await q.fill('#mform [name="ownerEmail"]', 'rahul@suraasa.com'); await q.fill('#mform [name="due"]', future(6));
+    await q.click('[data-act="save-modal"]'); await wait(q);
+    await q.click('#assign-go'); await wait(q, 600);
+    ok('a lost reply tells the person it is safe to press again', /cannot create a second task/.test(await q.textContent('#ferr')), await q.textContent('#ferr'));
+    await q.click('[data-act="assign-back"]'); await wait(q); await q.click('[data-act="save-modal"]'); await wait(q); await q.click('#assign-go'); await wait(q, 800);
+    ok('Back and Confirm after a lost reply is still one task and one email', n() === start + 1 && c.mails.length === 1, (n() - start) + ' tasks, ' + c.mails.length + ' emails');
+    ok('and it says so', /already assigned/.test(await q.textContent('#modal')));
+    await q.evaluate(() => document.querySelector('#modal [data-act="close-modal"]').click()); await wait(q, 300);
+
+    q.net.loseReply = x => x.action === 'apply';
+    const before2 = n();
+    await q.evaluate(p => { SCT.state.tasks.push({ id: 'T-900', projectId: p, name: 'Saved once', owner: 'TBD', status: 'Not Started', progress: 0, priority: 'P2', kind: 'Task', parent: '' }); SCT.SYNC.flush(); }, pid); await wait(q, 700);
+    await q.evaluate(() => SCT.SYNC.flush()); await wait(q, 700);
+    ok('a save whose reply was lost is applied once', n() === before2 + 1 && !srv(c, s1).tasks.some(t => t.id === 'T-901'), (n() - before2) + '');
+    await q.evaluate(() => SCT.SYNC.pull(true)); await wait(q, 400);
+    ok('and only one copy stays on the screen', await q.evaluate(() => SCT.state.tasks.filter(t => t.name === 'Saved once').length === 1));
+
+    const t3 = srv(c, s1).tasks[0];
+    q.net.down = true;
+    await q.evaluate(id => { SCT.state.tasks.find(t => t.id === id).desc = 'Typed by the first person'; SCT.SYNC.onLocalChange(); }, t3.id); await wait(q, 300);
+    const s2 = c.sessionFor('rahul@suraasa.com').session;
+    await q.evaluate(x => localStorage.setItem('sct_session', x), s2); await q.addInitScript(x => localStorage.setItem('sct_session', x), s2);
+    q.net.down = false; await q.reload(); await wait(q, 900);
+    ok('unsaved work is never sent in the next person\'s name', srv(c, s1).tasks.find(t => t.id === t3.id).desc !== 'Typed by the first person' && await q.evaluate(() => SCT.ME.email === 'rahul@suraasa.com'));
+    await q.context().close();
+  }
+
   ok('no script errors', !a.errs.length && !e.errs.length, a.errs.concat(e.errs).join(' | ').slice(0, 300));
   await br.close();
   results.forEach(r => console.log(r[0], r[1]));

