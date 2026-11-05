@@ -27,7 +27,7 @@ This keeps every record. New columns are added to the right of `_extra`, and the
 
 ## 5. Add your people
 
-In the **Users** tab, click A2, then **File > Import > Upload**, choose your team file, and pick **Replace data at selected cell**. A team file has the columns `email, name, role, active`. Check the roles before moving on: the file decides who is a Super Admin.
+In the **Users** tab, click A1, then **File > Import > Upload**, choose your team file, and pick **Replace data at selected cell**. A team file starts with the heading row `email, name, role, active`, so it goes in at A1, not A2. Check the roles before moving on: the file decides who is a Super Admin.
 
 Refresh the Sheet, then click:
 
