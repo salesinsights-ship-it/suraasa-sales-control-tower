@@ -3,7 +3,7 @@ const path = require('path');
 
 // The Apps Script web app the site talks to. Set CT_API_URL in Vercel to point a preview at a test Sheet.
 // This is an address, not a secret: the script itself refuses anyone without a Google sign-in.
-const API_URL = process.env.CT_API_URL || 'https://script.google.com/macros/s/AKfycbxHM02G-PRe0xrkGvMaOej0Fq-uU_pX8AW1EnoTfGGL3bqsmA-fm2Kdz9j8XGUu81Km/exec';
+const API_URL = process.env.CT_API_URL || 'https://script.google.com/macros/s/AKfycbxBbLVZNK42N-zvqN0Bx6ueyIvWY22a8EPDR4LkT-qIKDwARqZHJOCegcyiyynQ2QODjg/exec';
 const parts = [
   'src/shell_head.html',
   'src/styles.css',

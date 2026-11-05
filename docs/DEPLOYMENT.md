@@ -1,5 +1,7 @@
 # Deployment and rollback
 
+**Moved to a new Sheet on 5 November 2026.** The site now uses the script in `Suraasa Sales Control Tower 3.0`, whose link ends in `...QODjg/exec`. For that Sheet, skip steps 4 to 6 and follow [SETUP_GOOGLE_SHEET.md](../SETUP_GOOGLE_SHEET.md). Steps 4 to 6 still apply if you go back to the old Sheet, and its owner must still archive the old Web app entries, because they serve its data with no sign-in.
+
 The order matters. The new site refuses to talk to an older script, so update the script first. Until you reach step 7, today's site and today's data behave as they do now.
 
 **Before you start:** have the Google account that owns the Sheet open. Allow about 40 minutes.
@@ -40,7 +42,7 @@ Refresh the Sheet, then click:
 **This is the step that stops the public access.**
 
 1. **Deploy > Manage deployments.**
-2. On the Web app ending in `...81Km/exec`: pencil icon, **Version: New version**, **Deploy**. Do not use **New deployment**, because that changes the link.
+2. On the Web app you already use: pencil icon, **Version: New version**, **Deploy**. Do not use **New deployment**, because that changes the link.
 3. **Archive every other Web app entry.** Old entries keep running their old code, with no sign-in, and their links are in the Git history.
 
 Check in a private window:

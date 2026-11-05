@@ -45,6 +45,8 @@ After editing the code, click **Deploy > Manage deployments**, click the pencil 
 | What you see | What it means |
 |---|---|
 | The site says it cannot reach the Sheet | **Who has access** is not **Anyone**, or the link is wrong |
+| The link opens a Google sign-in page in an Incognito window | **Who has access** is limited to your organisation. Change it to **Anyone** under **Deploy > Manage deployments** |
+| **Anyone** is not offered | Your Workspace admin has turned off sharing outside the organisation. They need to allow it for this account |
 | The ping link shows no `"api":4` | The new code is not deployed. Make a **New version** |
 | `getSheetByName` error in Apps Script | The script is not attached to the Sheet. Open it from **Extensions > Apps Script** |
 | The run never finishes | A message is waiting in the Sheet tab. Click **OK** |
