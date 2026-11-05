@@ -92,7 +92,7 @@ test('assigning by email creates one task with a new ID, in the Sheet, for that 
   const st = pull(b, s('boss@suraasa.com')).state; assert.strictEqual(st.tasks.length, before + 1);
   const rowT = row(b, 'Tasks', r.task.id);
   assert.strictEqual(rowT.owner, 'Rahul Verma'); assert.strictEqual(rowT.ownerEmail, 'rahul@suraasa.com'); assert.strictEqual(rowT.assignedByEmail, 'boss@suraasa.com'); assert.strictEqual(rowT.priority, 'P1'); assert.ok(rowT.assignedAt);
-  assert.strictEqual(r.employee.name, 'Rahul Verma');
+  assert.strictEqual(r.employees[0].name, 'Rahul Verma');
 });
 test('unknown, inactive and merely similar emails are refused, and nothing is written', () => {
   const { b, pid, s } = company(); const a = s('boss@suraasa.com'), n = pull(b, a).state.tasks.length;
@@ -647,6 +647,78 @@ test('oversized session and request IDs are refused calmly, within Google\'s 250
   assert.ok(b.post({ action: 'logout', session: 'x'.repeat(500) }).ok);
   const r = assign(b, a, pid, {}, 'R'.repeat(500)); assert.ok(r.ok, JSON.stringify(r).slice(0, 200));
   assert.ok(edit(b, a, r.task.id, { progress: 5 }, { progress: 0 }, 'Q'.repeat(500)).ok);
+});
+
+// ---------- found by tracing both briefs line by line ----------
+test('a task can be assigned to several people by email, and each is told', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com');
+  const r = assign(b, a, pid, { ownerEmail: 'rahul@suraasa.com, PRIYA@suraasa.com' }); assert.ok(r.ok, r.error);
+  const t = row(b, 'Tasks', r.task.id); assert.strictEqual(t.ownerEmail, 'rahul@suraasa.com, priya@suraasa.com'); assert.strictEqual(t.owner, 'Rahul Verma, Priya Nair');
+  assert.strictEqual(b.mails.map(m => m.to).sort().join(), 'priya@suraasa.com,rahul@suraasa.com');
+  for (const e of ['rahul@suraasa.com', 'priya@suraasa.com']) assert.ok(pull(b, s(e)).state.tasks.some(x => x.id === r.task.id), e);
+  assert.strictEqual(assign(b, a, pid, { ownerEmail: 'rahul@suraasa.com, nobody@suraasa.com' }).code, 'unknown_employee');
+  assert.strictEqual(assign(b, a, pid, { ownerEmail: 'rahul@suraasa.com, gone@suraasa.com' }).code, 'inactive_employee');
+});
+test('a Manager can update only their own reports, and only three fields', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'), m = s('mgr@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'mg1', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { managerEmail: 'mgr@suraasa.com' } }] }).ok);
+  assert.ok(b.post({ action: 'apply', session: m, requestId: 'mg2', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { department: 'Sales', designation: 'Setter', joiningDate: '2026-01-05' } }] }).ok);
+  assert.strictEqual(b.ctx.userByEmail_('rahul@suraasa.com').designation, 'Setter');
+  for (const rec of [{ role: 'Administrator' }, { active: false }, { name: 'New' }, { managerEmail: '' }]) assert.ok(b.post({ action: 'apply', session: m, requestId: 'x' + Math.random(), ops: [{ c: 'users', id: 'rahul@suraasa.com', rec }] }).rejected, JSON.stringify(rec));
+  assert.ok(b.post({ action: 'apply', session: m, requestId: 'mg3', ops: [{ c: 'users', id: 'priya@suraasa.com', rec: { department: 'X' } }] }).rejected, 'someone else\'s report');
+  assert.ok(pull(b, m).state.directory.find(u => u.email === 'rahul@suraasa.com').managerEmail === 'mgr@suraasa.com');
+});
+test('the old owner of a task is told, with nothing else about it', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), t = assign(b, a, pid, { name: 'Moved on' }).task;
+  edit(b, a, t.id, { ownerEmail: 'priya@suraasa.com' }, { ownerEmail: t.ownerEmail });
+  const st = pull(b, s('rahul@suraasa.com')).state;
+  assert.ok(st.audit.some(x => x.action === 'owner_changed' && x.taskId === t.id)); assert.ok(!st.tasks.some(x => x.id === t.id));
+  assert.ok(!st.audit.some(x => x.taskId === t.id && x.action !== 'owner_changed'));
+});
+test('a new project\'s owner and a newly named manager are both told', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com');
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'pn', ops: [{ c: 'projects', id: 'PRJ-77', create: true, rec: { name: 'New one', ownerEmail: 'mgr@suraasa.com', status: 'Not Started' } }] }).ok);
+  assert.ok(pull(b, s('mgr@suraasa.com')).state.audit.some(x => x.action === 'project_assigned' && x.newValue === 'Manny Ger')); assert.strictEqual(b.mails.length, 1); b.mails.length = 0;
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'pm', ops: [{ c: 'projects', id: pid, set: { managerEmails: ['other@suraasa.com'] }, base: {} }] }).ok);
+  assert.strictEqual(b.mails.length, 1); assert.strictEqual(b.mails[0].to, 'other@suraasa.com');
+});
+test('the exact moment of completion is stamped by the server and cannot be forged', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), t = assign(b, a, pid).task;
+  edit(b, a, t.id, { status: 'Completed', completedAt: '2026-11-05', progress: 100, completedTs: '2000-01-01' }, { status: 'Not Started', progress: 0 });
+  const got = pull(b, a).state.tasks.find(x => x.id === t.id).completedTs; assert.ok(got && !got.startsWith('2000'));
+});
+test('direct edits to the Users and AuditLog tabs are logged, and a Users edit refreshes the site', () => {
+  const { b, s } = company(); const a = s('boss@suraasa.com'), v = b.get({ action: 'version' }).version;
+  const sh = b.ss.getSheetByName('Users'); b.cache.delete('editBump');
+  b.ctx.onEdit({ range: sh.getRange(2, 2), oldValue: 'x', value: 'y' });
+  assert.ok(pull(b, a).state.audit.some(x => x.action === 'sheet_edit' && x.entityType === 'users')); assert.ok(b.get({ action: 'version' }).version > v);
+  b.ctx.onEdit({ range: b.ss.getSheetByName('AuditLog').getRange(2, 2), oldValue: 'x', value: 'y' });
+  assert.ok(pull(b, a).state.audit.some(x => x.action === 'sheet_edit' && x.entityType === 'auditlog'));
+});
+test('files: owners and managers can upload, others cannot, and unsafe types are refused', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), t = assign(b, a, pid).task, data = Buffer.from('hello').toString('base64');
+  const up = (who, o) => b.post(Object.assign({ action: 'upload', session: who, kind: 'task', id: t.id, name: 'plan.pdf', data }, o));
+  const r = up(s('rahul@suraasa.com')); assert.ok(r.ok, r.error); assert.match(r.attachment.url, /^https:\/\/drive\.google\.com/);
+  assert.strictEqual(b.ctx.DriveApp.files[0].type, 'application/pdf'); assert.strictEqual(b.ctx.DriveApp.files[0].sharing, 'dv');
+  assert.ok(pull(b, a).state.audit.some(x => x.action === 'file_uploaded' && x.taskId === t.id));
+  assert.strictEqual(up(s('priya@suraasa.com')).code, 'denied'); assert.strictEqual(up(s('view@suraasa.com')).code, 'denied');
+  assert.strictEqual(up(s('rahul@suraasa.com'), { kind: 'project', id: pid }).code, 'denied');
+  for (const name of ['page.html', 'run.exe', 'a.svg', 'noext', 'x.pdf.js']) assert.strictEqual(up(a, { name }).code, 'invalid', name);
+  assert.strictEqual(up(a, { data: '' }).code, 'invalid'); assert.strictEqual(up(a, { data: '!!bad' }).code, 'invalid'); assert.strictEqual(up(a, { data: 'A'.repeat(15000000) }).code, 'invalid');
+  assert.strictEqual(b.ctx.DriveApp.files[b.ctx.DriveApp.files.length - 1].name.includes('../'), false);
+  const w = up(a, { name: '../../etc/pass:wd.pdf' }); assert.ok(w.ok); assert.ok(!w.attachment.name.includes('/'));
+  assert.strictEqual(b.post({ action: 'upload', kind: 'task', id: t.id, name: 'a.pdf', data }).auth, true);
+});
+test('if the organisation blocks link sharing, the upload says so', () => {
+  const { b, pid, s } = company({ noSharing: true }); const a = s('boss@suraasa.com'), t = assign(b, a, pid).task;
+  const r = b.post({ action: 'upload', session: a, kind: 'task', id: t.id, name: 'a.pdf', data: 'aGk=' }); assert.ok(r.ok); assert.match(r.note, /only the Sheet owner/);
+});
+test('the Google profile picture is stored, and only from Google\'s image host', () => {
+  const { b } = company(); const t = { aud: CLIENT, iss: 'accounts.google.com', hd: 'suraasa.com', email: 'rahul@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };
+  b.tokens['p.i.c'] = Object.assign({}, t, { picture: 'https://lh3.googleusercontent.com/a/abc=s96-c' }); assert.ok(b.post({ action: 'login', idToken: 'p.i.c' }).ok);
+  assert.strictEqual(b.ctx.userByEmail_('rahul@suraasa.com').photoUrl, 'https://lh3.googleusercontent.com/a/abc=s96-c');
+  b.tokens['p.i.d'] = Object.assign({}, t, { picture: 'https://evil.example/x.png' }); assert.ok(b.post({ action: 'login', idToken: 'p.i.d' }).ok);
+  assert.strictEqual(b.ctx.userByEmail_('rahul@suraasa.com').photoUrl, 'https://lh3.googleusercontent.com/a/abc=s96-c');
 });
 
 const failed = results.filter(r => r[0] === 'FAIL');

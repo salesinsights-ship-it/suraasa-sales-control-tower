@@ -146,6 +146,71 @@ function company() {
   await shot(m, 'phone-assign');
   await m.context().close();
 
+  // everything else the briefs name, on screen
+  {
+    const c = company(), s1 = c.sessionFor('admin@suraasa.com').session, st0 = srv(c, s1), pid = st0.projects[1].id;
+    c.post({ action: 'apply', session: s1, requestId: 'hm', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { managerEmail: 'hos@suraasa.com', joiningDate: '2026-02-01' } }] });
+    const made = c.post({ action: 'assign', session: s1, requestId: 'all1', task: { name: 'Everything task', desc: 'Words', projectId: pid, ownerEmail: 'rahul@suraasa.com, priya@suraasa.com', priority: 'P0', due: future(4) } }).task;
+    const q = await page(br, c, { session: s1 }); await wait(q, 500);
+    await q.evaluate(id => { location.hash = '#task=' + id; }, made.id); await wait(q, 500);
+    const panel = await q.textContent('#modal');
+    ok('the task panel shows ID, emails, who assigned it, start, created and updated', [made.id, 'rahul@suraasa.com', 'Assigned by', 'Admin', 'Start', 'Created', 'Updated', 'Critical'].every(x => panel.includes(x)), panel.slice(0, 160));
+    await q.click('#modal [data-act="dup-task"]'); await wait(q);
+    ok('Duplicate opens a filled-in assignment and saves nothing yet', (await q.inputValue('#mform [name="name"]')) === 'Copy of Everything task' && (await q.inputValue('#mform [name="ownerEmail"]')).includes('priya@suraasa.com') && srv(c, s1).tasks.filter(t => /Everything task/.test(t.name)).length === 1);
+    await q.click('[data-act="save-modal"]'); await wait(q); await q.click('#assign-go'); await wait(q, 800);
+    ok('confirming the copy makes a second task, and the result names both people', srv(c, s1).tasks.filter(t => /Everything task/.test(t.name)).length === 2 && /Rahul Verma, Priya Nair/.test(await q.textContent('#modal')));
+    await q.evaluate(() => document.querySelector('#modal .mf [data-act="close-modal"]').click()); await wait(q, 400);
+    await q.click('#nav [data-v="tasks"]'); await wait(q);
+    await q.evaluate(() => { const b = document.querySelector('[data-act="toggle-filters"]'); if (b && !document.querySelector('[data-k="tsort"]')) b.click(); }); await wait(q);
+    await q.click('[data-act="tfilter"][data-f="pending"]'); await wait(q);
+    await q.evaluate(() => { const b = document.querySelector('[data-act="toggle-filters"]'); if (b && !document.querySelector('[data-k="tsort"]')) b.click(); }); await wait(q);
+    await q.selectOption('[data-k="tsort"]', 'name'); await wait(q);
+    const names = await q.$$eval('#main .r-task .r-t', x => x.map(e => e.textContent.trim()));
+    ok('tasks can be sorted by title', names.length > 5 && names.every((n, i) => !i || names[i - 1].localeCompare(n) <= 0), names.slice(0, 3).join(' | '));
+    await q.selectOption('[data-k="tsort"]', ''); await wait(q);
+    const dl = await q.evaluate(async () => { let got = ''; const u = URL.createObjectURL; URL.createObjectURL = b => { b.text().then(t => { got = t; }); return u.call(URL, b); }; document.querySelector('body').insertAdjacentHTML('beforeend', '<button id="xp" data-act="export-csv" data-what="tasks"></button>'); document.querySelector('#xp').click(); document.querySelector('#xp').remove(); await new Promise(r => setTimeout(r, 200)); URL.createObjectURL = u; return got; });
+    ok('the task CSV has emails and comments, and its header is clean', /ownerEmail/.test(dl) && /comments/.test(dl) && !dl.split('\n')[0].includes('=>'), dl.split('\n')[0].slice(0, 160));
+    await q.context().close();
+
+    const s2 = c.sessionFor('hos@suraasa.com').session, m = await page(br, c, { session: s2 }); await wait(m, 500);
+    await m.click('#nav [data-v="admin"]'); await wait(m, 400);
+    const adm = await m.textContent('#main');
+    ok('a Manager gets the employee list and the log, and not the rest of Administration', /rahul@suraasa\.com/.test(adm) && /Notification log/.test(adm) && !/Audit log|Integrations|Health rules/.test(adm) && !(await m.$('[data-act="add-user"]')));
+    await m.click('[data-act="empteam"][data-tab="team"]'); await wait(m);
+    ok('My team shows only their reports', /Rahul Verma/.test(await m.textContent('#main table')) && !/Priya Nair/.test(await m.textContent('#main table')));
+    await m.click('#main [data-act="edit-report"]'); await wait(m);
+    await m.fill('#mform [name="designation"]', 'Team Lead'); await m.click('[data-act="save-modal"]'); await wait(m, 700);
+    ok('a Manager can update their report', c.ctx.userByEmail_('rahul@suraasa.com').designation === 'Team Lead');
+    await m.context().close();
+
+    const s3 = c.sessionFor('rahul@suraasa.com').session, e2 = await page(br, c, { session: s3 }); await wait(e2, 500);
+    ok('employees have My Projects', !!(await e2.$('#nav [data-v="myprojects"]')));
+    await e2.click('#nav [data-v="myprojects"]'); await wait(e2);
+    ok('it lists the project their task is in', (await e2.textContent('#main')).includes(srv(c, s1).projects[1].name));
+    await e2.click('#nav [data-v="tasks"]'); await wait(e2);
+    await e2.evaluate(id => { location.hash = '#task=' + id; }, made.id); await wait(e2, 500);
+    await e2.setInputFiles('#tk-file', { name: 'brief.pdf', mimeType: 'application/pdf', buffer: Buffer.from('hello') }); await wait(e2, 1500);
+    ok('an employee can upload a file to their task', srv(c, s1).tasks.find(t => t.id === made.id).attachments.some(x => x.name === 'brief.pdf'), JSON.stringify(srv(c, s1).tasks.find(t => t.id === made.id).attachments || []));
+    await e2.context().close();
+
+    c.mails.length = 0;
+    const done = c.post({ action: 'apply', session: s3, requestId: 'dn1', ops: [{ c: 'tasks', id: made.id, set: { status: 'Completed', progress: 100, completedAt: '2026-11-05' }, base: { status: 'Not Started', progress: 0 } }] });
+    ok('(setup) the employee completes the task', done.ok);
+    const a2 = await page(br, c, { session: s1 }); await wait(a2, 500);
+    await a2.click('#nav [data-v="notifications"]'); await wait(a2, 300);
+    await a2.click('[data-act="ntab"][data-tab="all"]').catch(() => {}); await wait(a2, 300);
+    ok('the person who assigned it sees the completion in the app', /completed by Rahul Verma/.test(await a2.textContent('#main')), (await a2.textContent('#main')).slice(0, 160));
+    await a2.context().close();
+
+    const s4 = c.sessionFor('view@suraasa.com').session, v = await page(br, c, { session: s4 }); await wait(v, 500);
+    await v.evaluate(() => SCT.SYNC && 0);
+    await v.click('#nav [data-v="decisions"]'); await wait(v, 300);
+    const row = await v.$('#main [data-act="edit-risk"], #main [data-act="edit-decision"]');
+    if (row) { await row.click(); await wait(v); }
+    ok('a Viewer sees forms read-only, with no Save', !row || (await v.$$eval('#mform input, #mform select, #mform textarea', x => x.every(e => e.disabled))) && !(await v.$('#modal .mf [data-act="save-modal"]')));
+    await v.context().close();
+  }
+
   // lost replies and shared computers
   {
     const c = company(), s1 = c.sessionFor('admin@suraasa.com').session, n = () => srv(c, s1).tasks.length, pid = srv(c, s1).projects[1].id;

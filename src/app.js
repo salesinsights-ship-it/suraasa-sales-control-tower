@@ -128,7 +128,7 @@
   const by = (k, dir) => (a, b) => { const x = a[k] == null ? '' : a[k], y = b[k] == null ? '' : b[k]; return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'desc' ? -1 : 1); };
   const RAG_WORD = { Green: 'On track', Amber: 'At risk', Red: 'Delayed', Grey: 'Not started' };
   const pillRag = (r, level) => '<span class="pill ' + esc(r || 'grey').toLowerCase() + '">' + esc(level || RAG_WORD[r] || r || 'Not started') + '</span>';
-  const pillPrio = p => '<span class="pill ' + (/^P[0-3]$/.test(p) ? p.toLowerCase() : 'p3') + '">' + esc(p || '—') + '</span>';
+  const pillPrio = p => '<span class="pill ' + (/^P[0-3]$/.test(p) ? p.toLowerCase() : 'p3') + '" title="' + esc(({ P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' })[p] || 'Priority not set') + '">' + esc(p || '—') + '</span>';
   const pillStatus = s => '<span class="pill ' + statusTone(s) + '">' + esc(s || 'Not set') + '</span>';
   function toast(msg, err, undo) {
     const t = $('#toast');
@@ -525,9 +525,9 @@
     let main, lower;
     if (seesAll()) {
       main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
-      lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
+      lower = NAV_MORE.filter(n => n[0] !== 'admin' || canPlan());
     } else {
-      main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Notifications']];
+      main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['myprojects', 'My Projects'], ['notifications', 'Notifications']];
       lower = [];
     }
     $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '') +
@@ -535,7 +535,7 @@
     
     const tabs = (seesAll()) ?
       [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
-      [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Alerts']];
+      [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['myprojects', 'Projects'], ['notifications', 'Alerts']];
     const others = seesAll() ? NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower) : [];
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
@@ -896,7 +896,8 @@
       '<p class="quiet">Executive Oversight &bull; ' + new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</p></div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' + ico('myprojects') + '<span>' + esc(ME.name || 'Management') + ' (Profile)</span></button></div>' +
       (canPlan() ? '<form class="cmd no-print" data-act="cmd-form"><label for="cmd-text">Assign in one line</label><div class="cmd-row"><input id="cmd-text" autocomplete="off" placeholder="Assign the high priority website redesign task to name@suraasa.com under the CRM project by 10 November 2026"><button class="btn" type="submit">Review</button><button class="btn primary" type="button" data-act="assign-task">Assign a task</button></div></form>' : '') +
-      '<div class="stats s8">' +
+      '<div class="stats s10">' +
+      stat('Total Projects', liveProjects().length, '', liveProjects().filter(p => p.status === 'In Progress').length + ' in progress', 'nav', 'data-v="portfolio"') +
       stat('Total Tasks', d.total, '', filterEmp || filterProj ? 'With these filters' : 'Across all active projects', 'nav', 'data-v="tasks"') +
       stat('Assigned', d.assigned.length, 'of ' + d.total, 'Have a confirmed owner', 'go-unassigned') +
       stat('Pending Tasks', d.pending.length, '', 'Not started, backlog or on hold', 'nav', 'data-v="tasks"') +
@@ -904,6 +905,7 @@
       stat('Completed Tasks', d.done.length, '', pct(d.done.length, d.total) + '% complete', 'nav', 'data-v="tasks"', [pct(d.done.length, d.total), 'green']) +
       stat('Overdue', d.overdue.length, '', d.overdue.length ? 'Past their deadline' : 'Nothing late', 'nav', 'data-v="tasks"') +
       stat('Completion Rate', pct(d.done.length, d.total) + '%', '', d.done.length + ' of ' + d.total + ' tasks', 'nav', 'data-v="reports"') +
+      stat('Team Productivity', d.done.filter(t => { const w = String(t.completedAt || '').slice(0, 10); return isDate(w) && daysFromToday(w) >= -7; }).length, '', 'Tasks completed in 7 days', 'nav', 'data-v="reports"') +
       stat('Total Employees', empList.length, '', 'Tracked task assignees', 'go-unassigned') +
       '</div>' +
       '<div class="mgmt-controls no-print">' +
@@ -942,100 +944,6 @@
       '</div></section></div></div>';
   }
 
-  function vOverviewLegacy(st, aq) {
-    if (taskOnly() && UI.me) return vHomeTask();
-    const me = UI.me;
-    const mineT = t => !me || ownsT(t) || isMine(t.accountable);
-    const tasks = liveTasks().filter(t => !ENGINE.isCancelled(t)).filter(mineT);
-    const openT = tasks.filter(ENGINE.isOpen);
-    const dec = S.decisions.filter(d => openDec(d) && mineMatch(d.owner)).sort((a, b) => (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
-    const decWeek = dec.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 7).length;
-    const hs = st.hs.filter(x => !me || [x.p.owner, x.p.accountable, x.p.sponsor].some(mineMatch));
-    const liveP = hs.filter(x => x.p.status !== 'Completed');
-    const slip = liveP.filter(x => x.h.rag === 'Red' || x.h.rag === 'Amber').sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1) || String(a.p.priority).localeCompare(String(b.p.priority)));
-    const delayed = slip.filter(x => x.h.rag === 'Red').length;
-    const due = aq.filter(a => (a.rank === 1 || a.rank === 4) && mineMatch(a.owner));
-    const dueT = due.filter(a => /^T-/.test(a.ref)).length;
-    const late = due.filter(a => a.rank === 1).length;
-    const blocks = aq.filter(a => a.rank === 2 && mineMatch(a.owner));
-    const confirmed = openT.filter(t => !isTBD(t.owner)).length;
-    const risks = S.risks.filter(r => (r.status === 'Open' || r.status === 'Escalated') && mineMatch(r.owner));
-    const critical = risks.filter(r => riskLevel(r)[0] === 'Critical').length;
-    const active = liveP.filter(x => x.p.status === 'In Progress');
-    const updated = active.filter(x => { const u = lastUpdate(x.p.id); return u && (Date.now() - new Date(u.ts).getTime()) / 86400000 <= 7; }).length;
-    const waiting = S.dependencies.filter(d => (d.status === 'Open' || d.status === 'Escalated') && (!me || mineMatch(d.responsible) || mineMatch(d.externalOwner)));
-    const escalate = waiting.filter(d => d.status === 'Escalated' || /^yes/i.test(d.escalation || '')).length;
-    const nextNeed = waiting.map(d => d.requiredBy).filter(isDate).sort()[0];
-    const miles = [];
-    hs.forEach(x => (x.p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push(m); }));
-
-    const stats = [
-      stat('Decisions waiting', dec.length, '', decWeek ? decWeek + ' due this week' : 'None due this week', 'go-decisions'),
-      stat('Projects slipping', slip.length, 'of ' + liveP.length, delayed ? delayed + ' delayed' : 'None delayed yet', 'go-attention'),
-      stat('Due in 7 days', due.length, '', late ? late + ' already late' : plural(dueT, 'task') + ', ' + plural(due.length - dueT, 'milestone'), 'go-week'),
-      stat('Tasks done', tasks.length - openT.length, 'of ' + tasks.length, pct(tasks.length - openT.length, tasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(tasks.length - openT.length, tasks.length), 'blue']),
-      stat('Owners confirmed', confirmed, 'of ' + openT.length, pct(confirmed, openT.length) + '% of open tasks', 'go-unassigned', '', [pct(confirmed, openT.length), pct(confirmed, openT.length) < 50 ? 'red' : 'blue']),
-      stat('Open risks', risks.length, '', critical ? critical + ' critical' : 'None critical', 'go-risks')
-    ].join('');
-
-    const avail = [['decisions', 'Decisions', dec.length], ['slipping', 'Slipping', slip.length], ['due', 'Due this week', due.length], ['blocking', 'Blocking', blocks.length]];
-    const counts = Object.fromEntries(avail.map(a => [a[0], a[2]]));
-    const tab = counts[UI.homeTab] ? UI.homeTab : (avail.find(a => a[2]) || avail[0])[0];
-    const lists = {
-      decisions: [dec.slice(0, 6).map(d => decisionRow(d)), 'go-decisions', dec.length],
-      slipping: [slip.slice(0, 6).map(projectRow), 'go-attention', slip.length],
-      due: [due.slice(0, 6).map(queueRow), 'go-week', due.length],
-      blocking: [blocks.slice(0, 6).map(queueRow), 'go-actions', blocks.length]
-    }[tab];
-    const list = lists[0].length ? '<div class="rows">' + lists[0].join('') + '</div>' + (lists[2] > 6 ? '<button class="linkbtn more" data-act="' + lists[1] + '">See all ' + lists[2] + '</button>' : '')
-      : emptyLine('Nothing needs attention here', 'New items appear as dates get closer.');
-
-    const count = rag => liveP.filter(x => x.h.rag === rag).length;
-    const parts = [['Red', 'attention'], ['Amber', 'attention'], ['Green', 'Green'], ['Grey', 'Grey']].map(k => ({ key: k[0].toLowerCase(), label: RAG_WORD[k[0]], n: count(k[0]), act: 'go-chip', attrs: 'data-chip="' + k[1] + '"' }));
-    const cats = {};
-    liveP.forEach(x => { const c = x.p.category || 'Other'; (cats[c] = cats[c] || []).push(x); });
-    const catRows = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length).map(c => {
-      const xs = cats[c];
-      const ps = ['Red', 'Amber', 'Green', 'Grey'].map(r => ({ key: r.toLowerCase(), label: c + ': ' + RAG_WORD[r], n: xs.filter(x => x.h.rag === r).length, act: 'go-cat', attrs: 'data-c="' + esc(c) + '"' }));
-      return '<div class="cat"><span class="cat-n" title="' + esc(c) + '">' + esc(c) + '</span>' + segBar(ps, xs.length) + '<span class="cat-c">' + xs.length + '</span></div>';
-    }).join('');
-
-    return `
-    <div class="dash">
-      <div class="dash-h">
-        <div><h1>Sales overview</h1><p class="quiet">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
-        ${ME.open ? '<label class="fsel"><span>Showing</span><select data-act="set-me" aria-label="Show work for"><option value="">Everyone</option>' + people().map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>' : ''}
-      </div>
-      <div class="stats">${stats}</div>
-      <div class="dash-g">
-        <section class="panel">
-          <div class="s-h"><h2>Needs attention</h2></div>
-          <div class="bar-row">${seg('htab', avail, tab)}</div>
-          ${list}
-        </section>
-        <section class="panel">
-          <div class="s-h"><h2>Project health</h2><button class="linkbtn" data-act="go-portfolio">All ${liveP.length}</button></div>
-          ${liveP.length ? segBar(parts, liveP.length, true) : ''}
-          <div class="legend">${parts.filter(p => p.n).map(p => '<span><i class="lg sb-' + p.key + '"></i>' + esc(p.label) + '</span>').join('')}</div>
-          <div class="cats">${catRows}</div>
-          ${active.length ? '<p class="flag"><span><b>' + updated + ' of ' + active.length + '</b> active projects have an update this week.</span>' + (updated < active.length ? ' <button class="linkbtn" data-act="nav" data-v="weekly">Add updates</button>' : '') + '</p>' : ''}
-          <h3>Risks and dependencies</h3>
-          <div class="facts-l">
-            <button class="fl" data-act="go-risks"><span>Critical risks</span><b>${critical} of ${risks.length}</b></button>
-            <button class="fl" data-act="go-deps"><span>Waiting on others</span><b>${waiting.length}</b></button>
-            <button class="fl" data-act="go-deps"><span>Need escalating</span><b>${escalate}</b></button>
-            <button class="fl" data-act="go-deps"><span>Next needed by</span><b>${nextNeed ? fmtShort(nextNeed) : 'Nothing due'}</b></button>
-          </div>
-        </section>
-      </div>
-      <div class="dash-g">
-        ${workload(openT, miles)}
-        ${ownersPanel(openT)}
-      </div>
-    </div>`;
-  }
-
-  // ---------- Action plan ----------
   function vActions(st, aq) {
     const t = UI.actionTab;
     const tabs = [['queue', 'What needs attention', aq.length], ['plan', 'Planned actions', S.actions.length]];
@@ -1060,7 +968,7 @@
     const f = UI.filters;
     const archived = S.projects.filter(p => p.archivedAt);
     let rows = UI.pchip === 'archived' ? archived.map(p => ({ p, h: health(p) })) : st.hs.slice();
-    if (UI.pscope === 'mine') rows = rows.filter(x => ownsP(x.p) || isMine(x.p.sponsor));
+    if (UI.pscope === 'mine') rows = rows.filter(x => ownsP(x.p) || isMine(x.p.sponsor) || S.tasks.some(t => t.projectId === x.p.id && ownsT(t)));
     ['category', 'priority', 'status', 'type', 'program'].forEach(k => { if (f[k]) rows = rows.filter(r => k === 'program' ? (f[k] === 'none' ? !r.p.program : r.p.program === f[k]) : r.p[k] === f[k]); });
     if (f.owner) rows = rows.filter(r => r.p.owner === f.owner || r.p.accountable === f.owner);
     const attention = x => x.h.rag === 'Red' || x.h.rag === 'Amber';
@@ -1185,7 +1093,7 @@
       body = '<section class="sec"><dl class="dl"><dt>Owner</dt><dd>' + who(p.owner) + '</dd><dt>Accountable</dt><dd>' + who(p.accountable) + '</dd><dt>Sponsor</dt><dd>' + who(p.sponsor) + '</dd>' + ((p.members || []).length ? '<dt>Team</dt><dd>' + p.members.map(esc).join(', ') + '</dd>' : '') + '</dl></section>' +
         '<section class="sec"><div class="s-h"><h2>Who does what</h2>' + (manage ? '<button class="btn sm" data-act="add-raci" data-id="' + esc(p.id) + '">Add row</button>' : '') + '</div>' + raciTable(p) + '</section>';
     } else if (tab === 'files') {
-      body = '<section class="sec"><h2>Links and files</h2><p class="quiet">Add links to Google Drive files. Uploading files directly is not available yet.</p>' + (p.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (manage ? '<button class="linkbtn danger" data-act="pj-link-del" data-id="' + esc(p.id) + '" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (manage ? '<div class="add-row"><input id="pj-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="pj-link-add" data-id="' + esc(p.id) + '">Add</button></div>' : '') + '</section>';
+      body = '<section class="sec"><h2>Links and files</h2><p class="quiet">Upload a file, up to 10 MB, or paste a link. People in your organisation can open them with the link.</p>' + (canManageP(p) ? '<label class="fsel"><span>Upload a file</span><input type="file" id="pj-file" data-id="' + esc(p.id) + '"></label>' : '') + (p.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (manage ? '<button class="linkbtn danger" data-act="pj-link-del" data-id="' + esc(p.id) + '" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (manage ? '<div class="add-row"><input id="pj-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="pj-link-add" data-id="' + esc(p.id) + '">Add</button></div>' : '') + '</section>';
     } else if (tab === 'activity') {
       body = '<section class="sec"><h2>Activity</h2>' + timeline(a => a.projectId === p.id, p.id) + '</section>';
     }
@@ -1234,7 +1142,8 @@
     if (base.some(F.parked)) chips.push(['parked', 'Parked']);
     if (base.some(F.dropped)) chips.push(['dropped', 'Dropped']);
     chips.push(['approval', 'Needs approval'], ['unassigned', 'No owner'], ['completed', 'Done']);
-    const list = base.filter(F[f] || F.pending).sort((a, b) => (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
+    const byField = ff.tsort === 'updatedAt' ? (a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) : ff.tsort ? (a, b) => String(a[ff.tsort] || 'z').localeCompare(String(b[ff.tsort] || 'z')) : null;
+    const list = base.filter(F[f] || F.pending).sort((a, b) => (byField ? byField(a, b) : 0) || (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
 
     const active = ['tproject', 'tprio', 'towner', 'tweek'].filter(k => ff[k]).length;
     const narrow = active > 0 || f !== 'pending';
@@ -1243,6 +1152,8 @@
     else if (UI.tview === 'calendar') body = calendarView(list);
     else if (!list.length) {
       body = f === 'my' && !UI.me ? '' : emptyLine('No tasks here', f === 'pending' ? 'Add a task to get started.' : 'Try another view above.');
+    } else if (ff.tsort) {
+      body = '<div class="rows">' + list.map(t => taskRow(t)).join('') + '</div>';
     } else if (UI.tgroup === 'project') {
       const ids = [...new Set(list.map(t => t.projectId))];
       body = ids.map(id => { const ts = list.filter(t => t.projectId === id); return group('tp-' + id, pName(id), ts.length, ts.map(t => taskRow(t, { noProject: true })).join(''), narrow); }).join('');
@@ -1265,7 +1176,8 @@
     const showF = UI.showFilters || active > 0;
     const filters = showF ? '<div class="filters">' +
       filterSel('tproject', 'Project', S.projects.map(p => [p.id, p.name])) +
-      filterSel('tprio', 'Priority', opt('priorities').map(p => [p, p])) +
+      filterSel('tprio', 'Priority', prioOptions()) +
+      '<label class="fsel"><span>Sort by</span><select data-act="filter" data-k="tsort"><option value="">Due date</option>' + [['priority', 'Priority'], ['status', 'Status'], ['owner', 'Owner'], ['name', 'Title'], ['updatedAt', 'Recently updated']].map(o => '<option value="' + o[0] + '" ' + (ff.tsort === o[0] ? 'selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>' +
       (ME.role === 'Task Owner' ? '' : filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p])))) +
       (ff.tweek ? '<span class="quiet">Week of ' + fmtShort(ff.tweek) + '</span>' : '') +
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
@@ -1305,12 +1217,14 @@
     const allowed = list.filter(canManageT), skipped = list.length - allowed.length;
     if (!allowed.length) { toast('You can only bulk edit tasks in projects you own.', true); return; }
     openForm('Edit ' + plural(allowed.length, 'task'), [
-      { k: 'owner', label: 'New owner', type: 'datalist', options: people() },
+      { k: 'owner', label: 'New owner\'s official email', type: 'datalist', options: dirEmails().concat(people()) },
       { k: 'due', label: 'New due date', type: 'date' },
-      { k: 'priority', label: 'New priority', type: 'select', allowBlank: true, options: opt('priorities') },
+      { k: 'priority', label: 'New priority', type: 'select', allowBlank: true, options: prioOptions() },
       { k: 'status', label: 'New status', type: 'select', allowBlank: true, options: ['Not Started', 'In Progress', 'On Hold', 'In Review'] },
       { k: 'reason', label: 'Reason, recorded on each task', type: 'textarea', full: true, rows: 2 }
     ], {}, o => {
+      const owner = ownerInput(o.owner);
+      if (owner.error) { $('#ferr').textContent = owner.error; return false; }
       const set = ['owner', 'due', 'priority', 'status'].filter(k => o[k]);
       if (!set.length) { $('#ferr').textContent = 'Choose at least one change.'; return false; }
       if (set.includes('owner') && !o.reason.trim()) { $('#ferr').textContent = 'Give a reason for changing the owner.'; return false; }
@@ -1318,7 +1232,7 @@
       const go = allowed.filter(t => !stuck.includes(t));
       if (!confirm('Change ' + set.join(', ') + ' on ' + plural(go.length, 'task') + '?' + (skipped + stuck.length ? ' ' + plural(skipped + stuck.length, 'task') + ' will be left as they are.' : ''))) return false;
       go.forEach(t => {
-        if (o.owner) { t.owner = o.owner; t.ownerEmail = ''; }
+        if (o.owner) { t.owner = owner.name; t.ownerEmail = owner.email; }
         if (o.due) t.due = o.due;
         if (o.priority) t.priority = o.priority;
         if (o.status && t.status !== o.status) applyStatus(t, o.status, '');
@@ -1897,7 +1811,7 @@
     const notes = (t.notes || []).slice().reverse();
     const m = p ? ms(p, t.ms) : null;
     const draft = (() => { try { return localStorage.getItem('sct_draft_' + t.id) || ''; } catch (e) { return ''; } })();
-    const facts = [['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority)], ['Collaborators', (t.collaborators || []).map(esc).join(', ')]].filter(x => x[1]);
+    const facts = [['Task ID', esc(t.id)], ['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Owner email', esc(t.ownerEmail || '')], ['Assigned by', esc([t.assignedBy || t.assignedByEmail, t.assignedAt ? shortTime(t.assignedAt) : ''].filter(Boolean).join(', '))], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority) + ' <span class="mini">' + esc(PRIO_WORD[t.priority] || '') + '</span>'], ['Start', t.start ? esc(fmtShort(t.start)) : ''], ['Collaborators', (t.collaborators || []).map(esc).join(', ')], ['Created', t.createdAt ? esc(shortTime(t.createdAt)) : ''], ['Updated', t.updatedAt ? esc(shortTime(t.updatedAt)) : ''], ['Completed', t.completedTs ? esc(shortTime(t.completedTs)) : t.completedAt ? esc(fmtShort(String(t.completedAt).slice(0, 10))) : '']].filter(x => x[1]);
     const noteTypes = [['update', 'Progress update'], ['comment', 'Comment'], ['question', 'Question for the project owner'], ['decision', 'Decision']];
     const xr = t.extensionRequest;
     const review = (work && ENGINE.isOpen(t) && !xr && !manage ? '<button class="btn" data-act="tk-ext-ask">Ask for more time</button>' : '') +
@@ -1927,10 +1841,10 @@
       '<section class="ts"><h3>Depends on</h3>' + deps.map(d => '<div class="chk"><span>' + esc(d.name) + ' <span class="mini">' + esc(d.status) + '</span></span>' + (manage ? '<button class="linkbtn danger" data-act="tk-dep-del" data-id="' + esc(d.id) + '">Remove</button>' : '') + '</div>').join('') + (deps.length ? '' : '<p class="quiet">Nothing.</p>') +
       (manage ? '<div class="add-row"><select id="tk-dep-new" aria-label="Add a dependency"><option value="">Add a task this one waits for</option>' + peers.filter(x => x.id !== t.id && !(t.dependsOn || []).includes(x.id)).map(x => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('') + '</select><button class="btn sm" data-act="tk-dep-add">Add</button></div>' : '') +
       (blocks.length ? '<p class="mini">Holding up ' + plural(blocks.length, 'task') + ': ' + blocks.slice(0, 5).map(x => esc(x.name)).join(', ') + '</p>' : '') + '</section>' +
-      '<section class="ts"><h3>Links and files</h3>' + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
+      '<section class="ts"><h3>Links and files</h3>' + (work ? '<label class="fsel"><span>Upload a file, up to 10 MB</span><input type="file" id="tk-file" data-id="' + esc(t.id) + '"></label>' : '') + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
       '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
       '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
-      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="dup-task" data-id="' + esc(t.id) + '">Duplicate</button><button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
     const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
     $('#modal-root').innerHTML = h;
     $('#modal-root')._dirty = false;
@@ -1997,38 +1911,6 @@
   }
 
   // ---------- task owner home ----------
-  function vHomeTask() {
-    const mine = liveTasks().filter(ownsT);
-    const open = mine.filter(ENGINE.isOpen);
-    const d = t => isDate(t.due) ? daysFromToday(t.due) : null;
-    const late = open.filter(t => d(t) != null && d(t) < 0), today = open.filter(t => d(t) === 0), week = open.filter(t => d(t) != null && d(t) >= 0 && d(t) <= 7);
-    const blocked = open.filter(t => t.status === 'Blocked'), review = open.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)), changes = open.filter(t => t.status === 'Changes Requested');
-    const noUpdate = open.filter(t => t.status === 'In Progress' && (!t.updatedAt || (Date.now() - new Date(t.updatedAt).getTime()) / 86400000 > 7));
-    const order = t => (t.status === 'Changes Requested' ? 0 : d(t) != null && d(t) < 0 ? 1 : t.status === 'Blocked' ? 2 : d(t) === 0 ? 3 : 4);
-    const list = open.slice().sort((a, b) => order(a) - order(b) || (a.due || 'z').localeCompare(b.due || 'z')).slice(0, 8);
-    const recent = mine.filter(t => t.updatedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
-    const miles = [];
-    liveProjects().filter(p => mine.some(t => t.projectId === p.id)).forEach(p => (p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push({ p, m }); }));
-    miles.sort((a, b) => a.m.due.localeCompare(b.m.due));
-    return `<div class="dash"><div class="dash-h"><div><h1>My work</h1><p class="quiet">${esc(UI.me)}, ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div></div>
-      <div class="stats">
-        ${stat('Late', late.length, '', late.length ? 'Needs you first' : 'Nothing late', 'tfilter-go', 'data-f="overdue"')}
-        ${stat('Due today', today.length, '', '', 'tfilter-go', 'data-f="my"')}
-        ${stat('Due this week', week.length, '', '', 'tfilter-go', 'data-f="my"')}
-        ${stat('Blocked', blocked.length, '', blocked.length ? 'Needs help' : 'Nothing blocked', 'tfilter-go', 'data-f="my"')}
-        ${stat('In review', review.length, '', changes.length ? changes.length + ' need changes' : 'Waiting for approval', 'tfilter-go', 'data-f="my"')}
-        ${stat('Done', mine.filter(ENGINE.isDone).length, 'of ' + mine.length, '', 'tfilter-go', 'data-f="completed"')}
-      </div>
-      <div class="dash-g">
-        <section class="panel"><div class="s-h"><h2>What to do next</h2><button class="linkbtn" data-act="tfilter-go" data-f="my">All my tasks</button></div>${list.length ? '<div class="rows">' + list.map(t => taskRow(t)).join('') + '</div>' : emptyLine('You are all caught up', 'New work appears here when it is assigned to you.')}</section>
-        <section class="panel">
-          ${noUpdate.length ? '<p class="flag"><span><b>' + noUpdate.length + '</b> of your tasks ' + (noUpdate.length === 1 ? 'has' : 'have') + ' had no update for a week.</span></p>' : ''}
-          <h3>Coming up</h3><div class="facts-l">${miles.slice(0, 5).map(x => '<button class="fl" data-act="open" data-id="' + esc(x.p.id) + '" data-tab="plan"><span>' + esc(x.m.name) + '</span><b>' + esc(fmtShort(x.m.due)) + '</b></button>').join('') || '<p class="quiet">No upcoming milestones.</p>'}</div>
-          <h3>Recently updated</h3><div class="facts-l">${recent.map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort((t.updatedAt || '').slice(0, 10))) + '</b></button>').join('') || '<p class="quiet">Nothing yet.</p>'}</div>
-        </section>
-      </div></div>`;
-  }
-
   // ---------- notifications ----------
   const readSet = () => { try { return new Set(JSON.parse(localStorage.getItem('sct_read') || '[]')); } catch (e) { return new Set(); } };
   const writeRead = s => { try { localStorage.setItem('sct_read', JSON.stringify([...s].slice(-800))); } catch (e) { /* private window */ } };
@@ -2037,6 +1919,7 @@
     ['Blockers', ['Blocked']],
     ['Reviews and requests', ['Review requested', 'Changes requested', 'More time requested', 'Question']],
     ['Assignments', ['Assigned to you', 'Reassigned']],
+    ['Completed work', ['Completed']],
     ['Comments and mentions', ['Mentioned', 'New comment']],
     ['Milestones and closure', ['Milestone late', 'Milestone soon', 'Ready to close']]
   ];
@@ -2044,7 +1927,7 @@
   function myNotifications() {
     const off = notifOff();
     const hidden = new Set(); NOTIF_GROUPS.forEach(g => { if (off.has(g[0])) g[1].forEach(k => hidden.add(k)); });
-    return ENGINE.notifications({ me: UI.me, todayStr: todayStr(), today: dnum(todayStr()), tasks: liveTasks(), projects: liveProjects(), audit: S.audit || [], mine: isMine, ownsProject: ownsP }).filter(n => !hidden.has(n.kind));
+    return ENGINE.notifications({ me: UI.me, todayStr: todayStr(), today: dnum(todayStr()), tasks: liveTasks(), projects: liveProjects(), audit: S.audit || [], mine: isMine, ownsProject: ownsP, ownsTask: ownsT, email: ME.email }).filter(n => !hidden.has(n.kind));
   }
   function vNotifications() {
     const list = myNotifications(), read = readSet();
@@ -2064,12 +1947,22 @@
   const prioOptions = () => opt('priorities').map(p => [p, prioLabel(p)]);
   const dirFind = mail => (S.directory || []).find(u => u.email === String(mail || '').trim().toLowerCase());
   const dirEmails = () => (S.directory || []).map(u => u.email);
-  const empCard = u => u ? '<span class="emp-av">' + esc(initials(u.name)) + '</span><span><b>' + esc(u.name) + '</b><span class="quiet">' + esc([u.designation, u.department, u.employeeId].filter(Boolean).join(' · ') || u.email) + '</span></span>' : '';
+  const safePhoto = u => /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//i.test(String((u && u.photoUrl) || '')) ? u.photoUrl : '';
+  const face = u => safePhoto(u) ? '<img class="emp-av" src="' + esc(safePhoto(u)) + '" alt="" referrerpolicy="no-referrer">' : '<span class="emp-av">' + esc(initials(u.name || u.email)) + '</span>';
+  const empCard = u => u ? face(u) + '<span><b>' + esc(u.name) + '</b><span class="quiet">' + esc([u.designation, u.department, u.employeeId].filter(Boolean).join(' · ') || u.email) + '</span></span>' : '';
+  const emailList = v => [...new Set(String(v || '').toLowerCase().split(/[\s,;]+/).filter(Boolean))];
   function showEmployeeMatch(input, box) {
     if (!box) return;
-    const v = input.value.trim(), u = dirFind(v);
-    box.className = 'emp-match' + (u ? ' ok' : v ? ' no' : '');
-    box.innerHTML = u ? empCard(u) : v ? '<span>No registered employee has this exact email.</span>' : '';
+    const mails = emailList(input.value), found = mails.map(dirFind), bad = mails.filter((m, i) => !found[i]);
+    box.className = 'emp-match' + (mails.length && !bad.length ? ' ok' : bad.length ? ' no' : '');
+    box.innerHTML = bad.length ? '<span>No registered employee has this exact email: ' + esc(bad.join(', ')) + '</span>' : found.map(u => '<div class="emp-one">' + empCard(u) + '</div>').join('');
+  }
+  /** An email must be a registered person. Plain words stay as they are: older records and team names use them. */
+  function ownerInput(v) {
+    const text = String(v || '').trim();
+    if (!text.includes('@')) return { name: text, email: '' };
+    const u = dirFind(text);
+    return u ? { name: u.name, email: u.email } : { error: text + ' is not a registered employee.' };
   }
   function assignForm(pre, problems, req) {
     const mine = liveProjects().filter(canManageP);
@@ -2080,11 +1973,12 @@
       { k: 'name', label: 'Task title', req: true, full: true },
       { k: 'desc', label: 'Description', type: 'textarea', full: true, rows: 3 },
       { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, blank: 'Choose a project', req: true, full: true, options: mine.map(p => [p.id, p.name]) },
-      { k: 'ownerEmail', label: 'Employee\'s official email', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
+      { k: 'ownerEmail', label: 'Employee\'s official email (separate several with commas)', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
       { k: 'priority', label: 'Priority', type: 'select', req: true, options: prioOptions() },
       { k: 'due', label: 'Deadline', type: 'date', req: true }
     ], vals, o => {
-      if (!dirFind(o.ownerEmail)) { $('#ferr').textContent = o.ownerEmail + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
+      const missing = emailList(o.ownerEmail).filter(m => !dirFind(m));
+      if (missing.length) { $('#ferr').textContent = missing.join(', ') + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
       if (o.due < todayStr()) { $('#ferr').textContent = 'The deadline is in the past.'; return false; }
       assignConfirm(o, req || uid('ASSIGN') + Date.now());
       return false;
@@ -2095,13 +1989,13 @@
     if ((problems || []).length) $('#ferr').textContent = problems.join(' ');
   }
   function assignConfirm(o, req) {
-    const u = dirFind(o.ownerEmail), p = P(o.projectId), root = $('#modal-root');
+    const us = emailList(o.ownerEmail).map(dirFind), names = us.map(u => u.name).join(', '), p = P(o.projectId), root = $('#modal-root');
     const row = (l, v) => '<div><dt>' + esc(l) + '</dt><dd>' + esc(v) + '</dd></div>';
     root.innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Confirm this assignment</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb">' +
-      '<div class="emp-match ok">' + empCard(u) + '</div>' +
-      '<dl class="kv-g kv-2">' + row('Task', o.name) + row('Project', p ? p.name : o.projectId) + row('Priority', prioLabel(o.priority)) + row('Deadline', fmtLong(o.due)) + row('Email', u.email) + row('Assigned by', ME.name || UI.me) + '</dl>' +
+      '<div class="emp-match ok">' + us.map(u => '<div class="emp-one">' + empCard(u) + '</div>').join('') + '</div>' +
+      '<dl class="kv-g kv-2">' + row('Task', o.name) + row('Project', p ? p.name : o.projectId) + row('Priority', prioLabel(o.priority)) + row('Deadline', fmtLong(o.due)) + row(us.length > 1 ? 'Emails' : 'Email', us.map(u => u.email).join(', ')) + row('Assigned by', ME.name || UI.me) + '</dl>' +
       (o.desc ? '<section class="ts"><h3>Description</h3><p>' + esc(o.desc) + '</p></section>' : '') +
-      '<p class="quiet">Confirming saves the task to the Google Sheet, emails ' + esc(u.name) + ', and puts it on their dashboard.</p><div class="ferr" id="ferr" role="alert"></div></div>' +
+      '<p class="quiet">Confirming saves the task to the Google Sheet, emails ' + esc(names) + ', and puts it on ' + (us.length > 1 ? 'their dashboards' : 'their dashboard') + '.</p><div class="ferr" id="ferr" role="alert"></div></div>' +
       '<div class="mf"><button class="btn" data-act="assign-back">Back</button><button class="btn primary" id="assign-go" data-act="assign-send">Confirm assignment</button></div></div></div>';
     root._assign = { o, req, busy: false };
     root._dirty = false;
@@ -2131,14 +2025,14 @@
     return ['red', 'Email stopped', 'Stopped after repeated failures: ' + (n.errorDetails || 'unknown error') + '.'];
   }
   function assignDone(r) {
-    const t = r.task, notes = r.notified || [], mail = notes.find(n => n.channel === 'email'), inApp = notes.find(n => n.channel === 'in-app');
-    const who = (r.employee && r.employee.name) || t.owner;
+    const t = r.task, notes = r.notified || [], mails = notes.filter(n => n.channel === 'email'), inApp = notes.filter(n => n.channel === 'in-app');
+    const who = (r.employees || []).map(e => e.name).join(', ') || t.owner;
     const line = (tone, head, text) => '<li><span class="pill ' + tone + '">' + esc(head) + '</span><span>' + esc(text) + '</span></li>';
-    const em = emailLine(mail);
+    const emails = (mails.length ? mails : [null]).map(n => { const em = emailLine(n); return line(em[0], em[1], em[2]); }).join('');
     $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(t.id) + (r.duplicate ? ' was already assigned' : ' assigned to ' + esc(who)) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb"><p>' + esc(t.name) + '</p><ul class="done-list">' +
-      line('green', 'Saved', 'In the Google Sheet as ' + t.id + '.') + line(em[0], em[1], em[2]) +
-      line(inApp ? 'green' : 'grey', inApp ? 'In-app' : 'No alert', inApp ? 'A notification is waiting for ' + who + '.' : 'No in-app notification was needed.') +
-      line('green', 'Audit', 'Recorded with your name and the time.') + line('green', 'Dashboard', 'Shown on ' + who + '\'s dashboard the next time it refreshes.') +
+      line('green', 'Saved', 'In the Google Sheet as ' + t.id + '.') + emails +
+      line(inApp.length ? 'green' : 'grey', inApp.length ? 'In-app' : 'No alert', inApp.length ? 'A notification is waiting for ' + who + '.' : 'No in-app notification was needed.') +
+      line('green', 'Audit', 'Recorded with your name and the time.') + line('green', 'Dashboard', 'Shown on the dashboard of ' + who + ' the next time it refreshes.') +
       '</ul></div><div class="mf"><button class="btn" data-act="assign-open" data-id="' + esc(t.id) + '">Open task</button><button class="btn" data-act="assign-again">Assign another</button><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
     $('#modal-root')._dirty = false;
     $('#modal-root')._onSave = closeModal;
@@ -2210,7 +2104,7 @@
       (e.mode === 'test' ? '<p class="flag"><span><b>Emails are in test mode.</b> Nobody but ' + esc(e.testTo) + ' receives them. Use Control Tower &gt; Emails: go live in the Sheet when you are ready.</span></p>' : '') +
       (!s.automation.retry ? '<p class="flag"><span><b>Retries and reminders are off.</b> Use Control Tower &gt; Turn on daily backup, reminders and email retries in the Sheet.</span></p>' : '') +
       (s.sheet.problems.length ? '<p class="flag red"><span>' + esc(s.sheet.problems.join(' ')) + '</span></p>' : '') +
-      '<section class="sec"><div class="s-h"><h2>Google Sheet</h2>' + yes(!s.sheet.problems.length, 'Connected', 'Needs repair') + '</div><dl class="kv-g">' + row('Last change', s.sheet.updatedAt ? shortTime(s.sheet.updatedAt) : 'None yet') + row('Changed by', s.sheet.updatedBy || 'Unknown') + row('Version', String(s.sheet.version)) + row('Last sync here', sync.lastSync ? shortTime(sync.lastSync) : 'Not yet') + row('Saves waiting here', String(SYNC.pending() ? diffOps(SYNC.base, S).length : 0)) + row('Server version', 'API ' + s.api) + '</dl><div class="btnrow">' + (sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '<button class="btn" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div></section>' +
+      '<section class="sec"><div class="s-h"><h2>Google Sheet</h2>' + yes(!s.sheet.problems.length && sync.status !== 'error', 'Connected', sync.status === 'error' ? 'Last save failed' : 'Needs repair') + '</div><dl class="kv-g">' + row('Spreadsheet', s.sheet.name || 'Unknown') + row('Last change', s.sheet.updatedAt ? shortTime(s.sheet.updatedAt) : 'None yet') + row('Changed by', s.sheet.updatedBy || 'Unknown') + row('Version', String(s.sheet.version)) + row('Last sync here', sync.lastSync ? shortTime(sync.lastSync) : 'Not yet') + row('Saves waiting here', String(SYNC.pending() ? diffOps(SYNC.base, S).length : 0)) + row('Server version', 'API ' + s.api) + '</dl><div class="btnrow">' + (sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '<button class="btn" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Retry saving now</button><button class="btn" data-act="sync-test">Test connection</button></div></section>' +
       '<section class="sec"><div class="s-h"><h2>Email</h2>' + yes(e.mode === 'live', 'Live', e.mode === 'test' ? 'Test mode' : 'Off') + '</div><dl class="kv-g">' + row('Mode', modeWord) + row('Sent from', e.sender || 'Unknown') + row('Left today', String(e.quota)) + row('Accepted', String(e.accepted)) + row('Queued', String(e.queued)) + row('Failed, retrying', String(e.failed)) + row('Stopped', String(e.abandoned)) + row('Last accepted', e.lastAcceptedAt ? shortTime(e.lastAcceptedAt) : 'None yet') + '</dl><div class="btnrow"><button class="btn" data-act="log-retry">Retry failed emails</button><button class="btn" data-act="integ-test-email">Send a test email to me</button><button class="btn" data-act="admintab" data-tab="log">Open notification log</button></div></section>' +
       '<section class="sec"><div class="s-h"><h2>Sign-in</h2>' + yes(s.auth.required && s.auth.clientIdSet, 'Protected', s.auth.required ? 'Client ID missing' : 'Emergency access is open') + '</div><dl class="kv-g">' + row('Google sign-in', s.auth.clientIdSet ? 'Set up' : 'Not set up') + row('Allowed domain', '@' + s.auth.domain) + row('Active employees', s.directory.active + ' of ' + s.directory.total) + row('Super Admins', String(s.directory.admins)) + '</dl></section>' +
       '<section class="sec"><div class="s-h"><h2>Automation</h2>' + yes(s.automation.retry && s.automation.daily && s.automation.backup, 'Running', 'Not all on') + '</div><dl class="kv-g">' + row('Email retries', s.automation.retry ? 'Every 5 minutes' : 'Off') + row('Reminders', s.automation.daily ? 'Every morning' : 'Off') + row('Backup', s.automation.backup ? 'Every night' : 'Off') + '</dl></section>';
@@ -2218,11 +2112,27 @@
 
   // ---------- employee directory ----------
   function vEmployees() {
-    const q = String(UI.empQ || '').toLowerCase(), us = (S.users || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const admin = isAdmin(), q = String(UI.empQ || '').toLowerCase(), all = (admin ? S.users || [] : S.directory || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const team = UI.empTeam === 'team', us = team ? all.filter(u => u.managerEmail === ME.email) : all;
     const shown = us.filter(u => !q || [u.name, u.email, u.department, u.designation, u.employeeId, ROLE_LABEL[u.role]].join(' ').toLowerCase().includes(q));
-    const byMail = m => { const x = us.find(u => u.email === m); return x ? x.name : m; };
-    return '<div class="bar-row"><label class="fsel"><span>Search</span><input id="emp-q" value="' + esc(UI.empQ || '') + '" aria-label="Search employees"></label><p class="quiet">' + plural(us.filter(u => u.active).length, 'active employee') + ' of ' + us.length + '</p><button class="btn primary" data-act="add-user">Add employee</button></div>' +
-      (shown.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Employee</th><th>Role</th><th>Department</th><th>Designation</th><th>Manager</th><th>Status</th></tr></thead><tbody>' + shown.map(u => '<tr data-act="edit-user" data-id="' + esc(u.email) + '"><td class="nw">' + esc(u.employeeId || '') + '</td><td><button class="r-t linkbtn" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><br><span class="quiet">' + esc(u.email) + '</span></td><td class="nw">' + esc(ROLE_LABEL[u.role] || u.role) + '</td><td>' + esc(u.department || '') + '</td><td>' + esc(u.designation || '') + '</td><td>' + esc(u.managerEmail ? byMail(u.managerEmail) : '') + '</td><td><span class="pill ' + (u.active ? 'green' : 'grey') + '">' + (u.active ? 'Active' : 'Inactive') + '</span></td></tr>').join('') + '</tbody></table></div>' : emptyLine(us.length ? 'No one matches' : 'No employees yet', us.length ? 'Try a different search.' : 'Add your team here or in the Users tab of the Sheet.'));
+    const byMail = m => { const x = all.find(u => u.email === m); return x ? x.name : m; };
+    const opens = u => admin ? 'edit-user' : u.managerEmail === ME.email ? 'edit-report' : '';
+    return '<div class="bar-row"><label class="fsel"><span>Search</span><input id="emp-q" value="' + esc(UI.empQ || '') + '" aria-label="Search employees"></label>' + seg('empteam', [['all', 'Everyone'], ['team', 'My team']], team ? 'team' : 'all') + '<p class="quiet">' + plural(all.filter(u => u.active !== false).length, 'active employee') + (admin ? ' of ' + all.length : '') + '</p>' + (admin ? '<button class="btn primary" data-act="add-user">Add employee</button>' : '') + '</div>' +
+      (admin ? '' : '<p class="quiet">Super Admins add employees and set roles. You can update the people who report to you.</p>') +
+      (shown.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Employee</th>' + (admin ? '<th>Role</th>' : '') + '<th>Department</th><th>Designation</th><th>Manager</th><th>Joined</th>' + (admin ? '<th>Status</th>' : '') + '</tr></thead><tbody>' + shown.map(u => { const a = opens(u); return '<tr' + (a ? ' data-act="' + a + '" data-id="' + esc(u.email) + '"' : '') + '><td class="nw">' + esc(u.employeeId || '') + '</td><td><span class="emp-row">' + face(u) + '<span>' + (a ? '<button class="r-t linkbtn" data-act="' + a + '" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button>' : '<b>' + esc(u.name || u.email) + '</b>') + '<br><span class="quiet">' + esc(u.email) + '</span></span></span></td>' + (admin ? '<td class="nw">' + esc(ROLE_LABEL[u.role] || u.role) + '</td>' : '') + '<td>' + esc(u.department || '') + '</td><td>' + esc(u.designation || '') + '</td><td>' + esc(u.managerEmail ? byMail(u.managerEmail) : '') + '</td><td class="nw">' + esc(u.joiningDate ? fmtShort(u.joiningDate) : '') + '</td>' + (admin ? '<td><span class="pill ' + (u.active ? 'green' : 'grey') + '">' + (u.active ? 'Active' : 'Inactive') + '</span></td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>' : emptyLine(all.length && !team ? 'No one matches' : team ? 'No one reports to you yet' : 'No employees yet', team ? 'A Super Admin sets each person\'s manager.' : all.length ? 'Try a different search.' : 'Add your team here or in the Users tab of the Sheet.'));
+  }
+  /** Managers update their own reports. The server allows these three fields and no others. */
+  function reportForm(u) {
+    if (!u) return;
+    openForm(u.name, [
+      { k: 'emailShown', label: 'Official email', type: 'static', text: u.email + (u.employeeId ? ' · ' + u.employeeId : '') },
+      { k: 'department', label: 'Department' }, { k: 'designation', label: 'Designation' }, { k: 'joiningDate', label: 'Joining date', type: 'date' }
+    ], u, o => {
+      SYNC.request({ action: 'apply', requestId: uid('REQ') + Date.now(), ops: [{ c: 'users', id: u.email, rec: o }] }).then(r => {
+        toast(r.ok ? u.name + ' updated' : (r.rejected ? r.rejected[0].reason : r.error), !r.ok);
+        if (r.ok) SYNC.pull(true);
+      }).catch(() => toast('Could not reach the Sheet. Try again.', true));
+    });
   }
 
   // ---------- dashboard charts: real data, one hue, every value written out ----------
@@ -2248,6 +2158,9 @@
     const projects = liveProjects().map(p => { const ts = list.filter(t => t.projectId === p.id); return { p, ts, pct: projectProgress(p.id) }; }).filter(x => x.ts.length).sort((a, b) => b.ts.filter(ENGINE.isOpen).length - a.ts.filter(ENGINE.isOpen).length).slice(0, 8);
     const soon = openList.filter(t => isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 14).sort((a, b) => a.due.localeCompare(b.due));
     const weeks = weeklyDone(list);
+    const late = openList.filter(taskOverdue), lateDays = t => -daysFromToday(t.due);
+    const ages = [['1 to 7 days', 1, 7], ['8 to 30 days', 8, 30], ['Over 30 days', 31, 1e6]].map(a => ({ label: a[0], n: late.filter(t => lateDays(t) >= a[1] && lateDays(t) <= a[2]).length }));
+    const lateBy = [...new Set(late.map(t => t.projectId))].map(id => ({ label: pName(id), n: late.filter(t => t.projectId === id).length })).sort((a, b) => b.n - a.n).slice(0, 6);
     const rows = employees.map(e => { const ts = list.filter(t => e.has(t)), s = dashSplit(ts); return { e, s }; }).filter(x => x.s.total).sort((a, b) => b.s.open.length - a.s.open.length);
     const most = Math.max(1, ...rows.map(r => r.s.open.length));
     return '<div class="chart-g">' +
@@ -2255,6 +2168,8 @@
       '<section class="panel"><div class="s-h"><h2>Open tasks by priority</h2></div>' + hbars(byPrio) + '</section>' +
       '<section class="panel"><div class="s-h"><h2>Project progress</h2></div>' + (projects.length ? hbars(projects.map(x => ({ label: x.p.name, n: x.pct, max: 100, show: x.pct + '%', tip: x.ts.filter(ENGINE.isDone).length + ' of ' + x.ts.length + ' tasks done', act: 'open', attrs: 'data-id="' + esc(x.p.id) + '"' }))) : '<p class="quiet">No projects match these filters.</p>') + '</section>' +
       '<section class="panel"><div class="s-h"><h2>Completed per week</h2></div>' + (weeks.some(w => w.n) ? hbars(weeks.map(w => ({ label: 'Week of ' + w.label, n: w.n }))) : '<p class="quiet">No completions in the last 8 weeks.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Overdue tasks by age</h2></div>' + (late.length ? hbars(ages) : '<p class="quiet">Nothing is overdue.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Overdue tasks by project</h2></div>' + (late.length ? hbars(lateBy) : '<p class="quiet">Nothing is overdue.</p>') + '</section>' +
       '</div><div class="dash-g">' +
       '<section class="panel"><div class="s-h"><h2>Employee workload</h2></div>' + (rows.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Assigned</th><th>Completed</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead><tbody>' + rows.map(x => '<tr><td><button class="linkbtn" data-act="filter-emp-quick" data-emp="' + esc(x.e.name) + '">' + esc(x.e.name) + '</button><span class="load" aria-hidden="true"><i style="width:' + x.s.open.length / most * 100 + '%"></i></span></td><td>' + x.s.total + '</td><td>' + x.s.done.length + '</td><td>' + x.s.open.length + '</td><td>' + (x.s.overdue.length ? '<b class="t-red">' + x.s.overdue.length + '</b>' : '0') + '</td><td>' + pct(x.s.done.length, x.s.total) + '%</td></tr>').join('') + '</tbody></table></div>' : '<p class="quiet">No confirmed owners match these filters.</p>') + '</section>' +
       '<section class="panel"><div class="s-h"><h2>Upcoming deadlines</h2></div>' + (soon.length ? '<div class="facts-l">' + soon.slice(0, 8).map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort(t.due)) + '</b></button>').join('') + '</div>' : '<p class="quiet">Nothing is due in the next 14 days.</p>') + '</section></div>';
@@ -2322,9 +2237,10 @@
 
   // ---------- administration ----------
   function vAdmin() {
-    if (!isAdmin()) return emptyLine('This page is for administrators', 'Ask an administrator if you need something changed here.');
+    if (!canPlan()) return emptyLine('This page is for Super Admins and Managers', 'Ask a Super Admin if you need something changed here.');
+    if (!isAdmin() && !['users', 'log'].includes(UI.adminTab)) UI.adminTab = 'users';
     const t = UI.adminTab;
-    const tabs = [['users', 'Employees'], ['integrations', 'Integrations'], ['log', 'Notification log'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
+    const tabs = !isAdmin() ? [['users', 'Employees'], ['log', 'Notification log']] : [['users', 'Employees'], ['integrations', 'Integrations'], ['log', 'Notification log'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
     let body = '';
     if (t === 'users') {
       body = vEmployees();
@@ -2398,7 +2314,7 @@
   function openProfileModal() {
     closeModal();
     const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + esc(v || '') + '</dd></div>';
-    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb"><dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb">' + (safePhoto(ME) ? '<p>' + face(ME) + '</p>' : '') + '<dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + row('Manager', ME.managerEmail) + row('Joining date', ME.joiningDate ? fmtLong(ME.joiningDate) : '') + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
   }
 
   // ---------- forms ----------
@@ -2428,6 +2344,7 @@
       '<div class="ferr" id="ferr" role="alert"></div></form><div class="mf">' + (extraBtn ? '<div class="mf-l">' + extraBtn + '</div>' : '') + '<button class="btn" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-modal">' + esc(saveLabel || 'Save') + '</button></div></div></div>';
     $('#modal-root').innerHTML = h;
     const form = $('#mform');
+    if (!canWrite()) { form.querySelectorAll('input, select, textarea').forEach(x => { x.disabled = true; }); const sv = $('#modal .mf [data-act="save-modal"]'); if (sv) sv.remove(); $('#modal h2').textContent = title + ' (read only)'; }
     $('#modal-root')._dirty = false;
     $('#modal-root')._opener = opener;
     form.addEventListener('input', () => { $('#modal-root')._dirty = true; });
@@ -2516,7 +2433,7 @@
       { k: 'objective', label: 'What is it for?', type: 'textarea', full: true, rows: 2 },
       { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
       { k: 'accountable', label: 'Answerable', type: 'datalist', options: people(), tbd: true },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'status', label: 'Status', type: 'select', options: opt('projectStatuses') },
       { k: 'start', label: 'Start date', type: 'date' },
       { k: 'due', label: 'Target end', type: 'date', hint: 'Leave blank if ongoing' },
@@ -2762,9 +2679,9 @@
     const f = [
       { k: 'name', label: 'Task', req: true, full: true },
       { k: 'projectId', label: 'Project', type: 'select', req: true, full: true, options: S.projects.map(p => [p.id, p.name]) },
-      { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
+      { k: 'owner', label: 'Owner', type: 'datalist', options: dirEmails().concat(people()), tbd: true, hint: 'Use the official email. A team name marks work nobody holds yet.' },
       { k: 'due', label: 'Due date', type: 'date' },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'stage', label: 'Stage', type: 'select', options: STAGES },
       { k: 'status', label: 'Status', type: 'select', options: opt('taskStatuses') },
       { k: 'deliverable', label: 'Expected outcome', full: true },
@@ -2792,7 +2709,9 @@
       o.weight = +o.weight || 1;
       const stage = o.stage; delete o.stage;
       const reason = o.reason; delete o.reason;
-      if (!isNew && o.owner !== t.owner) o.ownerEmail = ''; // a changed name is matched again on the server
+      const owner = ownerInput(o.owner);
+      if (owner.error) { $('#ferr').textContent = owner.error; return false; }
+      if (o.owner !== t.owner) { o.owner = owner.name; o.ownerEmail = owner.email; } // a name with no email is matched again on the server
       if (stage && statusToStage(o.status) !== stage) o.status = stageToStatus(stage);
       if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
       if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
@@ -3018,7 +2937,7 @@
       { k: 'why', label: 'Why it matters', type: 'textarea', full: true, rows: 2 },
       { k: 'ownerRole', label: 'Suggested owner' },
       { k: 'timeline', label: 'When' },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'bucket', label: 'What it needs', type: 'select', options: opt('actionBuckets') },
       { k: 'output', label: 'Expected result', full: true, more: true },
       { k: 'dependency', label: 'Depends on', full: true, more: true },
@@ -3056,7 +2975,7 @@
       if (/^[=+@\t\r-]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
       return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     };
-    return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n');
+    return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(r[c])).join(',')).join('\n');
   }
 
   function exportCsv(what) {
@@ -3067,12 +2986,13 @@
       return;
     }
     const stamp = todayStr();
-    const taskCols = ['id', 'projectId', 'name', 'owner', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
-    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(t => Object.assign({ stage: statusToStage(t.status) }, t)), taskCols), 'text/csv');
+    const fullTask = t => Object.assign({ stage: statusToStage(t.status), late: taskOverdue(t) ? 'OVERDUE' : '', files: (t.attachments || []).map(a => a.url), comments: (t.notes || []).map(n => (n.author || n.who || '') + ': ' + n.text) }, t);
+    const taskCols = ['id', 'projectId', 'name', 'owner', 'ownerEmail', 'assignedBy', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
+    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(fullTask), taskCols), 'text/csv');
     if (what === 'activity') download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
     if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ stage: statusToStage(t.status), project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
-    if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags']), 'text/csv');
-    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(t => Object.assign({ stage: statusToStage(t.status) }, t)), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', r => taskOverdue(r) ? 'OVERDUE' : '']), 'text/csv');
+    if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { files: (p.attachments || []).map(a => a.url), health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags', 'ownerEmail', 'accountableEmail', 'managerEmails', 'members', 'files']), 'text/csv');
+    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(fullTask), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'ownerEmail', 'assignedBy', 'assignedByEmail', 'assignedAt', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', 'late', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'completedAt', 'files', 'comments']), 'text/csv');
     if (what === 'risks') download('risks_' + stamp + '.csv', csv(S.risks, ['id', 'projectId', 'desc', 'impact', 'probability', 'mitigation', 'owner', 'deadline', 'status', 'source']), 'text/csv');
     if (what === 'dependencies') download('dependencies_' + stamp + '.csv', csv(S.dependencies, ['id', 'projectId', 'desc', 'responsible', 'externalOwner', 'status', 'requiredBy', 'escalation']), 'text/csv');
     if (what === 'decisions') download('decisions_' + stamp + '.csv', csv(S.decisions, ['id', 'projectId', 'decision', 'owner', 'raised', 'requiredBy', 'impact', 'status', 'final', 'source']), 'text/csv');
@@ -3121,7 +3041,7 @@
   // Saves are sent one changed field at a time. The Sheet checks each change against what
   // this browser last saw, so two people can work at once without overwriting each other.
   const COLL = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id', decisions: 'id', actions: 'id', updates: 'id', programs: 'id', roles: 'name' };
-  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt']);
+  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt', 'completedTs']);
   const APPEND_ONLY = new Set(['notes', 'comments']);
   function canon(v) {
     if (v === null || v === undefined || v === '') return '';
@@ -3407,7 +3327,7 @@
         (res.stamped || []).forEach(st => {
           [S, this.base].forEach(state => {
             const r = (state[st.c] || []).find(x => String(x[COLL[st.c]]) === String(st.id));
-            if (r) { ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt'].forEach(k => { if (st[k]) r[k] = st[k]; }); ['ownerEmail', 'accountableEmail'].forEach(k => { if (st[k] !== undefined) r[k] = st[k]; }); }
+            if (r) { ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt', 'completedTs'].forEach(k => { if (st[k]) r[k] = st[k]; }); ['ownerEmail', 'accountableEmail'].forEach(k => { if (st[k] !== undefined) r[k] = st[k]; }); }
           });
         });
         if ((res.entries || []).length) { [S, this.base].forEach(state => { state.audit = res.entries.concat(state.audit || []).slice(0, 600); }); if (UI.taskId && $('#modal')) renderTaskPanel(); else if (UI.view === 'project') render(); }
@@ -3643,7 +3563,10 @@
       'assign-again': () => { closeModal(); assignForm(); },
       'assign-open': () => { closeModal(); openTask(id); },
       'reassign-task': () => { const t = S.tasks.find(x => x.id === id); if (t) reassignForm(t); },
+      'dup-task': () => { const t = S.tasks.find(x => x.id === id); if (!t) return; closeModal(); assignForm({ name: 'Copy of ' + t.name, desc: t.desc || '', projectId: t.projectId, ownerEmail: t.ownerEmail || '', priority: t.priority || 'P2', due: t.due && t.due >= todayStr() ? t.due : '' }); },
+      'edit-report': () => reportForm((S.directory || []).find(u => u.email === id)),
       logf: () => { UI.logFilter = el.dataset.tab; render(); },
+      empteam: () => { UI.empTeam = el.dataset.tab; render(); },
       'log-refresh': () => { UI.notifLog = undefined; render(); },
       'log-retry': async () => {
         const r = await SYNC.request({ action: 'notification_retry', id: id || '' });
@@ -4045,6 +3968,30 @@
   document.addEventListener('click', e => {
     if (e.target.id === 'modal') tryCloseModal();
     if (e.target.closest('#theme-toggle')) { toggleTheme(); renderMe(); }
+  });
+
+  // ---------- uploads ----------
+  async function uploadFile(input, kind) {
+    const file = input.files[0], id = input.dataset.id;
+    input.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast('Files can be up to 10 MB.', true); return; }
+    toast('Uploading ' + file.name);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = ''; for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+      const r = await SYNC.request({ action: 'upload', kind, id, name: file.name, data: btoa(bin) });
+      if (r.auth === true) return SYNC.needSignIn(r.error);
+      if (!r.ok) { toast(r.error || 'The file was not saved.', true); return; }
+      const rec = kind === 'task' ? S.tasks.find(x => x.id === id) : P(id);
+      rec.attachments = (rec.attachments || []).concat([r.attachment]);
+      save(true); render(); if (kind === 'task' && UI.taskId === id) renderTaskPanel();
+      toast(r.note || file.name + ' uploaded', !!r.note);
+    } catch (e) { toast('The file was not uploaded. Check your connection and try again.', true); }
+  }
+  document.addEventListener('change', e => {
+    if (e.target.id === 'tk-file') uploadFile(e.target, 'task');
+    if (e.target.id === 'pj-file') uploadFile(e.target, 'project');
   });
 
   // ---------- theme ----------

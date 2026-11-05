@@ -126,7 +126,7 @@ const srv = (b, s) => b.post(Object.assign({ action: 'pull' }, s ? { session: s 
     const q = await page(br, b, { session: v });
     ok('E3 viewer sees no write controls', await q.evaluate(() => getComputedStyle(document.querySelector('.needs-write')).display === 'none'));
     await q.evaluate(() => { const el = document.createElement('button'); el.dataset.act = 'nav'; el.dataset.v = 'admin'; document.body.appendChild(el); el.click(); el.remove(); }); await wait(q);
-    ok('E4 viewer cannot open Administration', /for administrators/.test(await q.textContent('#main')));
+    ok('E4 viewer cannot open Administration', /for Super Admins and Managers/.test(await q.textContent('#main')));
     const bad = b.post({ action: 'apply', session: v, ops: [{ c: 'users', id: 'view@suraasa.com', rec: { role: 'Administrator', active: true } }] });
     ok('E5 viewer cannot make themselves admin through the API', !bad.ok);
     await p.context().close(); await q.context().close();

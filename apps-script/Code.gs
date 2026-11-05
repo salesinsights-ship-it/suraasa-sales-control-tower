@@ -259,7 +259,7 @@ function onEdit(e) {
   var sheet, name;
   try { sheet = e.range.getSheet(); name = sheet.getName(); } catch (x) { return; }
   if (name === META_SHEET || name === ACTIVITY_SHEET) return;
-  if (!SCHEMA.some(function (s) { return s.tab === name; })) return;
+  if (name !== USERS_SHEET && name !== AUDIT_SHEET && !SCHEMA.some(function (s) { return s.tab === name; })) return;
   var who = '';
   try { who = e.user && e.user.getEmail ? e.user.getEmail() : ''; } catch (x) { /* not available to every account type */ }
   var lock = LockService.getScriptLock(), locked = false;
@@ -332,6 +332,7 @@ function doPost(e) {
     if (action === 'pull') return json_(fullPull_(a));
     if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
     if (action === 'assign') { var given = assign_(body, a); SpreadsheetApp.flush(); return json_(given); }
+    if (action === 'upload') return json_(upload_(body, a));
     if (action === 'notification_log') return json_(notificationLog_(a));
     if (action === 'notification_retry') { var retried = notificationRetry_(body, a); SpreadsheetApp.flush(); return json_(retried); }
     if (action === 'notification_resend') { var resent = notificationResend_(body, a); SpreadsheetApp.flush(); return json_(resent); }
@@ -535,8 +536,9 @@ var USERS_SHEET = 'Users', AUDIT_SHEET = 'AuditLog', TRASH_SHEET = 'Trash', SNAP
 // Stored names. The site shows them as Super Admin, Manager, Employee and Viewer.
 var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'];
 var ROLE_WORDS = { 'management': 'Administrator', 'admin': 'Administrator', 'administrator': 'Administrator', 'super admin': 'Administrator', 'superadmin': 'Administrator', 'manager': 'Project Owner', 'project owner': 'Project Owner', 'employee': 'Task Owner', 'task owner': 'Task Owner', 'viewer': 'Viewer' };
-var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'employeeId', 'department', 'designation', 'managerEmail', 'joiningDate', 'updatedAt'];
+var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'employeeId', 'department', 'designation', 'managerEmail', 'joiningDate', 'updatedAt', 'photoUrl'];
 var USER_EDIT = ['name', 'role', 'active', 'department', 'designation', 'managerEmail', 'joiningDate', 'aliases'];
+var MANAGER_EDIT = ['department', 'designation', 'joiningDate']; // what a Manager may change for people who report to them
 var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six hours at most
 var SESSION_MAX_MS = 12 * 3600 * 1000;
 var LOGIN_LIMIT_PER_MINUTE = 60;
@@ -546,14 +548,14 @@ var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
 var SNAP_COLS = ['date', 'projectId', 'progress', 'done', 'active', 'overdue', 'blocked', 'health'];
 var NESTED = ['workstreams', 'milestones', 'raci', 'comments'];
 var APPEND_ONLY = ['comments', 'notes'];
-var STAMPS = ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt'];
+var STAMPS = ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt', 'completedTs'];
 var TRANSITIONS = {
   'Backlog': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
   'Not Started': ['Backlog', 'In Progress', 'Blocked', 'On Hold', 'Completed', 'Cancelled'],
-  'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Completed', 'Cancelled'],
+  'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Completed', 'Cancelled'],
   'Blocked': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
   'On Hold': ['Not Started', 'In Progress', 'Blocked', 'Completed', 'Cancelled'],
-  'In Review': ['Not Started', 'In Progress', 'On Hold', 'Changes Requested', 'Completed', 'Cancelled'],
+  'In Review': ['Not Started', 'In Progress', 'On Hold', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'],
   'Awaiting Approval': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Changes Requested', 'Completed', 'Cancelled'],
   'Changes Requested': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Blocked', 'Completed', 'Cancelled'],
   'Completed': ['In Progress', 'Not Started', 'On Hold', 'In Review', 'Awaiting Approval', 'Cancelled'],
@@ -618,7 +620,7 @@ function users_() {
   return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().filter(function (r) { return String(cell(r, 'email')).trim() !== ''; }).map(function (r) {
     // "Manish Pandey (Head of Sales)": the part in brackets is another name tasks may use for this person.
     var raw = String(cell(r, 'name')).trim(), m = raw.match(/^(.*?)\s*\((.+)\)$/);
-    return { email: String(cell(r, 'email')).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(cell(r, 'role')), active: toBool_(cell(r, 'active')), addedBy: String(cell(r, 'addedBy') || ''), addedAt: String(cell(r, 'addedAt') || ''), employeeId: String(cell(r, 'employeeId') || ''), department: String(cell(r, 'department') || ''), designation: String(cell(r, 'designation') || ''), managerEmail: String(cell(r, 'managerEmail') || '').trim().toLowerCase(), joiningDate: cell_(cell(r, 'joiningDate')), updatedAt: String(cell(r, 'updatedAt') || '') };
+    return { email: String(cell(r, 'email')).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(cell(r, 'role')), active: toBool_(cell(r, 'active')), addedBy: String(cell(r, 'addedBy') || ''), addedAt: String(cell(r, 'addedAt') || ''), employeeId: String(cell(r, 'employeeId') || ''), department: String(cell(r, 'department') || ''), designation: String(cell(r, 'designation') || ''), managerEmail: String(cell(r, 'managerEmail') || '').trim().toLowerCase(), joiningDate: cell_(cell(r, 'joiningDate')), updatedAt: String(cell(r, 'updatedAt') || ''), photoUrl: String(cell(r, 'photoUrl') || '') };
   });
 }
 function userByEmail_(email) {
@@ -627,7 +629,7 @@ function userByEmail_(email) {
 }
 /** What a manager needs to assign work by email. Roles and history stay with Super Admins. */
 function directory_() {
-  return users_().filter(function (u) { return u.active; }).map(function (u) { return { employeeId: u.employeeId, name: u.name, email: u.email, department: u.department, designation: u.designation }; });
+  return users_().filter(function (u) { return u.active; }).map(function (u) { return { employeeId: u.employeeId, name: u.name, email: u.email, department: u.department, designation: u.designation, managerEmail: u.managerEmail, joiningDate: u.joiningDate, photoUrl: u.photoUrl }; });
 }
 function nextEmployeeId_(users) {
   var top = 0;
@@ -673,10 +675,22 @@ function login_(body) {
   if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
   var u = userByEmail_(email);
   if (!u || !u.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + email + '.' };
+  try { storePhoto_(u, t.picture); } catch (x) { /* a picture is never worth failing a sign-in */ }
   var token = Utilities.getUuid() + Utilities.getUuid();
   var now = Date.now();
   CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS }), SESSION_IDLE_SECONDS);
   return { ok: true, session: token, user: publicUser_(u) };
+}
+/** The Google profile picture is the employee's picture. Only Google's own image host is accepted. */
+function storePhoto_(u, url) {
+  if (!/^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\/[^\s"'<>]+$/i.test(String(url || '')) || url === u.photoUrl) return;
+  ensureUserColumns_();
+  var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET), at = userColumns_(sh), n = sh.getLastRow();
+  sh.getRange(2, at.email + 1, n - 1, 1).getValues().some(function (r, i) {
+    if (String(r[0]).trim().toLowerCase() !== u.email) return false;
+    sh.getRange(i + 2, at.photoUrl + 1).setNumberFormat('@').setValue(url);
+    return true;
+  });
 }
 /** Google warns this check can fail now and then, or be throttled, so one failure gets a second try. */
 function checkToken_(idToken) {
@@ -694,7 +708,7 @@ function logout_(body) {
   if (validSession_(body.session)) CacheService.getScriptCache().remove('sess:' + String(body.session));
   return { ok: true };
 }
-function publicUser_(u) { return { email: u.email, name: u.name, aliases: u.aliases || [], role: u.role, employeeId: u.employeeId || '', department: u.department || '', designation: u.designation || '', managerEmail: u.managerEmail || '' }; }
+function publicUser_(u) { return { email: u.email, name: u.name, aliases: u.aliases || [], role: u.role, employeeId: u.employeeId || '', department: u.department || '', designation: u.designation || '', managerEmail: u.managerEmail || '', joiningDate: u.joiningDate || '', photoUrl: u.photoUrl || '' }; }
 /** Returns who is calling. Role is read fresh on every request, so a role change or deactivation applies at once. */
 function actor_(body) {
   var cfg = authCfg_();
@@ -773,7 +787,8 @@ function scopeState_(state, a) {
     ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
       state[k] = (state[k] || []).filter(function (r) { return r.projectId ? theirs[r.projectId] : isMine_(r.owner, a); });
     });
-    state.audit = state.audit.filter(function (r) { return r.taskId ? mine[r.taskId] : theirs[r.projectId]; });
+    // The one thing kept about a task someone no longer owns: that it moved on, so they are told.
+    state.audit = state.audit.filter(function (r) { return r.taskId ? mine[r.taskId] || (r.action === 'owner_changed' && r.field === 'owner' && isMine_(r.oldValue, a)) : theirs[r.projectId]; });
     state.snapshots = state.snapshots.filter(function (r) { return theirs[r.projectId]; });
   }
   state.activity = []; // the old free-text list names projects and has no project field to filter on
@@ -792,6 +807,11 @@ function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.p
 function deny_(a, coll, cur, next, st) {
   if (a.role === 'Administrator') return '';
   if (a.role === 'Viewer') return 'Viewers cannot change anything.';
+  if (coll === 'users' && a.role === 'Project Owner' && cur && next && a.email && cur.managerEmail === a.email) {
+    var off = USER_EDIT.filter(function (k) { return MANAGER_EDIT.indexOf(k) < 0 && canon_(cur[k]) !== canon_(next[k]); });
+    if (!off.length) return '';
+    return 'Only a Super Admin can change ' + off.join(', ') + '.';
+  }
   if (['governance', 'options', 'users', 'roles', 'programs'].indexOf(coll) >= 0) return 'Only an administrator can change this.';
   var rec = next || cur;
   var byId = function (id) { return st.projects.filter(function (p) { return p.id === id; })[0]; };
@@ -951,7 +971,7 @@ function auditFor_(coll, cur, next, a, reqId, ts, reason) {
   var row = function (action, field, oldV, newV, text) { return [Utilities.getUuid(), ts, a.email || '', a.name || '', coll, String(id), projectId, taskId, action, field, short_(oldV), short_(newV), text + (reason ? ' Reason: ' + reason : ''), reqId]; };
   if (!cur) {
     var made = [row('created', '', '', '', 'Created ' + coll.replace(/s$/, '') + ' "' + short_(label) + '"')];
-    if (coll === 'tasks' && next.owner && !/^\s*tbd/i.test(String(next.owner))) made.push(row('task_assigned', 'owner', '', next.owner, 'Assigned "' + short_(label) + '" to ' + short_(next.owner)));
+    if ((coll === 'tasks' || coll === 'projects') && next.owner && !/^\s*tbd/i.test(String(next.owner))) made.push(row(coll === 'tasks' ? 'task_assigned' : 'project_assigned', 'owner', '', next.owner, 'Assigned "' + short_(label) + '" to ' + short_(next.owner)));
     return made;
   }
   if (!next) return [row('deleted', '', '', '', 'Deleted ' + coll.replace(/s$/, '') + ' "' + short_(label) + '"')];
@@ -1141,6 +1161,7 @@ function apply_(body, a, preloaded) {
     var bad = invalid_(op.c, cur, next, st, a);
     if (bad) return reject(bad, 'invalid');
     next.updatedAt = ts; next.updatedBy = a.name;
+    if (op.c === 'tasks' && next.status === 'Completed' && (!cur || cur.status !== 'Completed')) next.completedTs = ts;
     if (!cur) { next.createdAt = next.createdAt || ts; next.createdBy = next.createdBy || a.name; }
     if (op.c === 'tasks' && next.due && !next.originalDue) next.originalDue = (cur && cur.due) || next.due;
     if (op.c === 'projects' && next.due && !next.originalDue) next.originalDue = (cur && cur.due) || next.due;
@@ -1198,7 +1219,7 @@ function apply_(body, a, preloaded) {
     var rows = auditFor_(p.c, p.cur, p.next, a, reqId, ts, p.reason);
     if (p.restoreOf && rows[0]) { rows[0][8] = 'restored'; rows[0][12] = String(rows[0][12]).replace(/^Created/, 'Restored'); }
     audit = audit.concat(rows);
-    if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue, ownerEmail: p.next.ownerEmail, accountableEmail: p.next.accountableEmail, assignedBy: p.next.assignedBy, assignedByEmail: p.next.assignedByEmail, assignedAt: p.next.assignedAt });
+    if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue, ownerEmail: p.next.ownerEmail, accountableEmail: p.next.accountableEmail, assignedBy: p.next.assignedBy, assignedByEmail: p.next.assignedByEmail, assignedAt: p.next.assignedAt, completedTs: p.next.completedTs });
     done.push(p);
   }); } catch (err) { failure = err; }
   // Whatever did get written is recorded and announced, so a retry finishes the rest.
@@ -1388,6 +1409,40 @@ function identity_(coll, cur, next, users, a, ts) {
   }
   return '';
 }
+// ---------- file uploads ----------
+var UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+// Ordinary work files only. Anything that can run in a browser or on a computer is refused, and the type comes from here, never from the browser.
+var UPLOAD_TYPES = { pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', csv: 'text/csv', txt: 'text/plain', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+function uploadFolder_() {
+  var p = props_(), id = p.getProperty('UPLOAD_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (x) { /* it was deleted: make another */ } }
+  var folder = DriveApp.createFolder('Control Tower Uploads');
+  p.setProperty('UPLOAD_FOLDER_ID', folder.getId());
+  return folder;
+}
+/** Saves a file to Drive, for people in the organisation with the link. The site then adds the link to the task or project. */
+function upload_(body, a) {
+  var st = pull_().state, isTask = body.kind === 'task';
+  var rec = (isTask ? st.tasks : st.projects).filter(function (r) { return r.id === body.id; })[0];
+  if (!rec) return { ok: false, code: 'missing', error: 'That record does not exist.' };
+  var proj = isTask ? st.projects.filter(function (p) { return p.id === rec.projectId; })[0] : rec;
+  var manages = a.role === 'Administrator' || (a.role === 'Project Owner' && ownsProject_(proj, a));
+  if (!manages && !(isTask && a.role !== 'Viewer' && ownsTask_(rec, a))) return { ok: false, code: 'denied', error: 'You can add files only to your own work.' };
+  var name = String(body.name || '').replace(/[\\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(-120), ext = (name.match(/\.([a-z0-9]+)$/i) || [])[1];
+  var type = ext && UPLOAD_TYPES.hasOwnProperty(ext.toLowerCase()) ? UPLOAD_TYPES[ext.toLowerCase()] : '';
+  if (!type) return { ok: false, code: 'invalid', error: 'This type of file cannot be uploaded. Use PDF, Office, CSV, text or image files.' };
+  if (String(body.data || '').length > UPLOAD_MAX_BYTES * 1.4) return { ok: false, code: 'invalid', error: 'Files can be up to 10 MB.' };
+  var bytes;
+  try { bytes = Utilities.base64Decode(String(body.data || '')); } catch (x) { return { ok: false, code: 'invalid', error: 'This file could not be read.' }; }
+  if (!bytes.length || bytes.length > UPLOAD_MAX_BYTES) return { ok: false, code: 'invalid', error: 'Files can be up to 10 MB, and cannot be empty.' };
+  var file = uploadFolder_().createFile(Utilities.newBlob(bytes, type, rec.id + ' - ' + name)), note = '';
+  try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); }
+  catch (x) { note = 'Saved, but only the Sheet owner can open it, because your organisation does not allow link sharing.'; }
+  var ts = new Date().toISOString();
+  appendRows_(AUDIT_SHEET, [[Utilities.getUuid(), ts, a.email || '', a.name || '', isTask ? 'tasks' : 'projects', String(rec.id), proj ? proj.id : '', isTask ? rec.id : '', 'file_uploaded', 'attachments', '', name, 'Uploaded ' + name, '']]);
+  return { ok: true, note: note, attachment: { name: name, url: file.getUrl(), by: a.name || '', ts: ts } };
+}
+
 function nextTaskId_(tasks) {
   var top = 0, look = function (id) { var m = String(id).match(/^T-(\d+)$/); if (m) top = Math.max(top, Number(m[1])); };
   tasks.forEach(function (t) { look(t.id); });
@@ -1410,9 +1465,14 @@ function assign_(body, a) {
   var pulled = pull_(), st = pulled.state, users = users_();
   var again = st.tasks.filter(function (x) { return x.assignKey === reqId && (a.role === 'Administrator' || x.assignedByEmail === a.email); })[0];
   if (again) return { ok: true, duplicate: true, version: pulled.version, task: again, notified: notifiedFor_(reqId, a) };
-  var who = users.filter(function (u) { return u.email === email; })[0];
-  if (!who) return { ok: false, code: 'unknown_employee', field: 'ownerEmail', error: email + ' is not a registered employee.' };
-  if (!who.active) return { ok: false, code: 'inactive_employee', field: 'ownerEmail', error: who.name + ' (' + email + ') is inactive.' };
+  var mails = email.split(/[\s,;]+/).filter(function (m, i, all) { return m && all.indexOf(m) === i; }), people = [];
+  if (mails.length > 10) return { ok: false, code: 'invalid', field: 'ownerEmail', error: 'A task can have at most 10 people.' };
+  for (var i = 0; i < mails.length; i++) {
+    var who = users.filter(function (u) { return u.email === mails[i]; })[0];
+    if (!who) return { ok: false, code: 'unknown_employee', field: 'ownerEmail', error: mails[i] + ' is not a registered employee.' };
+    if (!who.active) return { ok: false, code: 'inactive_employee', field: 'ownerEmail', error: who.name + ' (' + mails[i] + ') is inactive.' };
+    people.push(who);
+  }
   var proj = st.projects.filter(function (p) { return p.id === t.projectId; })[0];
   if (!proj) return { ok: false, code: 'invalid', field: 'projectId', error: 'That project does not exist.' };
   if (proj.archivedAt) return { ok: false, code: 'invalid', field: 'projectId', error: 'That project is archived.' };
@@ -1420,11 +1480,11 @@ function assign_(body, a) {
   var today = Utilities.formatDate(new Date(), SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
   if (due < today) return { ok: false, code: 'invalid', field: 'due', error: 'The deadline is in the past.' };
   var id = nextTaskId_(st.tasks);
-  var rec = { id: id, projectId: proj.id, name: name.slice(0, 300), desc: String(t.desc || '').slice(0, 5000), owner: who.name, ownerEmail: who.email, accountable: a.name || '', start: today, due: due, priority: t.priority, status: 'Not Started', progress: 0, kind: 'Task', datesProposed: false, assignKey: reqId };
+  var rec = { id: id, projectId: proj.id, name: name.slice(0, 300), desc: String(t.desc || '').slice(0, 5000), owner: people.map(function (u) { return u.name; }).join(', '), ownerEmail: people.map(function (u) { return u.email; }).join(', '), accountable: a.name || '', start: today, due: due, priority: t.priority, status: 'Not Started', progress: 0, kind: 'Task', datesProposed: false, assignKey: reqId };
   var res = apply_({ ops: [{ c: 'tasks', id: id, create: true, rec: rec }], requestId: reqId }, a, pulled);
   if (!res.ok) return { ok: false, code: res.rejected ? res.rejected[0].code : 'failed', error: res.rejected ? res.rejected[0].reason : res.error };
   res.task = st.tasks.filter(function (x) { return x.id === id; })[0];
-  res.employee = { name: who.name, email: who.email, employeeId: who.employeeId, designation: who.designation, department: who.department };
+  res.employees = people.map(function (u) { return { name: u.name, email: u.email, employeeId: u.employeeId, designation: u.designation, department: u.department }; });
   return res;
 }
 
@@ -1492,6 +1552,10 @@ function eventsFor_(done, a, users, st) {
       if (before.some(function (b) { return b.key === o.key; })) return;
       if (!o.user) { skipped.push({ item: item, name: o.name }); return; }
       add(!isTask ? 'project_assigned' : before.length ? 'task_reassigned' : 'task_assigned', o.user, item, '');
+    });
+    if (!isTask && manages) (rec.managerEmails || []).forEach(function (m) {
+      if (((cur && cur.managerEmails) || []).indexOf(m) >= 0) return;
+      add('project_assigned', users.filter(function (u) { return u.email === m; })[0], item, 'manager');
     });
     if (!isTask || !cur) return;
     var reached = cur.status !== rec.status ? rec.status : '';
@@ -1717,7 +1781,7 @@ function integrationStatus_(a) {
   var sender = '';
   try { sender = Session.getEffectiveUser().getEmail(); } catch (x) { /* some account types hide this */ }
   var tabs = SCHEMA.map(function (s) { return checkHeader_(SpreadsheetApp.getActive(), s); }).filter(Boolean);
-  return { ok: true, api: API, sheet: { version: parseInt(m.version, 10) || 0, updatedAt: m.updatedAt || '', updatedBy: m.updatedBy || '', problems: tabs },
+  return { ok: true, api: API, sheet: { name: SpreadsheetApp.getActive().getName(), version: parseInt(m.version, 10) || 0, updatedAt: m.updatedAt || '', updatedBy: m.updatedBy || '', problems: tabs },
     auth: { required: cfg.required, clientIdSet: !!cfg.clientId, domain: cfg.domain },
     email: { mode: mode.mode, testTo: mode.to || '', sender: sender, quota: quota, queued: count.queued || 0, accepted: count.accepted || 0, failed: count.failed || 0, abandoned: count.abandoned || 0, lastAcceptedAt: lastAccepted },
     automation: { backup: triggers.indexOf('backupNow') >= 0, daily: triggers.indexOf('dailyChecks') >= 0, retry: triggers.indexOf('processNotifications') >= 0 },

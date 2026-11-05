@@ -69,10 +69,11 @@ function createBackend(opts = {}) {
     MailApp: { sendEmail(o) { if (typeof opts.mailFails === 'function' ? opts.mailFails(o) : opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => opts.owner || 'owner@suraasa.com' }) },
-    Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10), sleep() {} },
+    Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10), sleep() {}, base64Decode: t => { if (t === '!!bad') throw new Error('bad'); return Array.from(Buffer.from(t, 'base64')); }, newBlob: (bytes, type, name) => ({ bytes, type, name }) },
     UrlFetchApp: { fetch: url => { if (opts.onFetch) { const r = opts.onFetch(); if (r) return r; } const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
-    DriveApp: {}, ScriptApp: { getProjectTriggers: () => [] }
+    DriveApp: { Access: { DOMAIN_WITH_LINK: 'd' }, Permission: { VIEW: 'v' }, files: [], createFolder(n) { const f = { getId: () => 'FOLDER', createFile: b => { ctx.DriveApp.files.push(b); return { setSharing(a, p) { if (opts.noSharing) throw new Error('blocked'); b.sharing = a + p; }, getUrl: () => 'https://drive.google.com/file/d/' + ctx.DriveApp.files.length + '/view' }; } }; ctx.DriveApp.folder = f; return f; }, getFolderById() { return ctx.DriveApp.folder; } },
+    ScriptApp: { getProjectTriggers: () => [] }
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(opts.code || path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });

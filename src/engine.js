@@ -8,10 +8,10 @@ const ENGINE = (function () {
   const TRANSITIONS = {
     'Backlog': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
     'Not Started': ['Backlog', 'In Progress', 'Blocked', 'On Hold', 'Completed', 'Cancelled'],
-    'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Completed', 'Cancelled'],
+    'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Completed', 'Cancelled'],
     'Blocked': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
     'On Hold': ['Not Started', 'In Progress', 'Blocked', 'Completed', 'Cancelled'],
-    'In Review': ['Not Started', 'In Progress', 'On Hold', 'Changes Requested', 'Completed', 'Cancelled'],
+    'In Review': ['Not Started', 'In Progress', 'On Hold', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'],
     'Awaiting Approval': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Changes Requested', 'Completed', 'Cancelled'],
     'Changes Requested': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Blocked', 'Completed', 'Cancelled'],
     'Completed': ['In Progress', 'Not Started', 'On Hold', 'In Review', 'Awaiting Approval', 'Cancelled'],
@@ -189,28 +189,30 @@ const ENGINE = (function () {
     const name = d.me;
     if (!name) return out;
     const todayStr = d.todayStr;
+    const own = t => (d.ownsTask ? d.ownsTask(t) : d.mine(t.owner));
+    const gaveIt = t => !!d.email && String(t.assignedByEmail || '').toLowerCase() === d.email;
     d.tasks.forEach(t => {
       if (!isOpen(t) || !isDate(t.due)) return;
       const left = dayNum(t.due) - d.today;
-      if (d.mine(t.owner)) {
-        if (left < 0) add('overdue:' + t.id + ':' + todayStr, 'Overdue', '"' + t.name + '" is ' + Math.abs(left) + (left === -1 ? ' day' : ' days') + ' late', { task: t.id }, '', 'red');
-        else if (left === 0) add('due0:' + t.id, 'Due today', '"' + t.name + '" is due today', { task: t.id }, '', 'amber');
-        else if (left === 1) add('due1:' + t.id, 'Due tomorrow', '"' + t.name + '" is due tomorrow', { task: t.id }, '', 'amber');
-        else if (left === 3) add('due3:' + t.id, 'Due soon', '"' + t.name + '" is due in 3 days', { task: t.id });
+      if (own(t)) {
+        if (left < 0) add('overdue:' + t.id + ':' + todayStr, 'Overdue', '"' + t.name + '" is ' + Math.abs(left) + (left === -1 ? ' day' : ' days') + ' late', { task: t.id }, todayStr, 'red');
+        else if (left === 0) add('due0:' + t.id, 'Due today', '"' + t.name + '" is due today', { task: t.id }, todayStr, 'amber');
+        else if (left === 1) add('due1:' + t.id, 'Due tomorrow', '"' + t.name + '" is due tomorrow', { task: t.id }, todayStr, 'amber');
+        else if (left === 3) add('due3:' + t.id, 'Due soon', '"' + t.name + '" is due in 3 days', { task: t.id }, todayStr);
       }
     });
     d.tasks.forEach(t => {
       const p = d.projects.find(x => x.id === t.projectId);
       if (t.status === 'Blocked' && p && d.ownsProject(p)) add('blocked:' + t.id + ':' + (t.blocker && t.blocker.ts || ''), 'Blocked', '"' + t.name + '" is blocked' + (t.blocker && t.blocker.text ? ': ' + t.blocker.text : ''), { task: t.id }, t.blocker && t.blocker.ts, 'red');
-      if ((t.status === 'In Review' || t.status === 'Awaiting Approval') && p && d.ownsProject(p)) add('review:' + t.id, 'Review requested', '"' + t.name + '" is waiting for your review', { task: t.id }, t.updatedAt, 'amber');
+      if ((t.status === 'In Review' || t.status === 'Awaiting Approval') && p && (d.ownsProject(p) || gaveIt(t))) add('review:' + t.id, 'Review requested', '"' + t.name + '" is waiting for your review', { task: t.id }, t.updatedAt, 'amber');
       if (t.extensionRequest && p && d.ownsProject(p)) add('ext:' + t.id + ':' + t.extensionRequest.ts, 'More time requested', '"' + t.name + '": ' + t.extensionRequest.by + ' asked for more time', { task: t.id }, t.extensionRequest.ts, 'amber');
       const last = (t.notes || [])[(t.notes || []).length - 1];
       if (last && last.type === 'question' && last.author !== name && p && d.ownsProject(p)) add('ask:' + last.id, 'Question', last.author + ' asked about "' + t.name + '": ' + last.text, { task: t.id }, last.ts, 'amber');
-      if (isOpen(t) && d.mine(t.owner)) {
+      if (isOpen(t) && own(t)) {
         const late = waitingOn(d.tasks, t).filter(x => isOpen(x) && isDate(x.due) && dayNum(x.due) < d.today);
         if (late.length) add('wait:' + t.id + ':' + late[0].id, 'Waiting on a late task', '"' + t.name + '" is waiting on "' + late[0].name + '", which is late', { task: t.id }, '', 'amber');
       }
-      if (t.status === 'Changes Requested' && d.mine(t.owner)) add('changes:' + t.id + ':' + (t.updatedAt || ''), 'Changes requested', '"' + t.name + '" needs changes', { task: t.id }, t.updatedAt, 'amber');
+      if (t.status === 'Changes Requested' && own(t)) add('changes:' + t.id + ':' + (t.updatedAt || ''), 'Changes requested', '"' + t.name + '" needs changes', { task: t.id }, t.updatedAt, 'amber');
     });
     d.projects.forEach(p => {
       if (!d.ownsProject(p)) return;
@@ -224,11 +226,16 @@ const ENGINE = (function () {
     });
     (d.audit || []).forEach(a => {
       if (a.actorName === name) return;
-      const go = a.taskId ? { task: a.taskId } : a.projectId ? { project: a.projectId } : {};
-      if ((a.action === 'owner_changed' || a.action === 'task_assigned') && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
+      const go = a.taskId && d.tasks.some(t => t.id === a.taskId) ? { task: a.taskId } : a.projectId && d.projects.some(p => p.id === a.projectId) ? { project: a.projectId } : {};
+      if ((a.action === 'owner_changed' || a.action === 'task_assigned' || a.action === 'project_assigned') && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
       if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
       const tk = a.taskId ? d.tasks.find(t => t.id === a.taskId) : null;
-      if (tk && d.mine(tk.owner)) {
+      if (tk && a.action === 'status_changed' && a.newValue === 'Completed') {
+        const pj = d.projects.find(x => x.id === tk.projectId);
+        if ((pj && d.ownsProject(pj)) || gaveIt(tk)) add('a:' + a.activityId, 'Completed', '"' + tk.name + '" was completed by ' + a.actorName, go, a.ts);
+      }
+      if (tk && a.action === 'status_changed' && (a.newValue === 'In Review' || a.newValue === 'Awaiting Approval') && own(tk)) add('a:' + a.activityId, 'Review requested', '"' + tk.name + '" was sent for review by ' + a.actorName, go, a.ts, 'amber');
+      if (tk && own(tk)) {
         if (a.action === 'deadline_changed') add('a:' + a.activityId, 'Deadline changed', a.text, go, a.ts, 'amber');
         if (/^(comment|question|decision)_added$/.test(a.action)) add('a:' + a.activityId, 'New comment', a.text, go, a.ts);
       }

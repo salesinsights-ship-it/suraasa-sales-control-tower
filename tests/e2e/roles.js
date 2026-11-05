@@ -34,7 +34,7 @@ const wait = (p, ms) => p.waitForTimeout(ms || 250);
   const own = b.post({ action: 'pull', session: ak }).state.tasks;
   ok('Employee: home shows only their tasks', num(t, 'Total Assigned Tasks') === own.filter(x => x.status !== 'Cancelled').length && own.length < all.tasks.length, num(t, 'Total Assigned Tasks') + ' of ' + own.length);
   const nav = await e.$$eval('#nav button', x => x.map(n => n.dataset.v).join());
-  ok('Employee: short menu', nav === 'overview,tasks,notifications', nav);
+  ok('Employee: short menu', nav === 'overview,tasks,myprojects,notifications', nav);
   const nw = await e.$$eval('#menu-new button:not([hidden])', x => x.map(n => n.innerText.trim()).join());
   ok('Employee: New offers only what they can do', nw === 'Task,Weekly update', nw);
   ok('Employee: role shown is the server\'s', await e.evaluate(() => SCT.ME.role === 'Task Owner' && SCT.ME.email === 'ak@suraasa.com'));
@@ -60,7 +60,10 @@ const wait = (p, ms) => p.waitForTimeout(ms || 250);
   await f.context().close();
 
   const o = await page(br, b, { session: hos });
-  ok('Project Owner: sees projects, not Administration', !!(await o.$('#nav [data-v="portfolio"]')) && !(await o.$('#nav [data-v="admin"]')));
+  ok('Project Owner: sees projects', !!(await o.$('#nav [data-v="portfolio"]')));
+  await o.click('#nav [data-v="admin"]'); await o.waitForTimeout(300);
+  ok('Project Owner: Administration shows employees and the log only', (await o.$$eval('[data-act="admintab"]', x => x.map(e => e.dataset.tab).join())) === 'users,log');
+  await o.click('#nav [data-v="overview"]'); await o.waitForTimeout(300);
   ok('Project Owner: can plan', (await o.$$eval('#menu-new button:not([hidden])', x => x.length)) === 7);
   await o.context().close();
 

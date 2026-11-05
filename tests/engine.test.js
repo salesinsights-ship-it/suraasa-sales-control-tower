@@ -141,5 +141,18 @@ test('second review: ordinary title words are not read as a date, a priority or 
   r = parse('Assign the May 5 webinar task to rahul@suraasa.com under the CRM project, P1'); assert.strictEqual(r.task.name, 'May 5 webinar'); assert.strictEqual(r.task.due, ''); assert.ok(r.problems.includes('Choose a deadline.'));
   r = parse('Assign the today view task to rahul@suraasa.com under the CRM project, P1 by 20 November'); assert.strictEqual(r.task.name, 'today view'); assert.strictEqual(r.task.due, '2026-11-20');
 });
+test('completion and review notices reach the person who gave out the work', () => {
+  const task = { id: 'T', projectId: 'P', name: 'Plan', status: 'In Review', owner: 'Rahul', assignedByEmail: 'boss@x.com', due: '', updatedAt: '2026-11-05' };
+  const base = { me: 'Boss', email: 'boss@x.com', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [task], projects: [{ id: 'P', name: 'P', milestones: [] }], mine: () => false, ownsProject: () => false };
+  assert.ok(E.notifications(Object.assign({}, base, { audit: [] })).some(n => n.kind === 'Review requested'));
+  const done = E.notifications(Object.assign({}, base, { tasks: [Object.assign({}, task, { status: 'Completed' })], audit: [{ activityId: 'a', action: 'status_changed', newValue: 'Completed', taskId: 'T', projectId: 'P', actorName: 'Rahul', ts: '2026-11-05T10:00:00Z', text: 'x' }] }));
+  assert.ok(done.some(n => n.kind === 'Completed' && /completed by Rahul/.test(n.text)));
+  const other = E.notifications(Object.assign({}, base, { email: 'someone@x.com', tasks: [Object.assign({}, task, { status: 'Completed' })], audit: [{ activityId: 'a', action: 'status_changed', newValue: 'Completed', taskId: 'T', projectId: 'P', actorName: 'Rahul', ts: '', text: 'x' }] }));
+  assert.ok(!other.some(n => n.kind === 'Completed'));
+});
+test('deadline notices carry a date', () => {
+  const list = E.notifications({ me: 'R', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [{ id: 'T', projectId: 'P', name: 'x', status: 'Not Started', owner: 'R', due: '2026-11-06' }], projects: [], audit: [], mine: v => v === 'R', ownsProject: () => false });
+  assert.ok(list.every(n => n.ts));
+});
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');
