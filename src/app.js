@@ -1210,7 +1210,7 @@
       v.push({ name, f: UI.taskFilter, tview: UI.tview, tgroup: UI.tgroup, filters: { tproject: ff.tproject || '', tprio: ff.tprio || '', towner: ff.towner || '', tweek: ff.tweek || '' } });
       writeViews(v); UI.savedView = name; closeModal(); render(); toast('View saved in this browser');
       return false;
-    }, '', 'Save view');
+    }, '', 'Save view', true);
   }
   function bulkEdit() {
     const list = [...UI.bulk].map(id => S.tasks.find(t => t.id === id)).filter(Boolean);
@@ -1811,7 +1811,7 @@
     const notes = (t.notes || []).slice().reverse();
     const m = p ? ms(p, t.ms) : null;
     const draft = (() => { try { return localStorage.getItem('sct_draft_' + t.id) || ''; } catch (e) { return ''; } })();
-    const facts = [['Task ID', esc(t.id)], ['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Owner email', esc(t.ownerEmail || '')], ['Assigned by', esc([t.assignedBy || t.assignedByEmail, t.assignedAt ? shortTime(t.assignedAt) : ''].filter(Boolean).join(', '))], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority) + ' <span class="mini">' + esc(PRIO_WORD[t.priority] || '') + '</span>'], ['Start', t.start ? esc(fmtShort(t.start)) : ''], ['Collaborators', (t.collaborators || []).map(esc).join(', ')], ['Created', t.createdAt ? esc(shortTime(t.createdAt)) : ''], ['Updated', t.updatedAt ? esc(shortTime(t.updatedAt)) : ''], ['Completed', t.completedTs ? esc(shortTime(t.completedTs)) : t.completedAt ? esc(fmtShort(String(t.completedAt).slice(0, 10))) : '']].filter(x => x[1]);
+    const facts = [['Task ID', esc(t.id)], ['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Owner email', esc(t.ownerEmail || '')], ['Assigned by', esc([t.assignedBy || t.assignedByEmail, t.assignedAt ? shortTime(t.assignedAt) : ''].filter(Boolean).join(', '))], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority) + ' <span class="mini">' + esc(PRIO_WORD[t.priority] || '') + '</span>'], ['Start', t.start ? esc(fmtShort(t.start)) : ''], ['Collaborators', (t.collaborators || []).map(esc).join(', ')], ['Created', t.createdAt ? esc(shortTime(t.createdAt)) : ''], ['Updated', t.updatedAt ? esc(shortTime(t.updatedAt)) : ''], ['Completed', t.status !== 'Completed' ? '' : t.completedTs ? esc(shortTime(t.completedTs)) : t.completedAt ? esc(fmtShort(String(t.completedAt).slice(0, 10))) : '']].filter(x => x[1]);
     const noteTypes = [['update', 'Progress update'], ['comment', 'Comment'], ['question', 'Question for the project owner'], ['decision', 'Decision']];
     const xr = t.extensionRequest;
     const review = (work && ENGINE.isOpen(t) && !xr && !manage ? '<button class="btn" data-act="tk-ext-ask">Ask for more time</button>' : '') +
@@ -1978,6 +1978,7 @@
       { k: 'due', label: 'Deadline', type: 'date', req: true }
     ], vals, o => {
       const missing = emailList(o.ownerEmail).filter(m => !dirFind(m));
+      if (!emailList(o.ownerEmail).length) { $('#ferr').textContent = 'Enter the employee\'s official email.'; return false; }
       if (missing.length) { $('#ferr').textContent = missing.join(', ') + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
       if (o.due < todayStr()) { $('#ferr').textContent = 'The deadline is in the past.'; return false; }
       assignConfirm(o, req || uid('ASSIGN') + Date.now());
@@ -2336,7 +2337,7 @@
     return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + (f.after || '') + '</div>';
   }
 
-  function openForm(title, fields, vals, onSave, extraBtn, saveLabel) {
+  function openForm(title, fields, vals, onSave, extraBtn, saveLabel, personal) {
     const main = fields.filter(f => !f.more), more = fields.filter(f => f.more);
     const opener = document.activeElement;
     const h = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(title) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div><form id="mform" class="mb"><div class="form">' + main.map(f => fieldHtml(f, vals)).join('') + '</div>' +
@@ -2344,12 +2345,14 @@
       '<div class="ferr" id="ferr" role="alert"></div></form><div class="mf">' + (extraBtn ? '<div class="mf-l">' + extraBtn + '</div>' : '') + '<button class="btn" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-modal">' + esc(saveLabel || 'Save') + '</button></div></div></div>';
     $('#modal-root').innerHTML = h;
     const form = $('#mform');
-    if (!canWrite()) { form.querySelectorAll('input, select, textarea').forEach(x => { x.disabled = true; }); const sv = $('#modal .mf [data-act="save-modal"]'); if (sv) sv.remove(); $('#modal h2').textContent = title + ' (read only)'; }
+    const readOnly = !canWrite() && !personal; // `personal` forms save only in this browser
+    if (readOnly) { form.querySelectorAll('input, select, textarea').forEach(x => { x.disabled = true; }); ['[data-act="save-modal"]', '.mf-l'].forEach(q => { const n = $('#modal .mf ' + q); if (n) n.remove(); }); $('#modal h2').textContent = title + ' (read only)'; }
     $('#modal-root')._dirty = false;
     $('#modal-root')._opener = opener;
     form.addEventListener('input', () => { $('#modal-root')._dirty = true; });
     form.addEventListener('submit', e => { e.preventDefault(); $('#modal-root')._onSave(); });
     $('#modal-root')._onSave = () => {
+      if (readOnly) return;
       const fd = new FormData(form);
       const o = {};
       fields.forEach(f => {
@@ -2973,7 +2976,7 @@
     const q = v => {
       v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
       if (/^[=+@\t\r-]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
-      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     };
     return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(r[c])).join(',')).join('\n');
   }
@@ -3983,9 +3986,10 @@
       const r = await SYNC.request({ action: 'upload', kind, id, name: file.name, data: btoa(bin) });
       if (r.auth === true) return SYNC.needSignIn(r.error);
       if (!r.ok) { toast(r.error || 'The file was not saved.', true); return; }
-      const rec = kind === 'task' ? S.tasks.find(x => x.id === id) : P(id);
-      rec.attachments = (rec.attachments || []).concat([r.attachment]);
-      save(true); render(); if (kind === 'task' && UI.taskId === id) renderTaskPanel();
+      // The server saved the link, so take its copy rather than sending a second change.
+      const open = kind === 'task' && UI.taskId === id;
+      [S, SYNC.base].forEach(state => { const rec = state && (kind === 'task' ? state.tasks : state.projects).find(x => x.id === id); if (rec) rec.attachments = (rec.attachments || []).concat([r.attachment]); });
+      save(false); render(); if (open) renderTaskPanel();
       toast(r.note || file.name + ' uploaded', !!r.note);
     } catch (e) { toast('The file was not uploaded. Check your connection and try again.', true); }
   }

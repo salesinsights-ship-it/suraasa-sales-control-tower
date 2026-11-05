@@ -70,7 +70,7 @@ test('deactivating someone ends their access at their next request', () => {
   const { b, s } = company(); const se = s('rahul@suraasa.com'), a = s('boss@suraasa.com');
   assert.ok(b.post({ action: 'apply', session: a, requestId: 'x1', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { active: false } }] }).ok);
   assert.strictEqual(pull(b, se).auth, true);
-  assert.ok(b.post({ action: 'login', idToken: 'tok.rahul-suraasa-com.sig' }).error.includes('no access'));
+  assert.ok(b.post({ action: 'login', idToken: b.token('rahul@suraasa.com') }).error.includes('no access'));
 });
 test('a token from the wrong issuer is refused', () => {
   const { b } = company(); const good = { aud: CLIENT, hd: 'suraasa.com', email: 'boss@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };
@@ -628,11 +628,14 @@ test('an account with a suraasa.com address that the organisation does not manag
   assert.ok(/Workspace/.test(b.post({ action: 'login', idToken: 'h.d.other' }).error));
   b.tokens['h.d.real'] = Object.assign({}, t, { hd: 'suraasa.com' }); assert.ok(b.post({ action: 'login', idToken: 'h.d.real' }).ok);
 });
-test('junk never reaches Google, and a flood of sign-ins is limited', () => {
+test('junk never reaches Google, and nobody can flood others out of signing in', () => {
   let calls = 0; const { b } = company({ onFetch: () => { calls++; } });
-  for (const t of ['junk', 'a.b', '<script>.b.c', 'a.b.' + 'x'.repeat(5000)]) assert.ok(!b.post({ action: 'login', idToken: t }).ok); assert.strictEqual(calls, 0);
-  let last; for (let i = 0; i < 70; i++) last = b.post({ action: 'login', idToken: 'a.b.c' });
-  assert.strictEqual(calls, 60); assert.ok(/Too many/.test(last.error));
+  for (const t of ['junk', 'a.b', '<script>.b.c', 'a.b.' + 'x'.repeat(5000), b.token('boss@suraasa.com', { aud: 'other' }), b.token('stranger@suraasa.com'), b.token('boss@suraasa.com', { hd: 'evil.com' })]) assert.ok(!b.post({ action: 'login', idToken: t }).ok); assert.strictEqual(calls, 0, 'stopped locally');
+  let last; for (let i = 0; i < 40; i++) last = b.post({ action: 'login', idToken: 'a.b.c' });
+  assert.strictEqual(calls, 30); assert.ok(/Too many/.test(last.error));
+  for (let i = 0; i < 15; i++) last = b.post({ action: 'login', idToken: b.token('priya@suraasa.com', { sub: String(i) }) });
+  assert.ok(/Too many/.test(last.error), 'one person is limited');
+  assert.ok(b.post({ action: 'login', idToken: b.token('boss@suraasa.com') }).ok, 'and everyone else can still sign in');
 });
 test('one failed check with Google gets a second try, and a real outage is reported plainly', () => {
   let n = 0; const { b } = company({ onFetch: () => (++n === 1 ? { getResponseCode: () => 503, getContentText: () => '' } : null) });
@@ -674,6 +677,7 @@ test('the old owner of a task is told, with nothing else about it', () => {
   const st = pull(b, s('rahul@suraasa.com')).state;
   assert.ok(st.audit.some(x => x.action === 'owner_changed' && x.taskId === t.id)); assert.ok(!st.tasks.some(x => x.id === t.id));
   assert.ok(!st.audit.some(x => x.taskId === t.id && x.action !== 'owner_changed'));
+  const row1 = st.audit.find(x => x.taskId === t.id); assert.strictEqual(row1.newValue, ''); assert.strictEqual(row1.actorName, ''); assert.ok(!/Priya|Moved on/.test(JSON.stringify(row1)), JSON.stringify(row1));
 });
 test('a new project\'s owner and a newly named manager are both told', () => {
   const { b, pid, s } = company(); const a = s('boss@suraasa.com');
@@ -703,15 +707,54 @@ test('files: owners and managers can upload, others cannot, and unsafe types are
   assert.ok(pull(b, a).state.audit.some(x => x.action === 'file_uploaded' && x.taskId === t.id));
   assert.strictEqual(up(s('priya@suraasa.com')).code, 'denied'); assert.strictEqual(up(s('view@suraasa.com')).code, 'denied');
   assert.strictEqual(up(s('rahul@suraasa.com'), { kind: 'project', id: pid }).code, 'denied');
-  for (const name of ['page.html', 'run.exe', 'a.svg', 'noext', 'x.pdf.js']) assert.strictEqual(up(a, { name }).code, 'invalid', name);
+  for (const name of ['page.html', 'run.exe', 'a.svg', 'noext', 'x.pdf.js', 'old.doc', 'old.xls', 'old.ppt']) assert.strictEqual(up(a, { name }).code, 'invalid', name);
   assert.strictEqual(up(a, { data: '' }).code, 'invalid'); assert.strictEqual(up(a, { data: '!!bad' }).code, 'invalid'); assert.strictEqual(up(a, { data: 'A'.repeat(15000000) }).code, 'invalid');
   assert.strictEqual(b.ctx.DriveApp.files[b.ctx.DriveApp.files.length - 1].name.includes('../'), false);
   const w = up(a, { name: '../../etc/pass:wd.pdf' }); assert.ok(w.ok); assert.ok(!w.attachment.name.includes('/'));
+  assert.ok(!up(a, { name: 'cod\u202Efdp.pdf' }).attachment.name.includes('\u202E'));
+  const count = () => pull(b, a).state.tasks.find(x => x.id === t.id).attachments.length, had = count();
+  up(s('rahul@suraasa.com'), { name: 'one.pdf' }); up(s('rahul@suraasa.com'), { name: 'two.pdf' }); assert.strictEqual(count(), had + 2, 'two uploads are both kept');
   assert.strictEqual(b.post({ action: 'upload', kind: 'task', id: t.id, name: 'a.pdf', data }).auth, true);
 });
 test('if the organisation blocks link sharing, the upload says so', () => {
   const { b, pid, s } = company({ noSharing: true }); const a = s('boss@suraasa.com'), t = assign(b, a, pid).task;
   const r = b.post({ action: 'upload', session: a, kind: 'task', id: t.id, name: 'a.pdf', data: 'aGk=' }); assert.ok(r.ok); assert.match(r.note, /only the Sheet owner/);
+});
+test('co-owners can change their own links, not each other\'s', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), t = assign(b, a, pid, { ownerEmail: 'rahul@suraasa.com, priya@suraasa.com' }).task;
+  const link = { name: 'x', url: 'https://example.com/1', by: 'Rahul Verma', ts: '2026-11-05' };
+  assert.ok(edit(b, s('rahul@suraasa.com'), t.id, { attachments: [link] }, {}).ok);
+  assert.ok(edit(b, s('priya@suraasa.com'), t.id, { attachments: [Object.assign({}, link, { url: 'https://evil.example' })] }, { attachments: [link] }).rejected);
+  assert.ok(edit(b, s('priya@suraasa.com'), t.id, { attachments: [] }, { attachments: [link] }).rejected);
+  assert.ok(edit(b, s('rahul@suraasa.com'), t.id, { attachments: [] }, { attachments: [link] }).ok, 'your own can go');
+});
+test('blank, repeated and too many emails are handled on every path', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com');
+  assert.strictEqual(assign(b, a, pid, { ownerEmail: ' , ' }).field, 'ownerEmail');
+  const t = assign(b, a, pid).task;
+  assert.ok(edit(b, a, t.id, { ownerEmail: 'priya@suraasa.com, PRIYA@suraasa.com;priya@suraasa.com' }, { ownerEmail: t.ownerEmail }).ok);
+  assert.strictEqual(row(b, 'Tasks', t.id).ownerEmail, 'priya@suraasa.com');
+  const many = Array.from({ length: 11 }, (_, i) => 'x' + i + '@suraasa.com').join(', ');
+  assert.ok(/at most 10/.test(edit(b, a, t.id, { ownerEmail: many }, { ownerEmail: 'priya@suraasa.com' }).rejected[0].reason));
+});
+test('someone removed and added back as a project manager is told again', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), set = (v, base, id) => b.post({ action: 'apply', session: a, requestId: id, ops: [{ c: 'projects', id: pid, set: { managerEmails: v }, base: { managerEmails: base } }] });
+  set(['other@suraasa.com'], undefined, 'x1'); set([], ['other@suraasa.com'], 'x2'); set(['other@suraasa.com'], [], 'x3');
+  assert.strictEqual(b.mails.filter(m => m.to === 'other@suraasa.com').length, 2);
+});
+test('reopening a task clears its completion time, and Manager replies carry no roles', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), t = assign(b, a, pid).task;
+  edit(b, a, t.id, { status: 'Completed', progress: 100, completedAt: '2026-11-05' }, { status: 'Not Started', progress: 0 });
+  edit(b, a, t.id, { status: 'In Progress', progress: 0, completedAt: '' }, { status: 'Completed', progress: 100, completedAt: '2026-11-05' });
+  assert.strictEqual(pull(b, a).state.tasks.find(x => x.id === t.id).completedTs, undefined);
+  b.post({ action: 'apply', session: a, requestId: 'mm', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { managerEmail: 'mgr@suraasa.com' } }] });
+  const r = b.post({ action: 'apply', session: s('mgr@suraasa.com'), requestId: 'mn', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { department: 'Sales' } }] });
+  assert.ok(r.ok); assert.ok(!(r.entries || []).some(x => x.entityType === 'users'));
+  assert.ok(pull(b, a).state.audit.some(x => x.action === 'user_changed' && /changed: department/.test(x.text)));
+});
+test('the server and the site use the same status rules', () => {
+  const b = createBackend(), E = require('../src/engine.js');
+  assert.strictEqual(JSON.stringify(b.ctx.TRANSITIONS), JSON.stringify(E.TRANSITIONS));
 });
 test('the Google profile picture is stored, and only from Google\'s image host', () => {
   const { b } = company(); const t = { aud: CLIENT, iss: 'accounts.google.com', hd: 'suraasa.com', email: 'rahul@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };

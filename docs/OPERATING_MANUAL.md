@@ -68,7 +68,7 @@ They sign in with Google and see their tasks on their dashboard, or use the link
 - **Update** opens the task, to add a note, change the stage, status or progress, add a checklist or a link, or ask for more time.
 - **My Tasks** has list, board and calendar views, and can be sorted under the filters.
 - **My Projects** lists the projects their work is in.
-- **Links and files** on a task takes an upload of up to 10 MB, or a link.
+- **Links and files** on a task takes an upload of up to 10 MB, or a link. On a shared task, people can change only what they added.
 
 ## 7. Monitor team performance
 

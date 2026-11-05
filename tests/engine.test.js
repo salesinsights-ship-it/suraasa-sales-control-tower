@@ -150,6 +150,11 @@ test('completion and review notices reach the person who gave out the work', () 
   const other = E.notifications(Object.assign({}, base, { email: 'someone@x.com', tasks: [Object.assign({}, task, { status: 'Completed' })], audit: [{ activityId: 'a', action: 'status_changed', newValue: 'Completed', taskId: 'T', projectId: 'P', actorName: 'Rahul', ts: '', text: 'x' }] }));
   assert.ok(!other.some(n => n.kind === 'Completed'));
 });
+test('a co-owner who stays on is not told they were assigned, and one review gives one notice', () => {
+  const base = { me: 'Rahul', email: 'r@x.com', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [{ id: 'T', projectId: 'P', name: 'x', status: 'In Review', owner: 'Rahul', updatedAt: '2026' }], projects: [{ id: 'P', name: 'P', milestones: [] }], mine: v => String(v).includes('Rahul'), ownsProject: () => true };
+  const list = E.notifications(Object.assign({}, base, { audit: [{ activityId: 'a', action: 'owner_changed', field: 'owner', oldValue: 'Rahul', newValue: 'Rahul, Priya', taskId: 'T', projectId: 'P', actorName: 'Boss', ts: '1', text: 'x' }, { activityId: 'b', action: 'status_changed', newValue: 'In Review', taskId: 'T', projectId: 'P', actorName: 'Boss', ts: '2', text: 'x' }] }));
+  assert.ok(!list.some(n => n.kind === 'Assigned to you' || n.kind === 'Reassigned')); assert.strictEqual(list.filter(n => n.kind === 'Review requested').length, 1);
+});
 test('deadline notices carry a date', () => {
   const list = E.notifications({ me: 'R', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [{ id: 'T', projectId: 'P', name: 'x', status: 'Not Started', owner: 'R', due: '2026-11-06' }], projects: [], audit: [], mine: v => v === 'R', ownsProject: () => false });
   assert.ok(list.every(n => n.ts));

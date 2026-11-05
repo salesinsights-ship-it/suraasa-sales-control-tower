@@ -227,14 +227,14 @@ const ENGINE = (function () {
     (d.audit || []).forEach(a => {
       if (a.actorName === name) return;
       const go = a.taskId && d.tasks.some(t => t.id === a.taskId) ? { task: a.taskId } : a.projectId && d.projects.some(p => p.id === a.projectId) ? { project: a.projectId } : {};
-      if ((a.action === 'owner_changed' || a.action === 'task_assigned' || a.action === 'project_assigned') && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
-      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
+      if ((a.action === 'owner_changed' || a.action === 'task_assigned' || a.action === 'project_assigned') && a.field === 'owner' && d.mine(a.newValue) && !(a.action === 'owner_changed' && d.mine(a.oldValue))) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
+      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue) && !d.mine(a.newValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
       const tk = a.taskId ? d.tasks.find(t => t.id === a.taskId) : null;
       if (tk && a.action === 'status_changed' && a.newValue === 'Completed') {
         const pj = d.projects.find(x => x.id === tk.projectId);
         if ((pj && d.ownsProject(pj)) || gaveIt(tk)) add('a:' + a.activityId, 'Completed', '"' + tk.name + '" was completed by ' + a.actorName, go, a.ts);
       }
-      if (tk && a.action === 'status_changed' && (a.newValue === 'In Review' || a.newValue === 'Awaiting Approval') && own(tk)) add('a:' + a.activityId, 'Review requested', '"' + tk.name + '" was sent for review by ' + a.actorName, go, a.ts, 'amber');
+      if (tk && a.action === 'status_changed' && (a.newValue === 'In Review' || a.newValue === 'Awaiting Approval') && own(tk) && !gaveIt(tk) && !d.projects.some(x => x.id === tk.projectId && d.ownsProject(x))) add('a:' + a.activityId, 'Review requested', '"' + tk.name + '" was sent for review by ' + a.actorName, go, a.ts, 'amber');
       if (tk && own(tk)) {
         if (a.action === 'deadline_changed') add('a:' + a.activityId, 'Deadline changed', a.text, go, a.ts, 'amber');
         if (/^(comment|question|decision)_added$/.test(a.action)) add('a:' + a.activityId, 'New comment', a.text, go, a.ts);

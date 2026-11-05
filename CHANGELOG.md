@@ -58,7 +58,9 @@
 - The task panel shows the ID, emails, who assigned it, and every date. CSV exports carry emails, files and comments.
 - Priorities read Critical, High, Medium and Low in forms and filters.
 - Viewers see forms read-only.
-- Sign-in now requires the Workspace `hd` claim, and is rate limited.
+- Sign-in now requires the Workspace `hd` claim, and each person is limited to 10 attempts a minute.
+- A former owner sees only that a task moved on, not who has it or why.
+- On a shared task, people can change only the files and links they added.
 - Fixed: the Task CSV header printed source code.
 
 **Reconnected**

@@ -19,10 +19,11 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **"Accepted" is not "delivered".** Apps Script can see that Google's mail service took an email, not whether it reached the inbox or bounced. A bounce arrives as an email in the script owner's inbox.
 - **Viewers and Managers read widely.** They see tasks on every project that is not restricted. Use a restricted project to limit that. Employees see only their own tasks.
 - **The site keeps a working copy in the browser.** It is cleared on sign-out, not when a session expires, so use Sign out on shared computers.
-- **Uploads have not run on real Google Drive.** They use the Sheet owner's Drive, in a folder called Control Tower Uploads, and are shared with your organisation by link. Files can be up to 10 MB. PDF, Office, CSV, text and image files are accepted.
+- **Uploads have not run on real Google Drive.** They use the Sheet owner's Drive, in a folder called Control Tower Uploads, and are shared with your organisation by link. Files can be up to 10 MB. PDF, Word, Excel and PowerPoint (`.docx`, `.xlsx`, `.pptx`), CSV, text and image files are accepted. The older `.doc`, `.xls` and `.ppt` are refused, because they can hide macros. A file on a restricted project is still open to anyone in the organisation who has its link.
 - **In-app read state is per browser,** so it does not follow you between devices.
 - **Google warns its token check can be throttled.** It is fine for a team this size. The cost of replacing it is hand-written signature checks that cannot be tested off real Apps Script.
-- **Sign-in is limited to 60 attempts a minute across everyone.** Someone flooding the script could delay sign-ins for that minute, but not reach any data. Existing sessions are unaffected.
+- **Sign-in is limited to 10 attempts a minute per person.** Someone who knows an employee's email could hold up that one person's sign-in, not anyone else's, and could not reach any data. Existing sessions are unaffected.
+- **A former owner of a task sees only that it moved on.** Someone who shares a name with another employee is not told, because names cannot be matched safely.
 - **Rate limiting covers sign-in only.** Everything else needs a session, and Google applies its own quotas.
 - **AuditLog is protected with a warning, not a lock.** The site cannot edit it, and direct edits to it are logged. Anyone with edit access to the Sheet could still ignore the warning, so limit that access.
 - **Profiles are read-only for employees.** A Super Admin or their Manager keeps them up to date. Pictures come from their Google account at sign-in.

@@ -2,18 +2,18 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**421 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**459 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
-| `tests/engine.test.js` | 40 | The rules and the one-line command, directly |
+| `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 75 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 93 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
-| `tests/e2e/assignment.js` | 45 | Assigning by email end to end, lost replies, shared computers, phone |
-| `tests/e2e/roles.js` | 23 | What each role sees and can do, and the home page numbers |
+| `tests/e2e/assignment.js` | 61 | Assigning by email end to end, lost replies, shared computers, phone |
+| `tests/e2e/roles.js` | 24 | What each role sees and can do, and the home page numbers |
 | `tests/e2e/stage.js` | 28 | The Stage dropdown |
 | `tests/e2e/delete.js` | 30 | Deleting tasks |
 | `tests/e2e/conflicts.js` | 9 | Two browsers at once, offline work |
@@ -38,6 +38,22 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 | Concurrent task updates | `automation`, `conflicts` | Pass |
 | Failure recovery | `automation`: mail down, daily limit, Sheet failing partway, 5 failures | Pass |
 
+## Feature report
+
+| Feature | Implementation | Test result | Status |
+|---|---|---|---|
+| Authentication | Google sign-in checked on the server, including the Workspace `hd` claim. Sessions end after 6 hours idle or 12 hours in total, and on sign-out | Passed, simulated Google | Needs client ID |
+| RBAC | Super Admin, Manager, Employee and Viewer, enforced on the server for every read and write | Passed, including direct-request attacks | Ready |
+| Task creation | Form, preview, one-line command and Duplicate. Task IDs never repeat | Passed. A double click or lost reply makes one task | Ready |
+| Employee assignment | One or several registered emails, matched exactly | Passed | Needs Users tab |
+| Google Sheets | Same Sheet and tabs. New columns go right of `_extra`, and every change reaches the same row | Passed, including an upgrade of a copy of your data | Needs deployment |
+| Email notifications | All 8 events, a log, retries and duplicate prevention. Starts in test mode | Passed, simulated mail | Needs go-live |
+| Project management | All existing features kept, plus email owners, Managers lists and uploads | Passed | Ready |
+| Employee dashboard | Overdue work, deadlines, My Projects, links from emails | Passed | Ready |
+| Admin dashboard | 10 real figures, 6 charts, workload table, deadlines and filters | Passed, numbers checked against the data | Ready |
+| Deployment | Security headers added. The site refuses older scripts | Passed on a local server, not on Vercel | Needs GitHub and script access |
+| Security | Public access closed by default. The published page holds no people, keys or Sheet address | Passed, then reviewed independently | Needs deployment |
+
 ## What these tests do not show
 
 - **Nothing ran on real Apps Script, real Google sign-in, real email or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. In particular, these need checking in step 8 of [DEPLOYMENT.md](DEPLOYMENT.md): that Google sign-in works, that an email arrives and looks right, and that `setupSheet` upgrades the real Sheet.
@@ -48,7 +64,17 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 
 ## Independent review of this release
 
-A separate reviewer, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build. It reported 23 confirmed problems, 8 of them high severity. All are fixed, each with a test. It rechecked the fixes twice. The first recheck found 7 that needed more work, plus some new problems the fixes caused, and those were fixed. The second confirmed them and found 3 smaller items, which were fixed last: dates inside titles, emails queued while live during test mode, and restoring records with unusual IDs. **Those last three have tests, but have not been reviewed again.**
+Separate reviewers, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build.
+
+| Pass | What it covered | Result |
+|---|---|---|
+| 1 | Security and logic of the whole release | 23 confirmed problems, 8 of them high severity. All fixed, each with a test |
+| 2 and 3 | Rechecks of those fixes | 7 fixes needed more work, some new problems, then 3 smaller items. All fixed |
+| 4 | Both briefs traced line by line against the code | About 265 requirements done, 21 gaps and 7 false doc statements. Fixed, apart from the limits below |
+| 5 | Google's own documentation for every service used | The Workspace `hd` check was missing, and cache keys were unbounded. Both fixed |
+| 6 | The code added by passes 4 and 5 | 1 high severity problem in the new sign-in limit, 3 medium and 7 small. All fixed |
+
+**The fixes from pass 6 have tests but were not reviewed again.** The findings have moved from serious flaws to edge cases, but a review only shows what it found.
 
 Three outcomes were accepted on purpose:
 

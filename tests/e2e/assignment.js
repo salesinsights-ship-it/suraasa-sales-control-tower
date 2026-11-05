@@ -190,7 +190,8 @@ function company() {
     await e2.click('#nav [data-v="tasks"]'); await wait(e2);
     await e2.evaluate(id => { location.hash = '#task=' + id; }, made.id); await wait(e2, 500);
     await e2.setInputFiles('#tk-file', { name: 'brief.pdf', mimeType: 'application/pdf', buffer: Buffer.from('hello') }); await wait(e2, 1500);
-    ok('an employee can upload a file to their task', srv(c, s1).tasks.find(t => t.id === made.id).attachments.some(x => x.name === 'brief.pdf'), JSON.stringify(srv(c, s1).tasks.find(t => t.id === made.id).attachments || []));
+    ok('an employee can upload a file to their task, once', srv(c, s1).tasks.find(t => t.id === made.id).attachments.filter(x => x.name === 'brief.pdf').length === 1, JSON.stringify(srv(c, s1).tasks.find(t => t.id === made.id).attachments || []));
+    ok('and it shows on the task straight away', /brief\.pdf/.test(await e2.textContent('#modal')));
     await e2.context().close();
 
     c.mails.length = 0;
@@ -208,6 +209,10 @@ function company() {
     const row = await v.$('#main [data-act="edit-risk"], #main [data-act="edit-decision"]');
     if (row) { await row.click(); await wait(v); }
     ok('a Viewer sees forms read-only, with no Save', !row || (await v.$$eval('#mform input, #mform select, #mform textarea', x => x.every(e => e.disabled))) && !(await v.$('#modal .mf [data-act="save-modal"]')));
+    if (row) { await v.keyboard.press('Escape'); await wait(v); }
+    await v.click('#nav [data-v="tasks"]'); await wait(v);
+    await v.evaluate(() => { const b = document.createElement('button'); b.dataset.act = 'view-save'; document.body.appendChild(b); b.click(); b.remove(); }); await wait(v);
+    ok('a Viewer can still save a view, which stays in their browser', (await v.$$eval('#mform input', x => x.length > 0 && x.every(e => !e.disabled))) && !!(await v.$('#modal .mf [data-act="save-modal"]')));
     await v.context().close();
   }
 
