@@ -1,5 +1,79 @@
 # Changelog
 
+## 3.0.0, 5 November 2026
+
+**Sign-in**
+- People sign in with their work email and a password, checked on the server. Google Cloud is not needed. Sign in with Google stays available as an option.
+- A Super Admin gives each person a temporary password, and they choose their own at first sign-in.
+
+**Assigning work**
+- **New > Assign a task by email**: enter the employee's official email, see who it is, check the preview and confirm. The task is saved to the Sheet with a new ID, the employee is emailed, and it appears on their dashboard.
+- **Assign in one line** on Home reads a sentence into the same preview. It never guesses a person or project.
+- **Reassign** on a task, by email.
+- Tasks and projects now store the owner's registered email. Only the exact email counts. Older tasks keep working by name, and **Match task owners to registered emails** fills in the rest.
+- Project **Managers** list: name extra managers by email.
+
+**Notifications**
+- Emails for assignment, reassignment, project assignment, deadline reminders, overdue work, completion, manager comments and review requests.
+- New `NotificationLog` tab, with status, attempts and errors. **Accepted** means Google took the email, not that it arrived.
+- Failed emails retry by themselves. Duplicates are prevented. Super Admins can retry and resend.
+- **Emails start in test mode**: nobody but the script owner receives them until you go live.
+
+**Security**
+- **The script no longer serves anything without a Google sign-in.** It closes by default, and the emergency switch ends by itself after an hour.
+- Removed the password check in the page, the team list and the password keys. A frontend check is not authentication.
+- Sign out now ends the session on the server. Sessions end after 6 hours idle or 12 hours in total.
+- Roles are named Super Admin, Manager, Employee and Viewer. Existing words in the Users tab still work.
+- One person's request ID can no longer fetch another person's reply.
+- A person's name no longer gives rights to a task owned by someone else's email.
+- The site adds security headers, and no longer lets the server link be changed in the browser.
+- The site will not talk to an older script.
+
+**Found by independent review, and fixed**
+- A Manager could slip someone else into a task on a project they do not manage.
+- An Employee could see a project's details by writing themselves a task on it.
+- Two people with the same name both got rights to tasks under that name.
+- A lost server reply could create two tasks, or two emails after Back and Confirm.
+- Unsent work could be saved in the name of the next person on a shared browser.
+- A test email could reach an employee after going live, and used up the real email.
+- The daily email limit used up an email's retries.
+- The upgrade could lose a column with a blank or repeated heading, and editing milestones blanked hand-added columns.
+- Task IDs broke after T-999. Text starting with `=` could run as a formula in the Sheet or in a downloaded CSV.
+- Direct Sheet edits showed restricted text to Viewers.
+- The one-line command no longer picks between two dates, or matches a project from a stray word.
+
+**Screens**
+- **Administration > Employees**: IDs, departments, designations, managers, status and search.
+- **Administration > Integrations**: the state of the Sheet, email, sign-in and automation, with no secrets shown.
+- **Administration > Notification log**, also under **Notifications > Email log** for Managers.
+- Home: assigned, overdue and completion rate, tasks by stage and priority, project progress, completions per week, employee workload, upcoming deadlines, and a project filter.
+- Employee dashboard: overdue count and upcoming deadlines.
+- Links in emails open the task directly, after sign-in.
+
+**Found by tracing both briefs line by line, and added**
+- Several assignees on one task, by email.
+- **Duplicate** on a task, and **Sort by** on the task list.
+- File uploads to Drive on tasks and projects, up to 10 MB.
+- Managers get **Administration > Employees** and the notification log, can see **My team**, and can update their own reports.
+- Employees get **My Projects**.
+- Profile pictures from Google, joining dates in the directory and profile.
+- In-app notices for completion, review and project assignment, and for a former owner.
+- Home gains Total Projects, Team Productivity and overdue analysis.
+- The task panel shows the ID, emails, who assigned it, and every date. CSV exports carry emails, files and comments.
+- Priorities read Critical, High, Medium and Low in forms and filters.
+- Viewers see forms read-only.
+- Sign-in now requires the Workspace `hd` claim, and each person is limited to 10 attempts a minute.
+- A former owner sees only that a task moved on, not who has it or why.
+- On a shared task, people can change only the files and links they added.
+- Fixed: the Task CSV header printed source code.
+
+**Reconnected**
+- The site saves to the Sheet again. It had been disconnected on 4 November, because the script running was too old for it.
+
+**Removed**
+- Page password sign-in, the connection settings box, and the whole-Sheet save used by older scripts.
+- `tests/e2e/login.js`, which tested the removed sign-in.
+
 ## 2.5.1, 4 November 2026
 
 - Management can open the Google Sheet from the sidebar, the profile menu, the phone More menu and **Administration > Sheet and data**. It opens in a new tab.

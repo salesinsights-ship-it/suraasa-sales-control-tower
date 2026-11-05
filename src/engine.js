@@ -8,10 +8,10 @@ const ENGINE = (function () {
   const TRANSITIONS = {
     'Backlog': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
     'Not Started': ['Backlog', 'In Progress', 'Blocked', 'On Hold', 'Completed', 'Cancelled'],
-    'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Completed', 'Cancelled'],
+    'In Progress': ['Not Started', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Completed', 'Cancelled'],
     'Blocked': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
     'On Hold': ['Not Started', 'In Progress', 'Blocked', 'Completed', 'Cancelled'],
-    'In Review': ['Not Started', 'In Progress', 'On Hold', 'Changes Requested', 'Completed', 'Cancelled'],
+    'In Review': ['Not Started', 'In Progress', 'On Hold', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'],
     'Awaiting Approval': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Changes Requested', 'Completed', 'Cancelled'],
     'Changes Requested': ['Not Started', 'In Progress', 'On Hold', 'In Review', 'Blocked', 'Completed', 'Cancelled'],
     'Completed': ['In Progress', 'Not Started', 'On Hold', 'In Review', 'Awaiting Approval', 'Cancelled'],
@@ -189,28 +189,30 @@ const ENGINE = (function () {
     const name = d.me;
     if (!name) return out;
     const todayStr = d.todayStr;
+    const own = t => (d.ownsTask ? d.ownsTask(t) : d.mine(t.owner));
+    const gaveIt = t => !!d.email && String(t.assignedByEmail || '').toLowerCase() === d.email;
     d.tasks.forEach(t => {
       if (!isOpen(t) || !isDate(t.due)) return;
       const left = dayNum(t.due) - d.today;
-      if (d.mine(t.owner)) {
-        if (left < 0) add('overdue:' + t.id + ':' + todayStr, 'Overdue', '"' + t.name + '" is ' + Math.abs(left) + (left === -1 ? ' day' : ' days') + ' late', { task: t.id }, '', 'red');
-        else if (left === 0) add('due0:' + t.id, 'Due today', '"' + t.name + '" is due today', { task: t.id }, '', 'amber');
-        else if (left === 1) add('due1:' + t.id, 'Due tomorrow', '"' + t.name + '" is due tomorrow', { task: t.id }, '', 'amber');
-        else if (left === 3) add('due3:' + t.id, 'Due soon', '"' + t.name + '" is due in 3 days', { task: t.id });
+      if (own(t)) {
+        if (left < 0) add('overdue:' + t.id + ':' + todayStr, 'Overdue', '"' + t.name + '" is ' + Math.abs(left) + (left === -1 ? ' day' : ' days') + ' late', { task: t.id }, todayStr, 'red');
+        else if (left === 0) add('due0:' + t.id, 'Due today', '"' + t.name + '" is due today', { task: t.id }, todayStr, 'amber');
+        else if (left === 1) add('due1:' + t.id, 'Due tomorrow', '"' + t.name + '" is due tomorrow', { task: t.id }, todayStr, 'amber');
+        else if (left === 3) add('due3:' + t.id, 'Due soon', '"' + t.name + '" is due in 3 days', { task: t.id }, todayStr);
       }
     });
     d.tasks.forEach(t => {
       const p = d.projects.find(x => x.id === t.projectId);
       if (t.status === 'Blocked' && p && d.ownsProject(p)) add('blocked:' + t.id + ':' + (t.blocker && t.blocker.ts || ''), 'Blocked', '"' + t.name + '" is blocked' + (t.blocker && t.blocker.text ? ': ' + t.blocker.text : ''), { task: t.id }, t.blocker && t.blocker.ts, 'red');
-      if ((t.status === 'In Review' || t.status === 'Awaiting Approval') && p && d.ownsProject(p)) add('review:' + t.id, 'Review requested', '"' + t.name + '" is waiting for your review', { task: t.id }, t.updatedAt, 'amber');
+      if ((t.status === 'In Review' || t.status === 'Awaiting Approval') && p && (d.ownsProject(p) || gaveIt(t))) add('review:' + t.id, 'Review requested', '"' + t.name + '" is waiting for your review', { task: t.id }, t.updatedAt, 'amber');
       if (t.extensionRequest && p && d.ownsProject(p)) add('ext:' + t.id + ':' + t.extensionRequest.ts, 'More time requested', '"' + t.name + '": ' + t.extensionRequest.by + ' asked for more time', { task: t.id }, t.extensionRequest.ts, 'amber');
       const last = (t.notes || [])[(t.notes || []).length - 1];
       if (last && last.type === 'question' && last.author !== name && p && d.ownsProject(p)) add('ask:' + last.id, 'Question', last.author + ' asked about "' + t.name + '": ' + last.text, { task: t.id }, last.ts, 'amber');
-      if (isOpen(t) && d.mine(t.owner)) {
+      if (isOpen(t) && own(t)) {
         const late = waitingOn(d.tasks, t).filter(x => isOpen(x) && isDate(x.due) && dayNum(x.due) < d.today);
         if (late.length) add('wait:' + t.id + ':' + late[0].id, 'Waiting on a late task', '"' + t.name + '" is waiting on "' + late[0].name + '", which is late', { task: t.id }, '', 'amber');
       }
-      if (t.status === 'Changes Requested' && d.mine(t.owner)) add('changes:' + t.id + ':' + (t.updatedAt || ''), 'Changes requested', '"' + t.name + '" needs changes', { task: t.id }, t.updatedAt, 'amber');
+      if (t.status === 'Changes Requested' && own(t)) add('changes:' + t.id + ':' + (t.updatedAt || ''), 'Changes requested', '"' + t.name + '" needs changes', { task: t.id }, t.updatedAt, 'amber');
     });
     d.projects.forEach(p => {
       if (!d.ownsProject(p)) return;
@@ -224,11 +226,16 @@ const ENGINE = (function () {
     });
     (d.audit || []).forEach(a => {
       if (a.actorName === name) return;
-      const go = a.taskId ? { task: a.taskId } : a.projectId ? { project: a.projectId } : {};
-      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.newValue)) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
-      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
+      const go = a.taskId && d.tasks.some(t => t.id === a.taskId) ? { task: a.taskId } : a.projectId && d.projects.some(p => p.id === a.projectId) ? { project: a.projectId } : {};
+      if ((a.action === 'owner_changed' || a.action === 'task_assigned' || a.action === 'project_assigned') && a.field === 'owner' && d.mine(a.newValue) && !(a.action === 'owner_changed' && d.mine(a.oldValue))) add('a:' + a.activityId, 'Assigned to you', a.text, go, a.ts);
+      if (a.action === 'owner_changed' && a.field === 'owner' && d.mine(a.oldValue) && !d.mine(a.newValue)) add('a:' + a.activityId, 'Reassigned', a.text, go, a.ts);
       const tk = a.taskId ? d.tasks.find(t => t.id === a.taskId) : null;
-      if (tk && d.mine(tk.owner)) {
+      if (tk && a.action === 'status_changed' && a.newValue === 'Completed') {
+        const pj = d.projects.find(x => x.id === tk.projectId);
+        if ((pj && d.ownsProject(pj)) || gaveIt(tk)) add('a:' + a.activityId, 'Completed', '"' + tk.name + '" was completed by ' + a.actorName, go, a.ts);
+      }
+      if (tk && a.action === 'status_changed' && (a.newValue === 'In Review' || a.newValue === 'Awaiting Approval') && own(tk) && !gaveIt(tk) && !d.projects.some(x => x.id === tk.projectId && d.ownsProject(x))) add('a:' + a.activityId, 'Review requested', '"' + tk.name + '" was sent for review by ' + a.actorName, go, a.ts, 'amber');
+      if (tk && own(tk)) {
         if (a.action === 'deadline_changed') add('a:' + a.activityId, 'Deadline changed', a.text, go, a.ts, 'amber');
         if (/^(comment|question|decision)_added$/.test(a.action)) add('a:' + a.activityId, 'New comment', a.text, go, a.ts);
       }
@@ -245,6 +252,91 @@ const ENGINE = (function () {
     return out.filter(n => (seen.has(n.id) ? false : seen.add(n.id))).sort((a, b) => ({ red: 0, amber: 1, info: 2 }[a.level] - { red: 0, amber: 1, info: 2 }[b.level]) || String(b.ts).localeCompare(String(a.ts)));
   }
 
-  return { TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
+  // ---------- one-line task commands ----------
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const pad = n => String(n).padStart(2, '0');
+  const iso = d => d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  const realDate = (y, m, d) => { const x = new Date(Date.UTC(y, m - 1, d)); return x.getUTCMonth() === m - 1 && x.getUTCDate() === d ? iso(x) : ''; };
+  /** Finds a date in the text. Dates are read day first, as in India. Returns { date, text } or null. */
+  function findDate(text, today) {
+    const base = new Date(today + 'T00:00:00Z'), add = n => iso(new Date(base.getTime() + n * 86400000));
+    const mon = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    const month = w => MONTHS.findIndex(m => m.startsWith(w.toLowerCase().slice(0, 3))) + 1;
+    const year = (d, m) => { const y = base.getUTCFullYear(), c = realDate(y, m, d); return c && c >= today ? y : y + 1; };
+    let m;
+    if ((m = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))) return { date: realDate(+m[1], +m[2], +m[3]), text: m[0] };
+    if ((m = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/))) return { date: realDate(+m[3], +m[2], +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + mon + '\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[1], month(m[2])), month(m[2]), +m[1]), text: m[0] };
+    if ((m = text.match(new RegExp('\\b' + mon + '\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b,?(?:\\s+(\\d{4}))?', 'i')))) return { date: realDate(m[3] ? +m[3] : year(+m[2], month(m[1])), month(m[1]), +m[2]), text: m[0] };
+    if ((m = text.match(/\btoday\b/i))) return { date: today, text: m[0] };
+    if ((m = text.match(/\btomorrow\b/i))) return { date: add(1), text: m[0] };
+    if ((m = text.match(/\bin\s+(\d{1,3})\s+days?\b/i))) return { date: add(+m[1]), text: m[0] };
+    // A bare weekday can be part of a title, like "Monday report". It counts only after a word that means a date.
+    if ((m = text.match(new RegExp('\\b(?:by|due|on|before|deadline(?:\\s+is)?|until)\\s+(next\\s+|this\\s+)?(' + DAYS.join('|') + ')\\b|\\b(next\\s+|this\\s+)(' + DAYS.join('|') + ')\\b', 'i')))) {
+      m = [m[0], m[1] || m[3], m[2] || m[4]];
+      const want = DAYS.indexOf(m[2].toLowerCase()), now = base.getUTCDay();
+      let gap = (want - now + 7) % 7 || 7;
+      if (/^next/i.test(m[1] || '') && gap < 7 && want > now) gap += 7;
+      return { date: add(gap), text: m[0] };
+    }
+    return null;
+  }
+  /**
+   * Reads a sentence into a task. It only fills in what it can prove: a person must match an email
+   * exactly, a project must match one project, and anything else is left blank and listed in problems.
+   * Whatever it returns still goes through the confirmation step and every check on the server.
+   * d = { today, projects, employees }
+   */
+  function parseCommand(text, d) {
+    const task = { name: '', desc: '', projectId: '', ownerEmail: '', priority: '', due: '' }, problems = [];
+    let rest = String(text || '').trim().slice(0, 1000);
+    const take = m => { rest = rest.replace(m, ' '); };
+    const words = { critical: 'P0', urgent: 'P0', high: 'P1', medium: 'P2', normal: 'P2', low: 'P3' };
+    let m = rest.match(/(?:description|details)\s*[:\-]\s*(.+)$/i);
+    if (m) { task.desc = m[1].trim(); take(m[0]); }
+    m = rest.match(/[^\s@<>(),;"']+@[^\s@<>(),;"']+\.[a-z]{2,}/i);
+    if (m) {
+      const mail = m[0].toLowerCase().replace(/[.,;]+$/, ''), hit = (d.employees || []).find(u => String(u.email).toLowerCase() === mail);
+      task.ownerEmail = mail;
+      take(new RegExp('(?:\\bto\\s+)?' + m[0].replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
+      if (!hit) problems.push(mail + ' is not a registered employee.');
+    } else problems.push('Add the employee\'s email.');
+    m = rest.match(/\b(critical|urgent|high|medium|normal|low)[\s-]*priority\b/i) || rest.match(/\bpriority\s*(?:is|of|:|-)?\s*(critical|urgent|high|medium|normal|low)\b/i);
+    if (m) { task.priority = words[m[1].toLowerCase()]; take(m[0]); }
+    else if ((m = rest.match(/\b(P[0-3])\b/))) { task.priority = m[1]; take(m[0]); }
+    else problems.push('Choose a priority.');
+    // Two different dates in one sentence: asking is better than picking one.
+    const dates = []; let scan = rest, hit = findDate(scan, d.today);
+    // A date counts only after a word that means a deadline: "May 5 webinar" is a title.
+    const clued = h => /^(?:in|next|this|by|due|on|before|until|deadline)\s/i.test(h.text) || /\b(?:by|due|on|before|until|deadline(?:\s+(?:is|of|on|by))?)\s*:?\s*$/i.test(scan.slice(0, scan.indexOf(h.text)));
+    for (let tries = 0; hit && tries < 8; tries++) { if (hit.date && clued(hit) && !dates.some(x => x.date === hit.date)) dates.push(hit); scan = scan.replace(hit.text, ' '); hit = findDate(scan, d.today); }
+    if (dates.length === 1) {
+      task.due = dates[0].date;
+      take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + dates[0].text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));
+    } else if (dates.length > 1) problems.push('This mentions more than one date. Choose the deadline.');
+    else problems.push('Choose a deadline.');
+    if (task.due && task.due < d.today) problems.push('The deadline is in the past.');
+    // The preposition nearest to the word "project" counts: "report for teachers task under the CRM project" means CRM.
+    const near1 = rest.match(/^(.*)\b(?:under|for|in|on)\s+(?:the\s+)?([^.,;]+?)\s+project\b/i), near2 = near1 ? null : rest.match(/\bproject\s*(?::|-|called|named)\s*["']?([^.,;"']+)["']?/i);
+    const want = (near1 ? near1[2] : near2 ? near2[1] : '').trim();
+    const named = near1 ? [near1[0].slice(near1[1].length)] : near2;
+    if (want && !/^(the|a|an|this|that|our|my)$/i.test(want)) {
+      const low = want.toLowerCase(), list = d.projects || [];
+      const exact = list.filter(p => String(p.name).toLowerCase() === low || String(p.id).toLowerCase() === low);
+      const word = new RegExp('(^|[^a-z0-9])' + low.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&') + '($|[^a-z0-9])', 'i');
+      const near = exact.length ? exact : low.length < 3 ? [] : list.filter(p => word.test(String(p.name)));
+      if (near.length === 1) task.projectId = near[0].id;
+      else if (near.length) problems.push('"' + want + '" could be ' + near.slice(0, 3).map(p => p.name).join(' or ') + '. Choose one.');
+      else problems.push('No project you manage is called "' + want + '".');
+      take(named[0]);
+    } else problems.push('Choose a project.');
+    m = rest.match(/["\u201c]([^"\u201d]{2,})["\u201d]/) || rest.match(/\b(?:assign|create|add|give)\s+(?:the|a|an)?\s*(.+?)\s+task\b/i) || rest.match(/\b(?:task|title)\s*[:\-]\s*([^.;]+)/i);
+    if (m) task.name = m[1].replace(/\s+/g, ' ').trim();
+    if (!task.name || /^(new|a|an|the)$/i.test(task.name)) { task.name = ''; problems.push('Add a task title.'); }
+    return { task, problems };
+  }
+
+  return { parseCommand, TASK_STATUSES, TRANSITIONS, STAGES, STAGE_STATUS, stageOf, DEFAULT_RULES, dayNum, isDate, isDone, isCancelled, isOpen, nextStatuses, moveProblem, subtasksOf, weightOf, progressMode, taskPct, countedTasks, projectPct, milestonePct, projectCounts, readyForClosure, health, wouldLoop, downstream, waitingOn, notifications };
 })();
 if (typeof module !== 'undefined') module.exports = ENGINE;

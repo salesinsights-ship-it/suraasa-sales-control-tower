@@ -57,42 +57,12 @@
   };
 
   let S = null; // State object
-  const ME = { role: 'Viewer', email: '', name: '', open: false, local: false }; // from the server, or from the sign-in on this page
-  const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Di4qDz4_bpKm7DB2SpjZV2dtOKJBBxS6-dnm99fk3lc/edit';
-  // The team and their sign-in keys. A key is a one-way hash, so the page holds no readable password.
-  const TEAM = [
-    { name: 'Ankit Khanna', email: 'ankit@suraasa.com', role: 'Administrator', keys: ['3d085fc6a361dff2b99daff2c333fe4ca2104dfbe28862d4d9cd7a534815c3b5', '89d68c644ed42105512dddf7fa648d57f33dac0fa87e332ac3d35a785da7c54b'] },
-    { name: 'Manish Pandey', email: 'manish@suraasa.com', role: 'Administrator', keys: ['8a745357a46b8a6282770353117d42439e52efcd4668eb0a8792515bebcf41b4', '93bac088a8457f6980b360ae88378e4836ba459d0c5e90acf8d23acf2708a734'] },
-    { name: 'Rishabh Khanna', email: 'rk@suraasa.com', role: 'Administrator', keys: ['a9cd52c2eb5cddd3fbb757f18c84563a94adc539465c713740b4fc8428a35bcc', 'db02967dcb45a179b7443cb9043d5348c17052aad28b4106ef254df7ea83f86c'] },
-    { name: 'Shrayansh Sood', email: 'shrayansh.sood@suraasa.com', role: 'Administrator', keys: ['252a6aecbd718f21af20a3759060d282a228cd0d8e69212bc99e94b6467de93c', '9aa861d5bc0ab2b569798ecd512498360c708b11d470540f53d98e108629c4de'] },
-    { name: 'Divya', email: 'divya@suraasa.com', role: 'Administrator', keys: ['21f59f60ae6996693fe800f78112428d1db93896cfc0e3e0190b8ee1370a627e', 'c4221783480e40760558f93cb63ad8098588d34cecc6b2e7edc23f9184a9fd79'] },
-    { name: 'Akhand Mishra', email: 'akhand@suraasa.com', role: 'Task Owner', keys: ['26bec9833931e03feb7b7a81fceb7627b3c99199e26655d6b4c9731b75bbd069', 'e92dc701282c640481e59ec18925f4724e07e35fa21ee5b4208c0d2b4dd1b077'] },
-    { name: 'Atishay', email: 'aj@suraasa.com', role: 'Task Owner', keys: ['535685bae8b6b67b0d81dc2706a7a6b21be12ba76345f775da43af6d7d2809af', '4b39fbc62b0970d83c375da9b1d8164984b3ce9526c6eb050e48777a043bca31'] },
-    { name: 'Sales Operations', email: 'salesinsights@suraasa.com', role: 'Task Owner', keys: ['b4e5519ffc0a259733bb72c500f4e93b94b3ba93672aa8eacc7bb3a66463a41b', '2bb2425b3ad834bdba5ecfb3cf10cd03d8aacbdaa5f8ccb2254d6db27349d67b'] },
-    { name: 'Somesh Sahoo', email: 'somesh.sahoo@suraasa.com', role: 'Task Owner', keys: ['390915ab1fd9bd9f4ac623f0a1766b39c8ab75d817967d3b3fd3c7a092379e08', '690d6d174f11e4fdf502f90aad477e98cc8817af216a8773a008984a6cc68e4a'] },
-    { name: 'Deepansh Pandey', email: 'deepansh.pandey@suraasa.com', role: 'Task Owner', keys: ['3ef241db9ac13e8205dead18367a61f05af4c28402be492b468555c97d8c525c', 'd0425f3d0f6e0374274462991c28977d0aef40081b95facaf6406e23e910aff6'] },
-    { name: 'Anisha Ankita Behera', email: 'anisha.behera@suraasa.com', role: 'Task Owner', keys: ['50e37a1b557664639d427ddf528192c9075c00a46b88cc84d67b0209499bc52f', '15f5b68a207197117b1bbd92a4ff49894f9d2e0e952a8243799d325240164778'] },
-    { name: 'Anurakta Sarkar', email: 'anurakta.sarkar@suraasa.com', role: 'Task Owner', keys: ['76f02e8c54e95b635dcc6661fd23851367b5f5b9eb946044a4ec2e01fd8c589c', '33f83f3be9f75443be74d08114597be8207e3746b3d179e695b1f26af07c39f9'] }
-  ];
-  const SHARED_KEY = '1f1741b0597df655a02203bfb278144b16822370d764ff7c26eacb7b7c909832';
-  const loginKey = async (email, pw) => {
-    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('suraasa-control-tower|' + email + '|' + pw));
-    return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
-  };
-  async function checkLogin(email, password) {
-    const mail = String(email || '').trim().toLowerCase(), pw = String(password || '').trim();
-    const u = TEAM.find(x => x.email === mail);
-    if (!u) return { error: 'No account found with this email.' };
-    const first = u.name.split(' ')[0].toLowerCase();
-    let ok = !!pw && pw.toLowerCase().includes(first) && pw.includes('2026');
-    if (!ok && pw) {
-      try { ok = u.keys.includes(await loginKey(mail, pw)) || (await loginKey('*', pw)) === SHARED_KEY; }
-      catch (e) { return { error: 'This browser could not check the password. Open the site over https.' }; }
-    }
-    return ok ? { user: u } : { error: 'Incorrect password for ' + mail + '.' };
-  }
-  const savedPerson = () => { try { return TEAM.find(x => x.email === localStorage.getItem('sct_person')) || null; } catch (e) { return null; } };
-  function applyPerson(u) { ME.role = u.role; ME.email = u.email; ME.name = u.name; ME.open = false; ME.local = true; UI.me = u.name; }
+  const ME = { role: 'Viewer', email: '', name: '', aliases: [], open: false }; // always from the server
+  // Set when the site is built. See build.js.
+  const CONFIG = /*CONFIG*/{ apiUrl: '' }/*END*/;
+  const API_NEEDED = 5; // the oldest script this site can work with
+  const ROLE_LABEL = { 'Administrator': 'Super Admin', 'Project Owner': 'Manager', 'Task Owner': 'Employee', 'Viewer': 'Viewer' };
+  const sheetLink = () => (window.SYNC && SYNC.sheetUrl) || '';
   const UI = {
     view: 'overview',
     projectId: null,
@@ -141,6 +111,7 @@
   const daysFromToday = s => { const d = dnum(s); return d == null ? null : d - dnum(todayStr()); };
   const fmt = s => { if (!s) return '<span class="tbd">TBD</span>'; if (!isDate(s)) return esc(s); const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); };
   const fmtShort = s => { if (!s || !isDate(s)) return ''; const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+  const fmtLong = s => { if (!isDate(s)) return s || 'Not set'; return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); };
   const dueBadge = s => {
     if (!s || !isDate(s)) return '<span class="brief-tag">No due date</span>';
     const d = daysFromToday(s);
@@ -158,7 +129,7 @@
   const by = (k, dir) => (a, b) => { const x = a[k] == null ? '' : a[k], y = b[k] == null ? '' : b[k]; return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'desc' ? -1 : 1); };
   const RAG_WORD = { Green: 'On track', Amber: 'At risk', Red: 'Delayed', Grey: 'Not started' };
   const pillRag = (r, level) => '<span class="pill ' + esc(r || 'grey').toLowerCase() + '">' + esc(level || RAG_WORD[r] || r || 'Not started') + '</span>';
-  const pillPrio = p => '<span class="pill ' + (/^P[0-3]$/.test(p) ? p.toLowerCase() : 'p3') + '">' + esc(p || '—') + '</span>';
+  const pillPrio = p => '<span class="pill ' + (/^P[0-3]$/.test(p) ? p.toLowerCase() : 'p3') + '" title="' + esc(({ P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' })[p] || 'Priority not set') + '">' + esc(p || '—') + '</span>';
   const pillStatus = s => '<span class="pill ' + statusTone(s) + '">' + esc(s || 'Not set') + '</span>';
   function toast(msg, err, undo) {
     const t = $('#toast');
@@ -183,17 +154,12 @@
           if (!S.options) S.options = buildSeed().options;
           if (!S.governance) S.governance = buildSeed().governance;
           if (!S.meta) S.meta = {};
-          const DEFAULT_SYNC_URL = '';
           let changed = false;
-          if (!S.meta.sync) {
-            S.meta.sync = { url: '', enabled: false, autoSync: false, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
-            changed = true;
-          } else if (S.meta.sync.enabled || S.meta.sync.url) {
-            S.meta.sync.url = '';
-            S.meta.sync.enabled = false;
-            S.meta.sync.autoSync = false;
-            S.meta.sync.status = 'idle';
-            S.meta.sync.error = null;
+          // Work typed while the site was disconnected from the Sheet has no base copy to compare with.
+          // It is kept aside, and can be downloaded from Administration, rather than lost.
+          if (!localStorage.getItem(BASE_KEY) && d.tasks.length && !localStorage.getItem('sct_browser_copy')) localStorage.setItem('sct_browser_copy', raw);
+          if (!S.meta.sync || S.meta.sync.url !== CONFIG.apiUrl || !S.meta.sync.enabled) {
+            S.meta.sync = Object.assign({}, S.meta.sync || {}, { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, status: 'idle', error: null });
             changed = true;
           }
           if (S.roles.some(r => r.name === 'Shrayansh SoodCRM/Tech')) {
@@ -215,6 +181,7 @@
       }
     } catch (e) { console.warn('localStorage read failed', e); }
     S = buildSeed();
+    S.meta.sync = { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 0 };
     save(false);
   }
 
@@ -559,28 +526,28 @@
     let main, lower;
     if (seesAll()) {
       main = NAV.filter(n => n[0] !== 'myprojects' || UI.me);
-      lower = NAV_MORE.filter(n => n[0] !== 'admin' || isAdmin());
+      lower = NAV_MORE.filter(n => n[0] !== 'admin' || canPlan());
     } else {
-      main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Notifications']];
+      main = [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['myprojects', 'My Projects'], ['notifications', 'Notifications']];
       lower = [];
     }
     $('#nav').innerHTML = main.map(item).join('') + (lower.length ? '<div class="nav-sep"></div>' + lower.map(item).join('') : '') +
-      (seesAll() ? '<a class="nav-link" href="' + SHEET_URL + '" target="_blank" rel="noopener" aria-label="Open Google Sheet in a new tab">' + ico('sheet') + '<span>Open Google Sheet</span></a>' : '');
+      (sheetLink() ? '<a class="nav-link" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener" aria-label="Open Google Sheet in a new tab">' + ico('sheet') + '<span>Open Google Sheet</span></a>' : '');
     
     const tabs = (seesAll()) ?
       [['overview', 'Home'], ['tasks', 'Tasks'], ['portfolio', 'Projects'], ['notifications', 'Alerts']] :
-      [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['notifications', 'Alerts']];
+      [['overview', 'Dashboard'], ['tasks', 'My Tasks'], ['myprojects', 'Projects'], ['notifications', 'Alerts']];
     const others = seesAll() ? NAV.filter(n => !tabs.some(t => t[0] === n[0])).filter(n => n[0] !== 'myprojects' || UI.me).concat(lower) : [];
     const moreOn = others.some(n => on(n[0]));
     $('#tabbar').innerHTML = tabs.map(n => '<button data-act="nav" data-v="' + n[0] + '" class="' + (on(n[0]) ? 'on' : '') + '"' + (on(n[0]) ? ' aria-current="page"' : '') + '>' + ico(n[0]) + '<span>' + n[1] + '</span></button>').join('') +
-      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + '<a role="menuitem" href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a></div></div>' : '');
+      (others.length ? '<div class="menu-wrap"><button class="' + (moreOn ? 'on' : '') + '" data-act="menu" data-m="more-m" aria-haspopup="true" aria-expanded="false">' + ico('more') + '<span>More</span></button><div class="menu" id="menu-more-m" role="menu">' + others.map(n => '<button role="menuitem" data-act="nav" data-v="' + n[0] + '">' + n[1] + '</button>').join('') + (sheetLink() ? '<a role="menuitem" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '</div></div>' : '');
     $('#bell').innerHTML = ico('notifications') + (unread ? '<span class="count">' + unread + '</span>' : '');
     $('#bell').setAttribute('aria-label', 'Notifications' + (unread ? ', ' + unread + ' unread' : ''));
   }
 
   function renderMe() {
     document.body.classList.toggle('ro', !canWrite());
-    ['add-project', 'add-decision', 'add-risk', 'add-dep'].forEach(a => { const b = $('#menu-new [data-act="' + a + '"]'); if (b) b.hidden = !canPlan(); });
+    ['assign-task', 'add-project', 'add-decision', 'add-risk', 'add-dep'].forEach(a => { const b = $('#menu-new [data-act="' + a + '"]'); if (b) b.hidden = !canPlan(); });
     $('#me-btn').innerHTML = UI.me ? esc(initials(UI.me)) : ico('myprojects');
     $('#me-btn').setAttribute('aria-label', UI.me ? 'Your account: ' + UI.me : 'Profile');
     const open = $('#menu-me').classList.contains('open');
@@ -593,7 +560,7 @@
         '<button data-act="open-profile">My Profile</button>';
     }
     $('#menu-me').innerHTML = accountInfo +
-      (seesAll() ? '<a href="' + SHEET_URL + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') +
+      (sheetLink() ? '<a href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') +
       '<button id="theme-toggle">' + (document.documentElement.getAttribute('data-theme') === 'dark' ? 'Use light theme' : 'Use dark theme') + '</button>' +
       (ME.open ? '' : '<button data-act="sign-out">Sign out</button>');
     if (open) $('#menu-me').classList.add('open');
@@ -615,7 +582,7 @@
     hideTip();
     const y = window.SYNC;
     const first = y && y.config.enabled && !y.base;
-    $('#main').innerHTML = first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq);
+    $('#main').innerHTML = (ME.open ? '<p class="flag red"><span><b>Emergency access is on.</b> Anyone with the link can read and change this data until it ends by itself. Fix the Users tab, then wait for it to end.</span></p>' : '') + (first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq));
     if (keep) { try { const n = $(keep); if (n) n.focus(); } catch (e) { /* selector unavailable */ } }
     if (window.SYNC && window.SYNC.updateUI) window.SYNC.updateUI();
   }
@@ -818,11 +785,13 @@
 
   function vEmployeeDashboard() {
     const meName = ME.name || UI.me || 'Employee';
-    const mineOnly = t => isMine(t.owner) || isMine(t.accountable);
+    const mineOnly = t => ownsT(t) || isMine(t.accountable);
     const myTasks = liveTasks().filter(t => !ENGINE.isCancelled(t) && mineOnly(t));
     const pendingTasks = myTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
     const inProgressTasks = myTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
     const completedTasks = myTasks.filter(t => t.status === 'Completed');
+    const overdueTasks = myTasks.filter(taskOverdue);
+    const upcoming = myTasks.filter(t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 14).sort((a, b) => a.due.localeCompare(b.due));
 
     const recentAudit = (S.audit || []).filter(a => {
       return a.actorEmail === ME.email || (a.taskId && myTasks.some(t => t.id === a.taskId));
@@ -849,17 +818,18 @@
       '<div class="emp-welcome-hero">' +
       '<div class="emp-welcome-text">' +
       '<h1>Welcome, ' + esc(meName) + '</h1>' +
-      '<p>' + esc(ME.email) + ' <span class="emp-role-badge">Employee</span></p>' +
+      '<p>' + esc([ME.email, ME.designation, ME.department].filter(Boolean).join(' · ')) + ' <span class="emp-role-badge">Employee</span></p>' +
       '</div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' +
       ico('myprojects') +
-      '<span>View & Edit Profile</span>' +
+      '<span>View Profile</span>' +
       '</button>' +
       '</div>' +
       '<div class="stats">' +
       stat('My Pending Tasks', pendingTasks.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
       stat('My In-Progress Tasks', inProgressTasks.length, '', 'Active & under review', 'nav', 'data-v="tasks"') +
       stat('My Completed Tasks', completedTasks.length, '', pct(completedTasks.length, myTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(completedTasks.length, myTasks.length), 'green']) +
+      stat('Overdue', overdueTasks.length, '', overdueTasks.length ? 'Needs you first' : 'Nothing late', 'nav', 'data-v="tasks"') +
       stat('Total Assigned Tasks', myTasks.length, '', 'Assigned to you', 'nav', 'data-v="tasks"') +
       '</div>' +
       '<div class="dash-g">' +
@@ -868,7 +838,9 @@
       (myTasks.length ? '<div class="rows">' + taskItems + '</div>' : emptyLine('No open tasks', 'You are all caught up! New tasks will appear here when assigned to you.')) +
       '</section>' +
       '<section class="panel">' +
-      '<div class="s-h"><h2>My Recent Activity & History</h2></div>' +
+      '<div class="s-h"><h2>Upcoming deadlines</h2></div>' +
+      (upcoming.length ? '<div class="facts-l">' + upcoming.slice(0, 6).map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort(t.due)) + '</b></button>').join('') + '</div>' : '<p class="quiet">Nothing is due in the next 14 days.</p>') +
+      '<div class="s-h" style="margin-top:22px"><h2>My Recent Activity & History</h2></div>' +
       (recentAudit.length ? '<ul class="tl">' + recentAudit.map(a => '<li><time>' + esc(shortTime(a.ts)) + '</time><span>' + esc(a.text) + '</span></li>').join('') + '</ul>' : '<p class="quiet">No activity recorded yet for your tasks.</p>') +
       '<h3 style="margin-top:20px;">Profile & Account</h3>' +
       '<div class="facts-l">' +
@@ -879,10 +851,7 @@
   }
 
   function vManagementDashboard(st, aq) {
-    const allTasks = liveTasks().filter(t => !ENGINE.isCancelled(t));
-    const allDone = liveTasks().filter(t => t.status === 'Completed');
-    const allPending = allTasks.filter(t => t.status === 'Not Started' || t.status === 'Backlog');
-    const allInProgress = allTasks.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+    const everyTask = liveTasks().filter(t => !ENGINE.isCancelled(t));
 
     // One entry per person: "AK, Divya" is two people, and team or role names are not people.
     const notPeople = new Set((S.roles || []).filter(r => !/^Confirmed$|team/i.test(r.kind || '') || /^(Setters|Closers)$/.test(r.name)).map(r => r.name.toLowerCase()));
@@ -891,13 +860,19 @@
     (S.users || []).forEach(u => { if (u.name && u.active !== false) empSet.add(u.name); });
     const empList = Array.from(empSet).sort();
 
-    const filterEmp = UI.mgmtEmpFilter || '';
+    const filterEmp = UI.mgmtEmpFilter || '', filterProj = UI.mgmtProject || '';
     const searchQ = (UI.mgmtSearchQ || '').toLowerCase().trim();
+    const people = (S.directory || []).concat((S.users || []));
+    const emailOf = n => { const u = people.find(x => x.name === n); return u ? u.email : ''; };
+    const hasOwner = (t, n) => { const m = emailOf(n), own = String(t.ownerEmail || '').toLowerCase(); return own && m ? own.split(/\s*,\s*/).includes(m) : sameName(t.owner, n); };
+    const employees = empList.map(name => ({ name, has: t => hasOwner(t, name) }));
 
+    const allTasks = filterProj ? everyTask.filter(t => t.projectId === filterProj) : everyTask;
     let displayTasks = allTasks;
     if (filterEmp) {
-      displayTasks = displayTasks.filter(t => sameName(t.owner, filterEmp) || sameName(t.accountable, filterEmp));
+      displayTasks = displayTasks.filter(t => hasOwner(t, filterEmp) || sameName(t.accountable, filterEmp));
     }
+    const scoped = filterEmp ? displayTasks : allTasks, d = dashSplit(scoped);
     if (searchQ) {
       displayTasks = displayTasks.filter(t => {
         return (t.name || '').toLowerCase().includes(searchQ) ||
@@ -921,11 +896,17 @@
       '<div class="dash-h"><div><h1>Sales Management Control Tower</h1>' +
       '<p class="quiet">Executive Oversight &bull; ' + new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</p></div>' +
       '<button class="emp-profile-btn" data-act="open-profile">' + ico('myprojects') + '<span>' + esc(ME.name || 'Management') + ' (Profile)</span></button></div>' +
-      '<div class="stats">' +
-      stat('Total Tasks', allTasks.length, '', 'Across all active projects', 'nav', 'data-v="tasks"') +
-      stat('Pending Tasks', allPending.length, '', 'Not started or in backlog', 'nav', 'data-v="tasks"') +
-      stat('In-Progress Tasks', allInProgress.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(allInProgress.length, allTasks.length), 'blue']) +
-      stat('Completed Tasks', allDone.length, '', pct(allDone.length, allTasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(allDone.length, allTasks.length), 'green']) +
+      (canPlan() ? '<form class="cmd no-print" data-act="cmd-form"><label for="cmd-text">Assign in one line</label><div class="cmd-row"><input id="cmd-text" autocomplete="off" placeholder="Assign the high priority website redesign task to name@suraasa.com under the CRM project by 10 November 2026"><button class="btn" type="submit">Review</button><button class="btn primary" type="button" data-act="assign-task">Assign a task</button></div></form>' : '') +
+      '<div class="stats s10">' +
+      stat('Total Projects', liveProjects().length, '', liveProjects().filter(p => p.status === 'In Progress').length + ' in progress', 'nav', 'data-v="portfolio"') +
+      stat('Total Tasks', d.total, '', filterEmp || filterProj ? 'With these filters' : 'Across all active projects', 'nav', 'data-v="tasks"') +
+      stat('Assigned', d.assigned.length, 'of ' + d.total, 'Have a confirmed owner', 'go-unassigned') +
+      stat('Pending Tasks', d.pending.length, '', 'Not started, backlog or on hold', 'nav', 'data-v="tasks"') +
+      stat('In-Progress Tasks', d.active.length, '', 'Active execution & review', 'nav', 'data-v="tasks"', [pct(d.active.length, d.total), 'blue']) +
+      stat('Completed Tasks', d.done.length, '', pct(d.done.length, d.total) + '% complete', 'nav', 'data-v="tasks"', [pct(d.done.length, d.total), 'green']) +
+      stat('Overdue', d.overdue.length, '', d.overdue.length ? 'Past their deadline' : 'Nothing late', 'nav', 'data-v="tasks"') +
+      stat('Completion Rate', pct(d.done.length, d.total) + '%', '', d.done.length + ' of ' + d.total + ' tasks', 'nav', 'data-v="reports"') +
+      stat('Team Productivity', d.done.filter(t => { const w = String(t.completedAt || '').slice(0, 10); return isDate(w) && daysFromToday(w) >= -7; }).length, '', 'Tasks completed in 7 days', 'nav', 'data-v="reports"') +
       stat('Total Employees', empList.length, '', 'Tracked task assignees', 'go-unassigned') +
       '</div>' +
       '<div class="mgmt-controls no-print">' +
@@ -936,7 +917,11 @@
       '<select class="mgmt-emp-select" id="mgmt-emp-filter">' +
       '<option value="">All Employees (' + empList.length + ')</option>' +
       empList.map(emp => '<option value="' + esc(emp) + '" ' + (filterEmp === emp ? 'selected' : '') + '>' + esc(emp) + '</option>').join('') +
+      '</select></label>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink-2);"><span>Project:</span><select class="mgmt-emp-select" id="mgmt-proj-filter"><option value="">All Projects</option>' +
+      liveProjects().map(p => '<option value="' + esc(p.id) + '" ' + (filterProj === p.id ? 'selected' : '') + '>' + esc(p.name) + '</option>').join('') +
       '</select></label></div>' +
+      dashCharts(scoped, employees) +
       '<div class="dash-g">' +
       '<section class="panel">' +
       '<div class="s-h"><h2>All Employee Tasks (' + displayTasks.length + (filterEmp ? ' for ' + esc(filterEmp) : '') + ')</h2><button class="linkbtn" data-act="nav" data-v="tasks">View Full Tasks Grid</button></div>' +
@@ -948,112 +933,18 @@
       '<h3>Tasks per Employee</h3>' +
       '<div class="facts-l">' +
       empList.slice(0, 8).map(emp => {
-        const count = allTasks.filter(t => sameName(t.owner, emp) && !ENGINE.isDone(t)).length;
+        const count = allTasks.filter(t => hasOwner(t, emp) && !ENGINE.isDone(t)).length;
         return '<button class="fl" data-act="filter-emp-quick" data-emp="' + esc(emp) + '"><span>' + esc(emp) + '</span><b>' + count + ' active</b></button>';
       }).join('') +
       '</div>' +
       '<h3 style="margin-top:20px;">Execution Breakdown</h3>' +
       '<div class="facts-l">' +
-      '<div class="fl"><span>Completion Rate</span><b>' + pct(allDone.length, allTasks.length) + '%</b></div>' +
+      '<div class="fl"><span>Completion Rate</span><b>' + pct(d.done.length, d.total) + '%</b></div>' +
       '<div class="fl"><span>Blocked / Slipping</span><b>' + allTasks.filter(t => t.status === 'Blocked').length + ' blocked</b></div>' +
       '<div class="fl"><span>In Review</span><b>' + allTasks.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)).length + ' review</b></div>' +
       '</div></section></div></div>';
   }
 
-  function vOverviewLegacy(st, aq) {
-    if (taskOnly() && UI.me) return vHomeTask();
-    const me = UI.me;
-    const mineT = t => !me || isMine(t.owner) || isMine(t.accountable);
-    const tasks = liveTasks().filter(t => !ENGINE.isCancelled(t)).filter(mineT);
-    const openT = tasks.filter(ENGINE.isOpen);
-    const dec = S.decisions.filter(d => openDec(d) && mineMatch(d.owner)).sort((a, b) => (a.requiredBy || 'z').localeCompare(b.requiredBy || 'z'));
-    const decWeek = dec.filter(d => isDate(d.requiredBy) && daysFromToday(d.requiredBy) <= 7).length;
-    const hs = st.hs.filter(x => !me || [x.p.owner, x.p.accountable, x.p.sponsor].some(mineMatch));
-    const liveP = hs.filter(x => x.p.status !== 'Completed');
-    const slip = liveP.filter(x => x.h.rag === 'Red' || x.h.rag === 'Amber').sort((a, b) => (a.h.rag === 'Red' ? 0 : 1) - (b.h.rag === 'Red' ? 0 : 1) || String(a.p.priority).localeCompare(String(b.p.priority)));
-    const delayed = slip.filter(x => x.h.rag === 'Red').length;
-    const due = aq.filter(a => (a.rank === 1 || a.rank === 4) && mineMatch(a.owner));
-    const dueT = due.filter(a => /^T-/.test(a.ref)).length;
-    const late = due.filter(a => a.rank === 1).length;
-    const blocks = aq.filter(a => a.rank === 2 && mineMatch(a.owner));
-    const confirmed = openT.filter(t => !isTBD(t.owner)).length;
-    const risks = S.risks.filter(r => (r.status === 'Open' || r.status === 'Escalated') && mineMatch(r.owner));
-    const critical = risks.filter(r => riskLevel(r)[0] === 'Critical').length;
-    const active = liveP.filter(x => x.p.status === 'In Progress');
-    const updated = active.filter(x => { const u = lastUpdate(x.p.id); return u && (Date.now() - new Date(u.ts).getTime()) / 86400000 <= 7; }).length;
-    const waiting = S.dependencies.filter(d => (d.status === 'Open' || d.status === 'Escalated') && (!me || mineMatch(d.responsible) || mineMatch(d.externalOwner)));
-    const escalate = waiting.filter(d => d.status === 'Escalated' || /^yes/i.test(d.escalation || '')).length;
-    const nextNeed = waiting.map(d => d.requiredBy).filter(isDate).sort()[0];
-    const miles = [];
-    hs.forEach(x => (x.p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push(m); }));
-
-    const stats = [
-      stat('Decisions waiting', dec.length, '', decWeek ? decWeek + ' due this week' : 'None due this week', 'go-decisions'),
-      stat('Projects slipping', slip.length, 'of ' + liveP.length, delayed ? delayed + ' delayed' : 'None delayed yet', 'go-attention'),
-      stat('Due in 7 days', due.length, '', late ? late + ' already late' : plural(dueT, 'task') + ', ' + plural(due.length - dueT, 'milestone'), 'go-week'),
-      stat('Tasks done', tasks.length - openT.length, 'of ' + tasks.length, pct(tasks.length - openT.length, tasks.length) + '% complete', 'nav', 'data-v="tasks"', [pct(tasks.length - openT.length, tasks.length), 'blue']),
-      stat('Owners confirmed', confirmed, 'of ' + openT.length, pct(confirmed, openT.length) + '% of open tasks', 'go-unassigned', '', [pct(confirmed, openT.length), pct(confirmed, openT.length) < 50 ? 'red' : 'blue']),
-      stat('Open risks', risks.length, '', critical ? critical + ' critical' : 'None critical', 'go-risks')
-    ].join('');
-
-    const avail = [['decisions', 'Decisions', dec.length], ['slipping', 'Slipping', slip.length], ['due', 'Due this week', due.length], ['blocking', 'Blocking', blocks.length]];
-    const counts = Object.fromEntries(avail.map(a => [a[0], a[2]]));
-    const tab = counts[UI.homeTab] ? UI.homeTab : (avail.find(a => a[2]) || avail[0])[0];
-    const lists = {
-      decisions: [dec.slice(0, 6).map(d => decisionRow(d)), 'go-decisions', dec.length],
-      slipping: [slip.slice(0, 6).map(projectRow), 'go-attention', slip.length],
-      due: [due.slice(0, 6).map(queueRow), 'go-week', due.length],
-      blocking: [blocks.slice(0, 6).map(queueRow), 'go-actions', blocks.length]
-    }[tab];
-    const list = lists[0].length ? '<div class="rows">' + lists[0].join('') + '</div>' + (lists[2] > 6 ? '<button class="linkbtn more" data-act="' + lists[1] + '">See all ' + lists[2] + '</button>' : '')
-      : emptyLine('Nothing needs attention here', 'New items appear as dates get closer.');
-
-    const count = rag => liveP.filter(x => x.h.rag === rag).length;
-    const parts = [['Red', 'attention'], ['Amber', 'attention'], ['Green', 'Green'], ['Grey', 'Grey']].map(k => ({ key: k[0].toLowerCase(), label: RAG_WORD[k[0]], n: count(k[0]), act: 'go-chip', attrs: 'data-chip="' + k[1] + '"' }));
-    const cats = {};
-    liveP.forEach(x => { const c = x.p.category || 'Other'; (cats[c] = cats[c] || []).push(x); });
-    const catRows = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length).map(c => {
-      const xs = cats[c];
-      const ps = ['Red', 'Amber', 'Green', 'Grey'].map(r => ({ key: r.toLowerCase(), label: c + ': ' + RAG_WORD[r], n: xs.filter(x => x.h.rag === r).length, act: 'go-cat', attrs: 'data-c="' + esc(c) + '"' }));
-      return '<div class="cat"><span class="cat-n" title="' + esc(c) + '">' + esc(c) + '</span>' + segBar(ps, xs.length) + '<span class="cat-c">' + xs.length + '</span></div>';
-    }).join('');
-
-    return `
-    <div class="dash">
-      <div class="dash-h">
-        <div><h1>Sales overview</h1><p class="quiet">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
-        ${ME.open ? '<label class="fsel"><span>Showing</span><select data-act="set-me" aria-label="Show work for"><option value="">Everyone</option>' + people().map(p => '<option ' + (UI.me === p ? 'selected' : '') + '>' + esc(p) + '</option>').join('') + '</select></label>' : ''}
-      </div>
-      <div class="stats">${stats}</div>
-      <div class="dash-g">
-        <section class="panel">
-          <div class="s-h"><h2>Needs attention</h2></div>
-          <div class="bar-row">${seg('htab', avail, tab)}</div>
-          ${list}
-        </section>
-        <section class="panel">
-          <div class="s-h"><h2>Project health</h2><button class="linkbtn" data-act="go-portfolio">All ${liveP.length}</button></div>
-          ${liveP.length ? segBar(parts, liveP.length, true) : ''}
-          <div class="legend">${parts.filter(p => p.n).map(p => '<span><i class="lg sb-' + p.key + '"></i>' + esc(p.label) + '</span>').join('')}</div>
-          <div class="cats">${catRows}</div>
-          ${active.length ? '<p class="flag"><span><b>' + updated + ' of ' + active.length + '</b> active projects have an update this week.</span>' + (updated < active.length ? ' <button class="linkbtn" data-act="nav" data-v="weekly">Add updates</button>' : '') + '</p>' : ''}
-          <h3>Risks and dependencies</h3>
-          <div class="facts-l">
-            <button class="fl" data-act="go-risks"><span>Critical risks</span><b>${critical} of ${risks.length}</b></button>
-            <button class="fl" data-act="go-deps"><span>Waiting on others</span><b>${waiting.length}</b></button>
-            <button class="fl" data-act="go-deps"><span>Need escalating</span><b>${escalate}</b></button>
-            <button class="fl" data-act="go-deps"><span>Next needed by</span><b>${nextNeed ? fmtShort(nextNeed) : 'Nothing due'}</b></button>
-          </div>
-        </section>
-      </div>
-      <div class="dash-g">
-        ${workload(openT, miles)}
-        ${ownersPanel(openT)}
-      </div>
-    </div>`;
-  }
-
-  // ---------- Action plan ----------
   function vActions(st, aq) {
     const t = UI.actionTab;
     const tabs = [['queue', 'What needs attention', aq.length], ['plan', 'Planned actions', S.actions.length]];
@@ -1078,7 +969,7 @@
     const f = UI.filters;
     const archived = S.projects.filter(p => p.archivedAt);
     let rows = UI.pchip === 'archived' ? archived.map(p => ({ p, h: health(p) })) : st.hs.slice();
-    if (UI.pscope === 'mine') rows = rows.filter(x => ownsP(x.p) || isMine(x.p.sponsor));
+    if (UI.pscope === 'mine') rows = rows.filter(x => ownsP(x.p) || isMine(x.p.sponsor) || S.tasks.some(t => t.projectId === x.p.id && ownsT(t)));
     ['category', 'priority', 'status', 'type', 'program'].forEach(k => { if (f[k]) rows = rows.filter(r => k === 'program' ? (f[k] === 'none' ? !r.p.program : r.p.program === f[k]) : r.p[k] === f[k]); });
     if (f.owner) rows = rows.filter(r => r.p.owner === f.owner || r.p.accountable === f.owner);
     const attention = x => x.h.rag === 'Red' || x.h.rag === 'Amber';
@@ -1203,7 +1094,7 @@
       body = '<section class="sec"><dl class="dl"><dt>Owner</dt><dd>' + who(p.owner) + '</dd><dt>Accountable</dt><dd>' + who(p.accountable) + '</dd><dt>Sponsor</dt><dd>' + who(p.sponsor) + '</dd>' + ((p.members || []).length ? '<dt>Team</dt><dd>' + p.members.map(esc).join(', ') + '</dd>' : '') + '</dl></section>' +
         '<section class="sec"><div class="s-h"><h2>Who does what</h2>' + (manage ? '<button class="btn sm" data-act="add-raci" data-id="' + esc(p.id) + '">Add row</button>' : '') + '</div>' + raciTable(p) + '</section>';
     } else if (tab === 'files') {
-      body = '<section class="sec"><h2>Links and files</h2><p class="quiet">Add links to Google Drive files. Uploading files directly is not available yet.</p>' + (p.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (manage ? '<button class="linkbtn danger" data-act="pj-link-del" data-id="' + esc(p.id) + '" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (manage ? '<div class="add-row"><input id="pj-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="pj-link-add" data-id="' + esc(p.id) + '">Add</button></div>' : '') + '</section>';
+      body = '<section class="sec"><h2>Links and files</h2><p class="quiet">Upload a file, up to 10 MB, or paste a link. People in your organisation can open them with the link.</p>' + (canManageP(p) ? '<label class="fsel"><span>Upload a file</span><input type="file" id="pj-file" data-id="' + esc(p.id) + '"></label>' : '') + (p.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (manage ? '<button class="linkbtn danger" data-act="pj-link-del" data-id="' + esc(p.id) + '" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (manage ? '<div class="add-row"><input id="pj-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="pj-link-add" data-id="' + esc(p.id) + '">Add</button></div>' : '') + '</section>';
     } else if (tab === 'activity') {
       body = '<section class="sec"><h2>Activity</h2>' + timeline(a => a.projectId === p.id, p.id) + '</section>';
     }
@@ -1236,7 +1127,7 @@
     const f = UI.taskFilter === 'pending' && UI.me && !UI.tasksTouched ? 'my' : UI.taskFilter;
     const wk = t => ENGINE.isOpen(t) && isDate(t.due) && daysFromToday(t.due) <= 7;
     const F = {
-      all: () => true, my: t => UI.me && (isMine(t.owner) || isMine(t.accountable)) && ENGINE.isOpen(t),
+      all: () => true, my: t => UI.me && (ownsT(t) || isMine(t.accountable)) && ENGINE.isOpen(t),
       overdue: taskOverdue, week: wk, pending: ENGINE.isOpen, completed: t => t.status === 'Completed', cancelled: ENGINE.isCancelled, blocked: t => t.status === 'Blocked', review: t => ['In Review', 'Awaiting Approval'].includes(t.status),
       parked: t => t.status === 'On Hold', dropped: ENGINE.isCancelled,
       approval: t => (t.status === 'Awaiting Approval' || t.status === 'In Review' || t.kind === 'Decision') && ENGINE.isOpen(t),
@@ -1252,15 +1143,18 @@
     if (base.some(F.parked)) chips.push(['parked', 'Parked']);
     if (base.some(F.dropped)) chips.push(['dropped', 'Dropped']);
     chips.push(['approval', 'Needs approval'], ['unassigned', 'No owner'], ['completed', 'Done']);
-    const list = base.filter(F[f] || F.pending).sort((a, b) => (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
+    const byField = ff.tsort === 'updatedAt' ? (a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) : ff.tsort ? (a, b) => String(a[ff.tsort] || 'z').localeCompare(String(b[ff.tsort] || 'z')) : null;
+    const list = base.filter(F[f] || F.pending).sort((a, b) => (byField ? byField(a, b) : 0) || (a.due || 'z').localeCompare(b.due || 'z') || String(a.priority).localeCompare(String(b.priority)));
 
     const active = ['tproject', 'tprio', 'towner', 'tweek'].filter(k => ff[k]).length;
     const narrow = active > 0 || f !== 'pending';
     let body;
-    if (UI.tview === 'board') body = boardView(base.filter(f === 'completed' ? F.completed : t => (f === 'pending' ? !ENGINE.isCancelled(t) : (F[f] || F.pending)(t) || (f === 'my' && UI.me && isMine(t.owner) && t.status === 'Completed'))));
+    if (UI.tview === 'board') body = boardView(base.filter(f === 'completed' ? F.completed : t => (f === 'pending' ? !ENGINE.isCancelled(t) : (F[f] || F.pending)(t) || (f === 'my' && UI.me && ownsT(t) && t.status === 'Completed'))));
     else if (UI.tview === 'calendar') body = calendarView(list);
     else if (!list.length) {
       body = f === 'my' && !UI.me ? '' : emptyLine('No tasks here', f === 'pending' ? 'Add a task to get started.' : 'Try another view above.');
+    } else if (ff.tsort) {
+      body = '<div class="rows">' + list.map(t => taskRow(t)).join('') + '</div>';
     } else if (UI.tgroup === 'project') {
       const ids = [...new Set(list.map(t => t.projectId))];
       body = ids.map(id => { const ts = list.filter(t => t.projectId === id); return group('tp-' + id, pName(id), ts.length, ts.map(t => taskRow(t, { noProject: true })).join(''), narrow); }).join('');
@@ -1283,7 +1177,8 @@
     const showF = UI.showFilters || active > 0;
     const filters = showF ? '<div class="filters">' +
       filterSel('tproject', 'Project', S.projects.map(p => [p.id, p.name])) +
-      filterSel('tprio', 'Priority', opt('priorities').map(p => [p, p])) +
+      filterSel('tprio', 'Priority', prioOptions()) +
+      '<label class="fsel"><span>Sort by</span><select data-act="filter" data-k="tsort"><option value="">Due date</option>' + [['priority', 'Priority'], ['status', 'Status'], ['owner', 'Owner'], ['name', 'Title'], ['updatedAt', 'Recently updated']].map(o => '<option value="' + o[0] + '" ' + (ff.tsort === o[0] ? 'selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>' +
       (ME.role === 'Task Owner' ? '' : filterSel('towner', 'Owner', [['__none', 'No owner yet']].concat(people().map(p => [p, p])))) +
       (ff.tweek ? '<span class="quiet">Week of ' + fmtShort(ff.tweek) + '</span>' : '') +
       (active ? '<button class="linkbtn" data-act="clear-filters">Clear filters</button>' : '') + '</div>' : '';
@@ -1316,19 +1211,21 @@
       v.push({ name, f: UI.taskFilter, tview: UI.tview, tgroup: UI.tgroup, filters: { tproject: ff.tproject || '', tprio: ff.tprio || '', towner: ff.towner || '', tweek: ff.tweek || '' } });
       writeViews(v); UI.savedView = name; closeModal(); render(); toast('View saved in this browser');
       return false;
-    }, '', 'Save view');
+    }, '', 'Save view', true);
   }
   function bulkEdit() {
     const list = [...UI.bulk].map(id => S.tasks.find(t => t.id === id)).filter(Boolean);
     const allowed = list.filter(canManageT), skipped = list.length - allowed.length;
     if (!allowed.length) { toast('You can only bulk edit tasks in projects you own.', true); return; }
     openForm('Edit ' + plural(allowed.length, 'task'), [
-      { k: 'owner', label: 'New owner', type: 'datalist', options: people() },
+      { k: 'owner', label: 'New owner\'s official email', type: 'datalist', options: dirEmails().concat(people()) },
       { k: 'due', label: 'New due date', type: 'date' },
-      { k: 'priority', label: 'New priority', type: 'select', allowBlank: true, options: opt('priorities') },
+      { k: 'priority', label: 'New priority', type: 'select', allowBlank: true, options: prioOptions() },
       { k: 'status', label: 'New status', type: 'select', allowBlank: true, options: ['Not Started', 'In Progress', 'On Hold', 'In Review'] },
       { k: 'reason', label: 'Reason, recorded on each task', type: 'textarea', full: true, rows: 2 }
     ], {}, o => {
+      const owner = ownerInput(o.owner);
+      if (owner.error) { $('#ferr').textContent = owner.error; return false; }
       const set = ['owner', 'due', 'priority', 'status'].filter(k => o[k]);
       if (!set.length) { $('#ferr').textContent = 'Choose at least one change.'; return false; }
       if (set.includes('owner') && !o.reason.trim()) { $('#ferr').textContent = 'Give a reason for changing the owner.'; return false; }
@@ -1336,7 +1233,7 @@
       const go = allowed.filter(t => !stuck.includes(t));
       if (!confirm('Change ' + set.join(', ') + ' on ' + plural(go.length, 'task') + '?' + (skipped + stuck.length ? ' ' + plural(skipped + stuck.length, 'task') + ' will be left as they are.' : ''))) return false;
       go.forEach(t => {
-        if (o.owner) t.owner = o.owner;
+        if (o.owner) { t.owner = owner.name; t.ownerEmail = owner.email; }
         if (o.due) t.due = o.due;
         if (o.priority) t.priority = o.priority;
         if (o.status && t.status !== o.status) applyStatus(t, o.status, '');
@@ -1644,6 +1541,7 @@
   }
 
   // ---------- Data & settings ----------
+  const browserCopy = () => { try { return localStorage.getItem('sct_browser_copy') || ''; } catch (e) { return ''; } };
   function vData() {
     const sz = (() => { try { return Math.round((localStorage.getItem(KEY) || '').length / 1024); } catch (e) { return '?'; } })();
     const sync = (S.meta && S.meta.sync) || { url: '', enabled: false, autoSync: true, status: 'idle' };
@@ -1660,31 +1558,31 @@
     <section class="sec" id="sync-card"><div class="s-h"><h2>Google Sheet</h2><span class="pill ${stateWord[1]}">${stateWord[0]}</span></div>
       <p class="quiet">Changes here save to the Sheet, and edits in the Sheet appear here. Last synced ${sync.lastSync ? new Date(sync.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet'}.</p>
       ${sync.error ? '<p class="flag">' + esc(sync.error) + '</p>' : ''}
-      <div class="btnrow"><a class="btn" href="${SHEET_URL}" target="_blank" rel="noopener">Open Google Sheet</a><button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Send everything to Sheet</button><button class="btn" data-act="sync-test">Test connection</button></div>
-      <details class="acc"><summary>${CHEV}Connection settings</summary><div class="acc-bd"><div class="form one">
-        <div class="f"><label for="sync-url-input">Apps Script web app URL</label><div class="btnrow nowrap"><input id="sync-url-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(sync.url || '')}"><button class="btn" data-act="save-sync-config">Save</button></div></div>
-        <label class="check"><input type="checkbox" id="sync-auto-input" ${sync.autoSync !== false ? 'checked' : ''}> Save to the Sheet automatically</label>
-      </div></div></details></section>
+      <div class="btnrow">${sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : ''}<button class="btn primary" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Save changes now</button><button class="btn" data-act="sync-test">Test connection</button></div></section>
     <section class="sec"><h2>Download</h2><div class="btnrow"><button class="btn" data-act="export-csv" data-what="projects">Projects</button><button class="btn" data-act="export-csv" data-what="tasks">Tasks</button><button class="btn" data-act="export-csv" data-what="risks">Risks</button><button class="btn" data-act="export-csv" data-what="dependencies">Dependencies</button><button class="btn" data-act="export-csv" data-what="decisions">Decisions</button><button class="btn" data-act="export-json">Full backup</button><button class="btn" data-act="print-portfolio">Print projects</button></div></section>
     <details class="acc"><summary>${CHEV}Dropdown lists</summary><div class="acc-bd"><div class="rows">${optRows}</div></div></details>
     <details class="acc"><summary>${CHEV}Restore from a backup</summary><div class="acc-bd"><label class="f"><span class="quiet">Choose a backup file. It replaces everything here after you confirm.</span><input type="file" id="importFile" accept="application/json,.json"></label></div></details>
     <details class="acc"><summary>${CHEV}History (${S.activity.length})</summary><div class="acc-bd">${S.activity.slice(0, 60).map(a => '<div class="comment"><p>' + esc(a.text) + '</p><span class="quiet">' + new Date(a.ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</span></div>').join('')}</div></details>
     <details class="acc"><summary>${CHEV}Data summary</summary><div class="acc-bd"><p class="quiet">${plural(S.projects.length, 'project')}, ${plural(S.tasks.length, 'task')}, ${plural(S.projects.reduce((a, p) => a + (p.milestones || []).length, 0), 'milestone')}, ${plural(S.risks.length, 'risk')}, ${plural(S.dependencies.length, 'dependency', 'dependencies')}, ${plural(S.decisions.length, 'decision')}, ${plural(S.updates.length, 'weekly update')}. Using ${sz} KB in this browser.</p></div></details>
-    <details class="acc"><summary>${CHEV}Reset</summary><div class="acc-bd"><p class="quiet">Replaces everything in this browser with the original data from the 30 Oct 2026 brief.</p><button class="btn danger" data-act="reset">Reset to original data</button></div></details>`;
+    <details class="acc"><summary>${CHEV}Reset this browser</summary><div class="acc-bd"><p class="quiet">Throws away the copy in this browser and reloads from the Google Sheet. The Sheet does not change.</p><button class="btn danger" data-act="reset">Reload from the Sheet</button></div></details>
+    ${browserCopy() ? '<details class="acc"><summary>' + CHEV + 'Work saved in this browser</summary><div class="acc-bd"><p class="quiet">This browser held a copy that was never saved to the Sheet, from when the site was disconnected. Download it to check nothing is missing.</p><button class="btn" data-act="download-copy">Download the copy</button></div></details>' : ''}`;
   }
 
   // ---------- people and permissions (the Sheet backend enforces the same rules) ----------
   const sameName = (field, name) => !!name && !/^\s*tbd/i.test(String(field || '')) && String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === String(name).trim().toLowerCase());
-  const isMine = v => sameName(v, UI.me);
-  const ownsP = p => !!p && (isMine(p.owner) || isMine(p.accountable));
-  const roleName = () => ME.local ? (ME.role === 'Administrator' ? 'Management' : 'Employee') : ME.role;
+  const isMine = v => sameName(v, UI.me) || (ME.aliases || []).some(a => sameName(v, a));
+  // A registered email decides. Older records fall back to the exact name, as on the server.
+  const holds = (rec, name, mail) => { const m = String(rec[mail] || '').toLowerCase(); return m && ME.email ? m.split(/\s*,\s*/).includes(ME.email) : isMine(rec[name]); };
+  const ownsT = t => holds(t, 'owner', 'ownerEmail');
+  const ownsP = p => !!p && (holds(p, 'owner', 'ownerEmail') || holds(p, 'accountable', 'accountableEmail') || (p.managerEmails || []).includes(ME.email));
+  const roleName = () => ROLE_LABEL[ME.role] || ME.role;
   const isAdmin = () => ME.role === 'Administrator';
   const seesAll = () => ME.role !== 'Task Owner';
   const canPlan = () => ME.role === 'Administrator' || ME.role === 'Project Owner';
   const canWrite = () => ME.role !== 'Viewer';
   const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
   const canManageT = t => canManageP(P(t.projectId));
-  const canWorkT = t => canManageT(t) || (canWrite() && isMine(t.owner));
+  const canWorkT = t => canManageT(t) || (canWrite() && ownsT(t));
   const taskOnly = () => ME.role === 'Task Owner' || (ME.open && !!UI.me && !S.projects.some(ownsP));
   const liveProjects = () => S.projects.filter(p => !p.archivedAt);
   const liveTasks = () => { const off = new Set(S.projects.filter(p => p.archivedAt).map(p => p.id)); return S.tasks.filter(t => !off.has(t.projectId)); };
@@ -1914,7 +1812,7 @@
     const notes = (t.notes || []).slice().reverse();
     const m = p ? ms(p, t.ms) : null;
     const draft = (() => { try { return localStorage.getItem('sct_draft_' + t.id) || ''; } catch (e) { return ''; } })();
-    const facts = [['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority)], ['Collaborators', (t.collaborators || []).map(esc).join(', ')]].filter(x => x[1]);
+    const facts = [['Task ID', esc(t.id)], ['Stage', esc(statusToStage(t.status))], ['Owner', who(t.owner)], ['Owner email', esc(t.ownerEmail || '')], ['Assigned by', esc([t.assignedBy || t.assignedByEmail, t.assignedAt ? shortTime(t.assignedAt) : ''].filter(Boolean).join(', '))], ['Project', p ? '<button class="linkbtn" data-act="open" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>' : ''], ['Milestone', m ? esc(m.name) : ''], ['Due', when(t.due, t.status === 'Completed') + (t.originalDue && t.originalDue !== t.due ? '<em class="mini"> was ' + esc(fmtShort(t.originalDue)) + '</em>' : '')], ['Priority', pillPrio(t.priority) + ' <span class="mini">' + esc(PRIO_WORD[t.priority] || '') + '</span>'], ['Start', t.start ? esc(fmtShort(t.start)) : ''], ['Collaborators', (t.collaborators || []).map(esc).join(', ')], ['Created', t.createdAt ? esc(shortTime(t.createdAt)) : ''], ['Updated', t.updatedAt ? esc(shortTime(t.updatedAt)) : ''], ['Completed', t.status !== 'Completed' ? '' : t.completedTs ? esc(shortTime(t.completedTs)) : t.completedAt ? esc(fmtShort(String(t.completedAt).slice(0, 10))) : '']].filter(x => x[1]);
     const noteTypes = [['update', 'Progress update'], ['comment', 'Comment'], ['question', 'Question for the project owner'], ['decision', 'Decision']];
     const xr = t.extensionRequest;
     const review = (work && ENGINE.isOpen(t) && !xr && !manage ? '<button class="btn" data-act="tk-ext-ask">Ask for more time</button>' : '') +
@@ -1944,10 +1842,10 @@
       '<section class="ts"><h3>Depends on</h3>' + deps.map(d => '<div class="chk"><span>' + esc(d.name) + ' <span class="mini">' + esc(d.status) + '</span></span>' + (manage ? '<button class="linkbtn danger" data-act="tk-dep-del" data-id="' + esc(d.id) + '">Remove</button>' : '') + '</div>').join('') + (deps.length ? '' : '<p class="quiet">Nothing.</p>') +
       (manage ? '<div class="add-row"><select id="tk-dep-new" aria-label="Add a dependency"><option value="">Add a task this one waits for</option>' + peers.filter(x => x.id !== t.id && !(t.dependsOn || []).includes(x.id)).map(x => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('') + '</select><button class="btn sm" data-act="tk-dep-add">Add</button></div>' : '') +
       (blocks.length ? '<p class="mini">Holding up ' + plural(blocks.length, 'task') + ': ' + blocks.slice(0, 5).map(x => esc(x.name)).join(', ') + '</p>' : '') + '</section>' +
-      '<section class="ts"><h3>Links and files</h3>' + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
+      '<section class="ts"><h3>Links and files</h3>' + (work ? '<label class="fsel"><span>Upload a file, up to 10 MB</span><input type="file" id="tk-file" data-id="' + esc(t.id) + '"></label>' : '') + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
       '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
       '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
-      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="dup-task" data-id="' + esc(t.id) + '">Duplicate</button><button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
     const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
     $('#modal-root').innerHTML = h;
     $('#modal-root')._dirty = false;
@@ -2014,38 +1912,6 @@
   }
 
   // ---------- task owner home ----------
-  function vHomeTask() {
-    const mine = liveTasks().filter(t => isMine(t.owner));
-    const open = mine.filter(ENGINE.isOpen);
-    const d = t => isDate(t.due) ? daysFromToday(t.due) : null;
-    const late = open.filter(t => d(t) != null && d(t) < 0), today = open.filter(t => d(t) === 0), week = open.filter(t => d(t) != null && d(t) >= 0 && d(t) <= 7);
-    const blocked = open.filter(t => t.status === 'Blocked'), review = open.filter(t => ['In Review', 'Awaiting Approval'].includes(t.status)), changes = open.filter(t => t.status === 'Changes Requested');
-    const noUpdate = open.filter(t => t.status === 'In Progress' && (!t.updatedAt || (Date.now() - new Date(t.updatedAt).getTime()) / 86400000 > 7));
-    const order = t => (t.status === 'Changes Requested' ? 0 : d(t) != null && d(t) < 0 ? 1 : t.status === 'Blocked' ? 2 : d(t) === 0 ? 3 : 4);
-    const list = open.slice().sort((a, b) => order(a) - order(b) || (a.due || 'z').localeCompare(b.due || 'z')).slice(0, 8);
-    const recent = mine.filter(t => t.updatedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
-    const miles = [];
-    liveProjects().filter(p => mine.some(t => t.projectId === p.id)).forEach(p => (p.milestones || []).forEach(m => { if (m.status !== 'Completed' && isDate(m.due)) miles.push({ p, m }); }));
-    miles.sort((a, b) => a.m.due.localeCompare(b.m.due));
-    return `<div class="dash"><div class="dash-h"><div><h1>My work</h1><p class="quiet">${esc(UI.me)}, ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p></div></div>
-      <div class="stats">
-        ${stat('Late', late.length, '', late.length ? 'Needs you first' : 'Nothing late', 'tfilter-go', 'data-f="overdue"')}
-        ${stat('Due today', today.length, '', '', 'tfilter-go', 'data-f="my"')}
-        ${stat('Due this week', week.length, '', '', 'tfilter-go', 'data-f="my"')}
-        ${stat('Blocked', blocked.length, '', blocked.length ? 'Needs help' : 'Nothing blocked', 'tfilter-go', 'data-f="my"')}
-        ${stat('In review', review.length, '', changes.length ? changes.length + ' need changes' : 'Waiting for approval', 'tfilter-go', 'data-f="my"')}
-        ${stat('Done', mine.filter(ENGINE.isDone).length, 'of ' + mine.length, '', 'tfilter-go', 'data-f="completed"')}
-      </div>
-      <div class="dash-g">
-        <section class="panel"><div class="s-h"><h2>What to do next</h2><button class="linkbtn" data-act="tfilter-go" data-f="my">All my tasks</button></div>${list.length ? '<div class="rows">' + list.map(t => taskRow(t)).join('') + '</div>' : emptyLine('You are all caught up', 'New work appears here when it is assigned to you.')}</section>
-        <section class="panel">
-          ${noUpdate.length ? '<p class="flag"><span><b>' + noUpdate.length + '</b> of your tasks ' + (noUpdate.length === 1 ? 'has' : 'have') + ' had no update for a week.</span></p>' : ''}
-          <h3>Coming up</h3><div class="facts-l">${miles.slice(0, 5).map(x => '<button class="fl" data-act="open" data-id="' + esc(x.p.id) + '" data-tab="plan"><span>' + esc(x.m.name) + '</span><b>' + esc(fmtShort(x.m.due)) + '</b></button>').join('') || '<p class="quiet">No upcoming milestones.</p>'}</div>
-          <h3>Recently updated</h3><div class="facts-l">${recent.map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort((t.updatedAt || '').slice(0, 10))) + '</b></button>').join('') || '<p class="quiet">Nothing yet.</p>'}</div>
-        </section>
-      </div></div>`;
-  }
-
   // ---------- notifications ----------
   const readSet = () => { try { return new Set(JSON.parse(localStorage.getItem('sct_read') || '[]')); } catch (e) { return new Set(); } };
   const writeRead = s => { try { localStorage.setItem('sct_read', JSON.stringify([...s].slice(-800))); } catch (e) { /* private window */ } };
@@ -2054,6 +1920,7 @@
     ['Blockers', ['Blocked']],
     ['Reviews and requests', ['Review requested', 'Changes requested', 'More time requested', 'Question']],
     ['Assignments', ['Assigned to you', 'Reassigned']],
+    ['Completed work', ['Completed']],
     ['Comments and mentions', ['Mentioned', 'New comment']],
     ['Milestones and closure', ['Milestone late', 'Milestone soon', 'Ready to close']]
   ];
@@ -2061,17 +1928,264 @@
   function myNotifications() {
     const off = notifOff();
     const hidden = new Set(); NOTIF_GROUPS.forEach(g => { if (off.has(g[0])) g[1].forEach(k => hidden.add(k)); });
-    return ENGINE.notifications({ me: UI.me, todayStr: todayStr(), today: dnum(todayStr()), tasks: liveTasks(), projects: liveProjects(), audit: S.audit || [], mine: isMine, ownsProject: ownsP }).filter(n => !hidden.has(n.kind));
+    return ENGINE.notifications({ me: UI.me, todayStr: todayStr(), today: dnum(todayStr()), tasks: liveTasks(), projects: liveProjects(), audit: S.audit || [], mine: isMine, ownsProject: ownsP, ownsTask: ownsT, email: ME.email }).filter(n => !hidden.has(n.kind));
   }
   function vNotifications() {
     const list = myNotifications(), read = readSet();
     const unread = list.filter(n => !read.has(n.id)).length;
     const f = UI.notifTab;
+    if (f === 'log') return '<div class="page-h"><h1>Notifications</h1></div><div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length], ['log', 'Email log']], f) + '</div>' + notifLogView();
     const shown = f === 'unread' ? list.filter(n => !read.has(n.id)) : list;
     return `<div class="page-h"><h1>Notifications</h1>${unread ? '<button class="btn" data-act="notif-all">Mark all as read</button>' : ''}</div>
-      ${UI.me ? '<div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length]], f) + '</div>' : ''}
+      ${UI.me ? '<div class="bar-row">' + seg('ntab', [['unread', 'Unread', unread], ['all', 'All', list.length]].concat(canPlan() ? [['log', 'Email log']] : []), f) + '</div>' : ''}
       ${!UI.me ? emptyLine('Choose your name to see your notifications', 'Use the person icon at the top right.') : shown.length ? '<div class="rows">' + shown.map(n => '<div class="r r-note' + (read.has(n.id) ? ' is-read' : '') + '" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'><span class="mark ' + ({ red: 'red', amber: 'amber', info: 'ring' }[n.level]) + '"></span><span class="r-main"><button class="r-t" data-act="notif-open" data-n="' + esc(n.id) + '" data-go=\'' + JSON.stringify(n.go).replace(/'/g, '&#39;') + '\'>' + esc(n.text) + '</button><span class="r-s">' + esc(n.kind) + (n.ts ? ', ' + esc(shortTime(n.ts)) : '') + '</span></span>' + (read.has(n.id) ? '' : '<button class="linkbtn" data-act="notif-read" data-n="' + esc(n.id) + '">Mark as read</button>') + '</div>').join('') + '</div>' : emptyLine('You are all caught up', 'Nothing needs your attention right now.')}
       <details class="acc"><summary>${CHEV}Choose what you see</summary><div class="acc-bd"><p class="quiet">Saved in this browser.</p>${NOTIF_GROUPS.map(g => '<label class="chk"><input type="checkbox" data-act="notif-pref" data-g="' + esc(g[0]) + '" ' + (notifOff().has(g[0]) ? '' : 'checked') + '><span>' + esc(g[0]) + '</span></label>').join('')}</div></details>`;
+  }
+
+  // ---------- assigning work by email ----------
+  const PRIO_WORD = { P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' };
+  const prioLabel = p => PRIO_WORD[p] ? PRIO_WORD[p] + ' (' + p + ')' : (p || 'Not set');
+  const prioOptions = () => opt('priorities').map(p => [p, prioLabel(p)]);
+  const dirFind = mail => (S.directory || []).find(u => u.email === String(mail || '').trim().toLowerCase());
+  const dirEmails = () => (S.directory || []).map(u => u.email);
+  const safePhoto = u => /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//i.test(String((u && u.photoUrl) || '')) ? u.photoUrl : '';
+  const face = u => safePhoto(u) ? '<img class="emp-av" src="' + esc(safePhoto(u)) + '" alt="" referrerpolicy="no-referrer">' : '<span class="emp-av">' + esc(initials(u.name || u.email)) + '</span>';
+  const empCard = u => u ? face(u) + '<span><b>' + esc(u.name) + '</b><span class="quiet">' + esc([u.designation, u.department, u.employeeId].filter(Boolean).join(' · ') || u.email) + '</span></span>' : '';
+  const emailList = v => [...new Set(String(v || '').toLowerCase().split(/[\s,;]+/).filter(Boolean))];
+  function showEmployeeMatch(input, box) {
+    if (!box) return;
+    const mails = emailList(input.value), found = mails.map(dirFind), bad = mails.filter((m, i) => !found[i]);
+    box.className = 'emp-match' + (mails.length && !bad.length ? ' ok' : bad.length ? ' no' : '');
+    box.innerHTML = bad.length ? '<span>No registered employee has this exact email: ' + esc(bad.join(', ')) + '</span>' : found.map(u => '<div class="emp-one">' + empCard(u) + '</div>').join('');
+  }
+  /** An email must be a registered person. Plain words stay as they are: older records and team names use them. */
+  function ownerInput(v) {
+    const text = String(v || '').trim();
+    if (!text.includes('@')) return { name: text, email: '' };
+    const u = dirFind(text);
+    return u ? { name: u.name, email: u.email } : { error: text + ' is not a registered employee.' };
+  }
+  function assignForm(pre, problems, req) {
+    const mine = liveProjects().filter(canManageP);
+    if (!canPlan() || !mine.length) { toast(canPlan() ? 'You do not manage a project yet. Ask a Super Admin to add you to one.' : 'Only Super Admins and Managers can assign tasks.', true); return; }
+    const here = UI.view === 'project' && canManageP(P(UI.projectId)) ? UI.projectId : '';
+    const vals = Object.assign({ priority: 'P2', projectId: here }, pre || {});
+    openForm('Assign a task', [
+      { k: 'name', label: 'Task title', req: true, full: true },
+      { k: 'desc', label: 'Description', type: 'textarea', full: true, rows: 3 },
+      { k: 'projectId', label: 'Project', type: 'select', allowBlank: true, blank: 'Choose a project', req: true, full: true, options: mine.map(p => [p.id, p.name]) },
+      { k: 'ownerEmail', label: 'Employee\'s official email (separate several with commas)', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
+      { k: 'priority', label: 'Priority', type: 'select', req: true, options: prioOptions() },
+      { k: 'due', label: 'Deadline', type: 'date', req: true }
+    ], vals, o => {
+      const missing = emailList(o.ownerEmail).filter(m => !dirFind(m));
+      if (!emailList(o.ownerEmail).length) { $('#ferr').textContent = 'Enter the employee\'s official email.'; return false; }
+      if (missing.length) { $('#ferr').textContent = missing.join(', ') + ' is not a registered employee. Check the address, or add them under Administration.'; return false; }
+      if (o.due < todayStr()) { $('#ferr').textContent = 'The deadline is in the past.'; return false; }
+      assignConfirm(o, req || uid('ASSIGN') + Date.now());
+      return false;
+    }, '', 'Review assignment');
+    const box = $('#emp-match'), input = $('#mform [name="ownerEmail"]');
+    showEmployeeMatch(input, box);
+    input.addEventListener('input', () => showEmployeeMatch(input, box));
+    if ((problems || []).length) $('#ferr').textContent = problems.join(' ');
+  }
+  function assignConfirm(o, req) {
+    const us = emailList(o.ownerEmail).map(dirFind), names = us.map(u => u.name).join(', '), p = P(o.projectId), root = $('#modal-root');
+    const row = (l, v) => '<div><dt>' + esc(l) + '</dt><dd>' + esc(v) + '</dd></div>';
+    root.innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Confirm this assignment</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb">' +
+      '<div class="emp-match ok">' + us.map(u => '<div class="emp-one">' + empCard(u) + '</div>').join('') + '</div>' +
+      '<dl class="kv-g kv-2">' + row('Task', o.name) + row('Project', p ? p.name : o.projectId) + row('Priority', prioLabel(o.priority)) + row('Deadline', fmtLong(o.due)) + row(us.length > 1 ? 'Emails' : 'Email', us.map(u => u.email).join(', ')) + row('Assigned by', ME.name || UI.me) + '</dl>' +
+      (o.desc ? '<section class="ts"><h3>Description</h3><p>' + esc(o.desc) + '</p></section>' : '') +
+      '<p class="quiet">Confirming saves the task to the Google Sheet, emails ' + esc(names) + ', and puts it on ' + (us.length > 1 ? 'their dashboards' : 'their dashboard') + '.</p><div class="ferr" id="ferr" role="alert"></div></div>' +
+      '<div class="mf"><button class="btn" data-act="assign-back">Back</button><button class="btn primary" id="assign-go" data-act="assign-send">Confirm assignment</button></div></div></div>';
+    root._assign = { o, req, busy: false };
+    root._dirty = false;
+    root._onSave = assignSend;
+  }
+  async function assignSend() {
+    const root = $('#modal-root'), a = root._assign, btn = $('#assign-go');
+    if (!a || a.busy) return;
+    a.busy = true; a.sent = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Assigning'; }
+    const stop = msg => { a.busy = false; if (btn) { btn.disabled = false; btn.textContent = 'Confirm assignment'; } const e = $('#ferr'); if (e) e.textContent = msg; };
+    let r;
+    try { r = await SYNC.assign(a.o, a.req); }
+    catch (e) { return stop('Could not reach the Sheet, and the task may not be saved yet. Press Confirm again: it cannot create a second task.'); }
+    if (!r) return;
+    if (!r.ok) return r.field ? assignForm(a.o, [r.error], a.req) : stop(r.error || 'The task was not saved.');
+    assignDone(r);
+  }
+  function emailLine(n) {
+    if (!n) return ['grey', 'No email', 'You assigned this to yourself, so no email was needed.'];
+    const to = n.recipientName + ' (' + n.recipientEmail + ')';
+    const note = /^Test mode/.test(n.errorDetails || '') ? ' ' + n.errorDetails + '.' : '';
+    if (n.deliveryStatus === 'accepted') return ['green', 'Email accepted', 'Google\'s mail service accepted it for ' + to + '. It cannot confirm the inbox received it.' + note];
+    if (n.deliveryStatus === 'queued') return ['amber', 'Email queued', 'It will go to ' + to + ' within a few minutes.'];
+    if (n.deliveryStatus === 'failed') return ['red', 'Email failed', 'Not sent to ' + to + ' (' + (n.errorDetails || 'unknown error') + '). It will retry by itself.'];
+    if (n.deliveryStatus === 'skipped') return ['grey', 'Email off', 'Emails are turned off, so nothing was sent to ' + to + '.'];
+    return ['red', 'Email stopped', 'Stopped after repeated failures: ' + (n.errorDetails || 'unknown error') + '.'];
+  }
+  function assignDone(r) {
+    const t = r.task, notes = r.notified || [], mails = notes.filter(n => n.channel === 'email'), inApp = notes.filter(n => n.channel === 'in-app');
+    const who = (r.employees || []).map(e => e.name).join(', ') || t.owner;
+    const line = (tone, head, text) => '<li><span class="pill ' + tone + '">' + esc(head) + '</span><span>' + esc(text) + '</span></li>';
+    const emails = (mails.length ? mails : [null]).map(n => { const em = emailLine(n); return line(em[0], em[1], em[2]); }).join('');
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(t.id) + (r.duplicate ? ' was already assigned' : ' assigned to ' + esc(who)) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close">×</button></div><div class="mb"><p>' + esc(t.name) + '</p><ul class="done-list">' +
+      line('green', 'Saved', 'In the Google Sheet as ' + t.id + '.') + emails +
+      line(inApp.length ? 'green' : 'grey', inApp.length ? 'In-app' : 'No alert', inApp.length ? 'A notification is waiting for ' + who + '.' : 'No in-app notification was needed.') +
+      line('green', 'Audit', 'Recorded with your name and the time.') + line('green', 'Dashboard', 'Shown on the dashboard of ' + who + ' the next time it refreshes.') +
+      '</ul></div><div class="mf"><button class="btn" data-act="assign-open" data-id="' + esc(t.id) + '">Open task</button><button class="btn" data-act="assign-again">Assign another</button><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
+    $('#modal-root')._dirty = false;
+    $('#modal-root')._onSave = closeModal;
+  }
+  function reassignForm(t) {
+    UI.taskId = null;
+    openForm('Reassign "' + t.name + '"', [
+      { k: 'ownerEmail', label: 'New owner\'s official email', type: 'datalist', options: dirEmails(), req: true, full: true, after: '<div id="emp-match" class="emp-match" aria-live="polite"></div>' },
+      { k: 'reason', label: 'Reason, recorded on the task', full: true }
+    ], {}, o => {
+      const u = dirFind(o.ownerEmail);
+      if (!u) { $('#ferr').textContent = o.ownerEmail + ' is not a registered employee.'; return false; }
+      if (t.ownerEmail === u.email) { $('#ferr').textContent = u.name + ' already owns this task.'; return false; }
+      if (!isTBD(t.owner) && !o.reason) { $('#ferr').textContent = 'Give a reason for changing the owner.'; return false; }
+      if (o.reason) addNote(t, 'update', 'Owner changed from ' + t.owner + ' to ' + u.name + ': ' + o.reason);
+      t.ownerEmail = u.email; t.owner = u.name;
+      stampTask(t);
+      save(true); closeModal(); render(); openTask(t.id);
+      toast(t.id + ' reassigned to ' + u.name);
+    }, '', 'Reassign');
+    const box = $('#emp-match'), input = $('#mform [name="ownerEmail"]');
+    input.addEventListener('input', () => showEmployeeMatch(input, box));
+  }
+  function runCommand() {
+    const box = $('#cmd-text'), text = box ? box.value.trim() : '';
+    if (!text) { toast('Type a command first.', true); return; }
+    const r = ENGINE.parseCommand(text, { today: todayStr(), projects: liveProjects().filter(canManageP), employees: S.directory || [] });
+    if (!r.problems.length) { UI.taskId = null; assignConfirm(r.task, uid('ASSIGN') + Date.now()); return; }
+    assignForm(r.task, r.problems);
+  }
+
+  // ---------- notification log ----------
+  const EVENT_NAME = { task_assigned: 'Task assigned', task_reassigned: 'Task reassigned', project_assigned: 'Project assigned', deadline_reminder: 'Deadline reminder', task_overdue: 'Task overdue', task_completed: 'Task completed', manager_comment: 'Manager comment', review_requested: 'Review requested', test_email: 'Test email' };
+  const DELIVERY = { accepted: ['green', 'Accepted by mail service'], queued: ['amber', 'Queued'], failed: ['red', 'Failed, will retry'], abandoned: ['red', 'Stopped'], skipped: ['grey', 'Not sent'], created: ['blue', 'Created'] };
+  async function loadNotifLog() {
+    UI.logBusy = true;
+    try { const r = await SYNC.request({ action: 'notification_log' }); UI.notifLog = r.ok ? r.rows : []; UI.logError = r.ok ? '' : (r.error || 'The log could not be loaded.'); }
+    catch (e) { UI.notifLog = []; UI.logError = 'The log could not be loaded. Check your connection.'; }
+    UI.logBusy = false; render();
+  }
+  function notifLogView() {
+    if (UI.notifLog === undefined) { if (!UI.logBusy) loadNotifLog(); return '<p class="quiet">Loading the log.</p>'; }
+    const f = UI.logFilter || 'email', rows = UI.notifLog.filter(r => f === 'all' ? true : f === 'problems' ? ['failed', 'abandoned'].includes(r.deliveryStatus) : r.channel === f);
+    const head = '<div class="bar-row">' + seg('logf', [['email', 'Emails'], ['in-app', 'In-app'], ['problems', 'Problems'], ['all', 'All']], f) + '<div class="btnrow"><button class="btn" data-act="log-refresh">Refresh</button>' + (isAdmin() ? '<button class="btn" data-act="log-retry">Retry all failed</button>' : '') + '</div></div>' +
+      '<p class="quiet">Accepted means Google\'s mail service took the email. It cannot show whether the email reached the inbox.</p>' + (UI.logError ? '<p class="flag red">' + esc(UI.logError) + '</p>' : '');
+    if (!rows.length) return head + emptyLine('Nothing here yet', 'Notifications appear here as soon as work is assigned.');
+    return head + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Event</th><th>Recipient</th><th>Task</th><th>Status</th><th>Tries</th><th>Details</th>' + (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(r => {
+      const d = DELIVERY[r.deliveryStatus] || ['grey', r.deliveryStatus];
+      return '<tr><td class="nw">' + esc(shortTime(r.ts)) + '</td><td>' + esc(EVENT_NAME[r.eventType] || r.eventType) + '</td><td>' + esc(r.recipientName || '') + '<br><span class="quiet">' + esc(r.recipientEmail) + '</span></td><td>' + (r.taskId ? '<button class="linkbtn" data-act="open-task" data-id="' + esc(r.taskId) + '">' + esc(r.taskId) + '</button>' : esc(r.projectId || '')) + '</td><td><span class="pill ' + d[0] + '">' + esc(d[1]) + '</span></td><td>' + esc(r.channel === 'email' ? r.attempts : '') + '</td><td>' + esc(r.errorDetails || '') + '</td>' +
+        (isAdmin() ? '<td class="nw">' + (r.channel === 'email' && ['failed', 'abandoned'].includes(r.deliveryStatus) ? '<button class="btn sm" data-act="log-retry" data-id="' + esc(r.notificationId) + '">Retry</button>' : r.channel === 'email' && r.eventType !== 'test_email' && r.deliveryStatus === 'accepted' ? '<button class="btn sm" data-act="log-resend" data-id="' + esc(r.notificationId) + '">Resend</button>' : '') + '</td>' : '') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  // ---------- integrations ----------
+  async function loadIntegrations() {
+    UI.integBusy = true;
+    try { UI.integ = await SYNC.request({ action: 'integration_status' }); }
+    catch (e) { UI.integ = { ok: false, error: 'The server could not be reached.' }; }
+    UI.integBusy = false; render();
+  }
+  function vIntegrations() {
+    const s = UI.integ;
+    if (s === undefined) { if (!UI.integBusy) loadIntegrations(); return '<p class="quiet">Checking each connection.</p>'; }
+    if (!s.ok) return '<p class="flag red">' + esc(s.error || 'Could not read the status.') + '</p><button class="btn" data-act="integ-refresh">Try again</button>';
+    const sync = S.meta.sync || {}, row = (l, v) => '<div><dt>' + esc(l) + '</dt><dd>' + esc(v) + '</dd></div>';
+    const yes = (ok, a, b) => '<span class="pill ' + (ok ? 'green' : 'amber') + '">' + esc(ok ? a : b) + '</span>';
+    const e = s.email, modeWord = e.mode === 'live' ? 'Live: employees receive emails' : e.mode === 'test' ? 'Test mode: all emails go to ' + e.testTo : 'Turned off';
+    return '<div class="bar-row"><p class="quiet">The state of each connection, read just now from the server. No keys or secrets are shown.</p><button class="btn" data-act="integ-refresh">Refresh</button></div>' +
+      (e.mode === 'test' ? '<p class="flag"><span><b>Emails are in test mode.</b> Nobody but ' + esc(e.testTo) + ' receives them. Use Control Tower &gt; Emails: go live in the Sheet when you are ready.</span></p>' : '') +
+      (!s.automation.retry ? '<p class="flag"><span><b>Retries and reminders are off.</b> Use Control Tower &gt; Turn on daily backup, reminders and email retries in the Sheet.</span></p>' : '') +
+      (s.sheet.problems.length ? '<p class="flag red"><span>' + esc(s.sheet.problems.join(' ')) + '</span></p>' : '') +
+      '<section class="sec"><div class="s-h"><h2>Google Sheet</h2>' + yes(!s.sheet.problems.length && sync.status !== 'error', 'Connected', sync.status === 'error' ? 'Last save failed' : 'Needs repair') + '</div><dl class="kv-g">' + row('Spreadsheet', s.sheet.name || 'Unknown') + row('Last change', s.sheet.updatedAt ? shortTime(s.sheet.updatedAt) : 'None yet') + row('Changed by', s.sheet.updatedBy || 'Unknown') + row('Version', String(s.sheet.version)) + row('Last sync here', sync.lastSync ? shortTime(sync.lastSync) : 'Not yet') + row('Saves waiting here', String(SYNC.pending() ? diffOps(SYNC.base, S).length : 0)) + row('Server version', 'API ' + s.api) + '</dl><div class="btnrow">' + (sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '<button class="btn" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Retry saving now</button><button class="btn" data-act="sync-test">Test connection</button></div></section>' +
+      '<section class="sec"><div class="s-h"><h2>Email</h2>' + yes(e.mode === 'live', 'Live', e.mode === 'test' ? 'Test mode' : 'Off') + '</div><dl class="kv-g">' + row('Mode', modeWord) + row('Sent from', e.sender || 'Unknown') + row('Left today', String(e.quota)) + row('Accepted', String(e.accepted)) + row('Queued', String(e.queued)) + row('Failed, retrying', String(e.failed)) + row('Stopped', String(e.abandoned)) + row('Last accepted', e.lastAcceptedAt ? shortTime(e.lastAcceptedAt) : 'None yet') + '</dl><div class="btnrow"><button class="btn" data-act="log-retry">Retry failed emails</button><button class="btn" data-act="integ-test-email">Send a test email to me</button><button class="btn" data-act="admintab" data-tab="log">Open notification log</button></div></section>' +
+      '<section class="sec"><div class="s-h"><h2>Sign-in</h2>' + yes(s.auth.required, 'Protected', 'Emergency access is open') + '</div><dl class="kv-g">' + row('Passwords', 'On') + row('Google sign-in', s.auth.clientIdSet ? 'Set up' : 'Not used') + row('Allowed domain', '@' + s.auth.domain) + row('Active employees', s.directory.active + ' of ' + s.directory.total) + row('Super Admins', String(s.directory.admins)) + '</dl></section>' +
+      '<section class="sec"><div class="s-h"><h2>Automation</h2>' + yes(s.automation.retry && s.automation.daily && s.automation.backup, 'Running', 'Not all on') + '</div><dl class="kv-g">' + row('Email retries', s.automation.retry ? 'Every 5 minutes' : 'Off') + row('Reminders', s.automation.daily ? 'Every morning' : 'Off') + row('Backup', s.automation.backup ? 'Every night' : 'Off') + '</dl></section>';
+  }
+
+  // ---------- employee directory ----------
+  function vEmployees() {
+    const admin = isAdmin(), q = String(UI.empQ || '').toLowerCase(), all = (admin ? S.users || [] : S.directory || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const team = UI.empTeam === 'team', us = team ? all.filter(u => u.managerEmail === ME.email) : all;
+    const shown = us.filter(u => !q || [u.name, u.email, u.department, u.designation, u.employeeId, ROLE_LABEL[u.role]].join(' ').toLowerCase().includes(q));
+    const byMail = m => { const x = all.find(u => u.email === m); return x ? x.name : m; };
+    const opens = u => admin ? 'edit-user' : u.managerEmail === ME.email ? 'edit-report' : '';
+    return '<div class="bar-row"><label class="fsel"><span>Search</span><input id="emp-q" value="' + esc(UI.empQ || '') + '" aria-label="Search employees"></label>' + seg('empteam', [['all', 'Everyone'], ['team', 'My team']], team ? 'team' : 'all') + '<p class="quiet">' + plural(all.filter(u => u.active !== false).length, 'active employee') + (admin ? ' of ' + all.length : '') + '</p>' + (admin ? '<button class="btn primary" data-act="add-user">Add employee</button>' : '') + '</div>' +
+      (admin ? '' : '<p class="quiet">Super Admins add employees and set roles. You can update the people who report to you.</p>') +
+      (shown.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Employee</th>' + (admin ? '<th>Role</th>' : '') + '<th>Department</th><th>Designation</th><th>Manager</th><th>Joined</th>' + (admin ? '<th>Status</th>' : '') + '</tr></thead><tbody>' + shown.map(u => { const a = opens(u); return '<tr' + (a ? ' data-act="' + a + '" data-id="' + esc(u.email) + '"' : '') + '><td class="nw">' + esc(u.employeeId || '') + '</td><td><span class="emp-row">' + face(u) + '<span>' + (a ? '<button class="r-t linkbtn" data-act="' + a + '" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button>' : '<b>' + esc(u.name || u.email) + '</b><br>') + '<span class="quiet">' + esc(u.email) + '</span></span></span></td>' + (admin ? '<td class="nw">' + esc(ROLE_LABEL[u.role] || u.role) + '</td>' : '') + '<td>' + esc(u.department || '') + '</td><td>' + esc(u.designation || '') + '</td><td>' + esc(u.managerEmail ? byMail(u.managerEmail) : '') + '</td><td class="nw">' + esc(u.joiningDate ? fmtShort(u.joiningDate) : '') + '</td>' + (admin ? '<td><span class="pill ' + (u.active ? 'green' : 'grey') + '">' + (u.active ? 'Active' : 'Inactive') + '</span></td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>' : emptyLine(all.length && !team ? 'No one matches' : team ? 'No one reports to you yet' : 'No employees yet', team ? 'A Super Admin sets each person\'s manager.' : all.length ? 'Try a different search.' : 'Add your team here or in the Users tab of the Sheet.'));
+  }
+  /** Managers update their own reports. The server allows these three fields and no others. */
+  function reportForm(u) {
+    if (!u) return;
+    openForm(u.name, [
+      { k: 'emailShown', label: 'Official email', type: 'static', text: u.email + (u.employeeId ? ' · ' + u.employeeId : '') },
+      { k: 'department', label: 'Department' }, { k: 'designation', label: 'Designation' }, { k: 'joiningDate', label: 'Joining date', type: 'date' }
+    ], u, o => {
+      SYNC.request({ action: 'apply', requestId: uid('REQ') + Date.now(), ops: [{ c: 'users', id: u.email, rec: o }] }).then(r => {
+        toast(r.ok ? u.name + ' updated' : (r.rejected ? r.rejected[0].reason : r.error), !r.ok);
+        if (r.ok) SYNC.pull(true);
+      }).catch(() => toast('Could not reach the Sheet. Try again.', true));
+    });
+  }
+
+  // ---------- dashboard charts: real data, one hue, every value written out ----------
+  function hbars(rows, unit) {
+    const max = Math.max(1, ...rows.map(r => r.n));
+    return '<div class="hbars">' + rows.map(r => '<' + (r.act ? 'button' : 'div') + ' class="hb"' + (r.act ? ' data-act="' + r.act + '" ' + (r.attrs || '') : '') + ' data-tip="' + esc(r.label + '|' + (r.tip || r.n + ' ' + (unit || 'tasks'))) + '"><span class="hb-l">' + esc(r.label) + '</span><span class="hb-t"><i style="width:' + Math.max(r.n ? 2 : 0, r.n / (r.max || max) * 100) + '%"></i></span><b>' + esc(r.show !== undefined ? r.show : r.n) + '</b></' + (r.act ? 'button' : 'div') + '>').join('') + '</div>';
+  }
+  function dashSplit(list) {
+    const open = list.filter(ENGINE.isOpen), done = list.filter(ENGINE.isDone);
+    const active = open.filter(t => ['In Progress', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Blocked'].includes(t.status));
+    return { total: list.length, done, open, active, pending: open.filter(t => !active.includes(t)), overdue: open.filter(taskOverdue), assigned: list.filter(t => !isTBD(t.owner)) };
+  }
+  function weeklyDone(list) {
+    const start = addDays(weekStart(), -49), weeks = [];
+    for (let i = 0; i < 8; i++) { const from = addDays(start, i * 7), to = addDays(from, 6); weeks.push({ label: fmtShort(from), n: list.filter(t => ENGINE.isDone(t) && isDate(String(t.completedAt).slice(0, 10)) && String(t.completedAt).slice(0, 10) >= from && String(t.completedAt).slice(0, 10) <= to).length }); }
+    return weeks;
+  }
+  function dashCharts(list, employees) {
+    const stages = [['Not started', t => t.status === 'Not Started' || t.status === 'Backlog'], ['In progress', t => t.status === 'In Progress'], ['In review', t => ['In Review', 'Awaiting Approval', 'Changes Requested'].includes(t.status)], ['Blocked', t => t.status === 'Blocked'], ['On hold', t => t.status === 'On Hold'], ['Completed', ENGINE.isDone]];
+    const byStage = stages.map(s => ({ label: s[0], n: list.filter(s[1]).length }));
+    const openList = list.filter(ENGINE.isOpen);
+    const byPrio = opt('priorities').map(p => ({ label: prioLabel(p), n: openList.filter(t => t.priority === p).length }));
+    const projects = liveProjects().map(p => { const ts = list.filter(t => t.projectId === p.id); return { p, ts, pct: projectProgress(p.id) }; }).filter(x => x.ts.length).sort((a, b) => b.ts.filter(ENGINE.isOpen).length - a.ts.filter(ENGINE.isOpen).length).slice(0, 8);
+    const soon = openList.filter(t => isDate(t.due) && daysFromToday(t.due) >= 0 && daysFromToday(t.due) <= 14).sort((a, b) => a.due.localeCompare(b.due));
+    const weeks = weeklyDone(list);
+    const late = openList.filter(taskOverdue), lateDays = t => -daysFromToday(t.due);
+    const ages = [['1 to 7 days', 1, 7], ['8 to 30 days', 8, 30], ['Over 30 days', 31, 1e6]].map(a => ({ label: a[0], n: late.filter(t => lateDays(t) >= a[1] && lateDays(t) <= a[2]).length }));
+    const lateBy = [...new Set(late.map(t => t.projectId))].map(id => ({ label: pName(id), n: late.filter(t => t.projectId === id).length })).sort((a, b) => b.n - a.n).slice(0, 6);
+    const rows = employees.map(e => { const ts = list.filter(t => e.has(t)), s = dashSplit(ts); return { e, s }; }).filter(x => x.s.total).sort((a, b) => b.s.open.length - a.s.open.length);
+    const most = Math.max(1, ...rows.map(r => r.s.open.length));
+    return '<div class="chart-g">' +
+      '<section class="panel"><div class="s-h"><h2>Tasks by stage</h2></div>' + hbars(byStage) + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Open tasks by priority</h2></div>' + hbars(byPrio) + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Project progress</h2></div>' + (projects.length ? hbars(projects.map(x => ({ label: x.p.name, n: x.pct, max: 100, show: x.pct + '%', tip: x.ts.filter(ENGINE.isDone).length + ' of ' + x.ts.length + ' tasks done', act: 'open', attrs: 'data-id="' + esc(x.p.id) + '"' }))) : '<p class="quiet">No projects match these filters.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Completed per week</h2></div>' + (weeks.some(w => w.n) ? hbars(weeks.map(w => ({ label: 'Week of ' + w.label, n: w.n }))) : '<p class="quiet">No completions in the last 8 weeks.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Overdue tasks by age</h2></div>' + (late.length ? hbars(ages) : '<p class="quiet">Nothing is overdue.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Overdue tasks by project</h2></div>' + (late.length ? hbars(lateBy) : '<p class="quiet">Nothing is overdue.</p>') + '</section>' +
+      '</div><div class="dash-g">' +
+      '<section class="panel"><div class="s-h"><h2>Employee workload</h2></div>' + (rows.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Assigned</th><th>Completed</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead><tbody>' + rows.map(x => '<tr><td><button class="linkbtn" data-act="filter-emp-quick" data-emp="' + esc(x.e.name) + '">' + esc(x.e.name) + '</button><span class="load" aria-hidden="true"><i style="width:' + x.s.open.length / most * 100 + '%"></i></span></td><td>' + x.s.total + '</td><td>' + x.s.done.length + '</td><td>' + x.s.open.length + '</td><td>' + (x.s.overdue.length ? '<b class="t-red">' + x.s.overdue.length + '</b>' : '0') + '</td><td>' + pct(x.s.done.length, x.s.total) + '%</td></tr>').join('') + '</tbody></table></div>' : '<p class="quiet">No confirmed owners match these filters.</p>') + '</section>' +
+      '<section class="panel"><div class="s-h"><h2>Upcoming deadlines</h2></div>' + (soon.length ? '<div class="facts-l">' + soon.slice(0, 8).map(t => '<button class="fl" data-act="open-task" data-id="' + esc(t.id) + '"><span>' + esc(t.name) + '</span><b>' + esc(fmtShort(t.due)) + '</b></button>').join('') + '</div>' : '<p class="quiet">Nothing is due in the next 14 days.</p>') + '</section></div>';
+  }
+
+  // ---------- links from emails ----------
+  function openFromLink() {
+    const m = location.hash.match(/^#(task|project)=(.+)$/);
+    if (!m) return;
+    let id = '';
+    try { id = decodeURIComponent(m[2]); } catch (e) { /* a broken link opens nothing */ }
+    history.replaceState(null, '', location.pathname + location.search);
+    if (m[1] === 'task') { if (S.tasks.some(t => t.id === id)) openTask(id); else toast('This task is not available to you, or it no longer exists.', true); }
+    else if (P(id)) go('project', { id }); else toast('This project is not available to you, or it no longer exists.', true);
   }
 
   // ---------- reports ----------
@@ -2125,14 +2239,17 @@
 
   // ---------- administration ----------
   function vAdmin() {
-    if (!isAdmin()) return emptyLine('This page is for administrators', 'Ask an administrator if you need something changed here.');
+    if (!canPlan()) return emptyLine('This page is for Super Admins and Managers', 'Ask a Super Admin if you need something changed here.');
+    if (!isAdmin() && !['users', 'log'].includes(UI.adminTab)) UI.adminTab = 'users';
     const t = UI.adminTab;
-    const tabs = [['users', 'Users'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
+    const tabs = !isAdmin() ? [['users', 'Employees'], ['log', 'Notification log']] : [['users', 'Employees'], ['integrations', 'Integrations'], ['log', 'Notification log'], ['audit', 'Audit log'], ['trash', 'Deleted items', (S.trash || []).length], ['health', 'Health rules'], ['data', 'Sheet and data']];
     let body = '';
     if (t === 'users') {
-      const us = S.users || [];
-      body = (ME.open || ME.local ? '<p class="flag"><span><b>Google sign-in is off.</b> The sign-in on this page does not protect the data: anyone with the Apps Script link can read and change it. See SETUP_SIGN_IN.md to turn it on.</span></p>' : '') +
-        (SYNC.api >= 3 ? '<div class="bar-row"><p class="quiet">' + plural(us.length, 'user') + '</p><button class="btn primary" data-act="add-user">Add user</button></div><div class="rows">' + us.map(u => '<div class="r r-user" data-act="edit-user" data-id="' + esc(u.email) + '"><span class="av">' + esc(initials(u.name || u.email)) + '</span><span class="r-main"><button class="r-t" data-act="edit-user" data-id="' + esc(u.email) + '">' + esc(u.name || u.email) + '</button><span class="r-s">' + esc(u.email) + '</span></span><span class="r-who">' + esc(u.role) + '</span><span class="r-when"><span class="when">' + (u.active ? 'Active' : 'Inactive') + '</span></span></div>').join('') + '</div>' : '<p class="quiet">Update the Apps Script to manage users here. See SETUP_GOOGLE_SHEET.md.</p>');
+      body = vEmployees();
+    } else if (t === 'integrations') {
+      body = vIntegrations();
+    } else if (t === 'log') {
+      body = notifLogView();
     } else if (t === 'audit') {
       const q = UI.auditQ.toLowerCase();
       const all = (S.audit || []).filter(a => !q || (a.text + ' ' + a.actorName + ' ' + a.entityId).toLowerCase().includes(q));
@@ -2152,67 +2269,108 @@
   function userForm(u) {
     const isNew = !u;
     u = u || { email: '', name: '', role: 'Task Owner', active: true };
-    const f = [{ k: 'name', label: 'Name used on tasks and projects', type: 'datalist', options: people(), req: true, full: true, hint: 'Must match the name in owner fields, or their work will not show as theirs.' }];
-    if (isNew) f.push({ k: 'email', label: 'Suraasa email', type: 'email', req: true, full: true });
-    f.push({ k: 'role', label: 'Role', type: 'select', full: true, options: ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'] }, { k: 'active', label: 'Access', type: 'select', full: true, options: [['true', 'Active'], ['false', 'Inactive']] });
-    openForm(isNew ? 'Add user' : u.email, f, Object.assign({}, u, { active: String(u.active !== false) }), o => {
-      if (isNew) { const email = o.email.toLowerCase(); if ((S.users || []).some(x => x.email === email)) { $('#ferr').textContent = 'This user already exists.'; return false; } S.users = (S.users || []).concat([{ email, name: o.name, role: o.role, active: o.active === 'true' }]); }
-      else Object.assign(u, { name: o.name, role: o.role, active: o.active === 'true' });
-      commit('User ' + (isNew ? o.email : u.email) + ' saved');
-    });
+    const f = [{ k: 'name', label: 'Full name, as used on tasks and projects', type: 'datalist', options: people(), req: true, full: true }];
+    if (isNew) f.push({ k: 'email', label: 'Official email', type: 'email', req: true, full: true, hint: 'This is how work is assigned. It cannot be changed later.' });
+    else f.push({ k: 'emailShown', label: 'Official email', type: 'static', text: u.email + (u.employeeId ? ' · ' + u.employeeId : '') });
+    f.push({ k: 'role', label: 'Role', type: 'select', options: Object.keys(ROLE_LABEL).map(r => [r, ROLE_LABEL[r]]) },
+      { k: 'active', label: 'Access', type: 'select', options: [['true', 'Active'], ['false', 'Inactive']] },
+      { k: 'department', label: 'Department' }, { k: 'designation', label: 'Designation' },
+      { k: 'managerEmail', label: 'Manager\'s email', type: 'datalist', options: (S.users || []).filter(x => x.active && x.email !== u.email).map(x => x.email) },
+      { k: 'joiningDate', label: 'Joining date', type: 'date' },
+      { k: 'aliases', label: 'Other names on older tasks (comma separated)', full: true, hint: 'For example Head of Sales. Tasks under these names count as theirs.' });
+    openForm(isNew ? 'Add employee' : (u.name || u.email), f, Object.assign({}, u, { active: String(u.active !== false), aliases: (u.aliases || []).join(', ') }), o => {
+      const rec = { name: o.name, role: o.role, active: o.active === 'true', department: o.department, designation: o.designation, managerEmail: o.managerEmail.toLowerCase(), joiningDate: o.joiningDate, aliases: strToList(o.aliases) };
+      if (isNew) {
+        const email = o.email.trim().toLowerCase();
+        if ((S.users || []).some(x => x.email === email)) { $('#ferr').textContent = 'This employee already exists.'; return false; }
+        S.users = (S.users || []).concat([Object.assign({ email }, rec)]);
+      } else Object.assign(u, rec);
+      commit('Employee ' + (isNew ? o.email : u.email) + ' saved');
+    }, isNew || u.active === false ? '' : '<button class="btn" type="button" data-act="reset-password" data-id="' + esc(u.email) + '">Reset password</button>');
   }
 
   // ---------- authentication system ----------
-  function showSignIn(msg) {
+  function signInCard(sub, body) {
     const box = $('#signin');
     if (!box) return;
     box.hidden = false;
-    if (!SYNC.auth || !SYNC.auth.required) return showPasswordSignIn(msg);
     const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
-    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa Google account.</p></div>' +
-      (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') + '<div id="gsi"></div></div>';
+    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">' + esc(sub) + '</p></div>' + body + '</div>';
+  }
+  function signInErr(msg) { return msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : ''; }
+  function busy(form, label) { const b = form.querySelector('button'); b.disabled = true; b.textContent = label; }
+  function showSignIn(msg) {
+    if (SYNC.serverOld || SYNC.unreachable) return signInCard('Sign in with your work email and password.', signInErr(msg) + signInErr(SYNC.serverOld ? 'The server needs updating before anyone can sign in. Follow docs/DEPLOYMENT.md.' : 'The server could not be reached. Check your connection and refresh the page.'));
+    signInCard('Sign in with your work email and password.', signInErr(msg) +
+      '<form class="auth-form" id="pw-form"><div class="auth-field"><label for="pw-email">Work email</label><input id="pw-email" type="email" autocomplete="username" required maxlength="200" value="' + esc(SYNC.lastEmail || '') + '"></div><div class="auth-field"><label for="pw-pass">Password</label><input id="pw-pass" type="password" autocomplete="current-password" required maxlength="200"></div><button class="auth-btn" type="submit">Sign in</button></form>' +
+      '<p class="auth-sub">Forgot your password? Ask a Super Admin to reset it.</p><div id="gsi"></div>');
+    const form = $('#pw-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const email = $('#pw-email').value.trim(), password = $('#pw-pass').value;
+      SYNC.lastEmail = email;
+      busy(form, 'Signing in...');
+      SYNC.passwordLogin(email, password);
+    });
+    $(SYNC.lastEmail ? '#pw-pass' : '#pw-email').focus();
+    if (!SYNC.auth || !SYNC.auth.clientId) return;
+    // Optional: Sign in with Google also works once a client ID is set.
     const start = () => {
       try {
         google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
         google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
-      } catch (e) { /* the message above still shows */ }
+      } catch (e) { /* the password form still works */ }
     };
     if (window.google && window.google.accounts) { start(); return; }
     const s = document.createElement('script');
     s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = start;
-    s.onerror = () => showSignInError('Google sign-in could not load. Check your connection and refresh the page.');
     document.head.appendChild(s);
   }
-  function showPasswordSignIn(msg) {
-    const box = $('#signin');
-    const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
-    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa email</p></div>' +
-      '<form class="auth-form" id="form-signin" novalidate>' + (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') +
-      '<div class="auth-field"><label for="si-email">Official Suraasa email</label><input type="email" id="si-email" placeholder="name@suraasa.com" autocomplete="username"></div>' +
-      '<div class="auth-field"><label for="si-pw">Password</label><input type="password" id="si-pw" placeholder="Enter password" autocomplete="current-password"></div>' +
-      '<button type="submit" class="auth-btn">Sign in</button>' +
-      '<p class="auth-sub">Forgot your password? Ask Sales Operations.</p></form></div>';
-    $('#form-signin').addEventListener('submit', async e => {
+  function showNewPassword(msg) {
+    signInCard('Choose your own password to finish signing in.', signInErr(msg) +
+      '<form class="auth-form" id="pw-new"><div class="auth-field"><label for="pw-next">New password</label><input id="pw-next" type="password" autocomplete="new-password" required minlength="10" maxlength="200"><div class="hint">At least 10 characters. Do not reuse a password from another site.</div></div><div class="auth-field"><label for="pw-again">New password again</label><input id="pw-again" type="password" autocomplete="new-password" required maxlength="200"></div><button class="auth-btn" type="submit">Save password</button></form>');
+    const form = $('#pw-new');
+    form.addEventListener('submit', e => {
       e.preventDefault();
-      const email = $('#si-email').value, btn = $('#form-signin .auth-btn');
-      btn.disabled = true;
-      const r = await checkLogin(email, $('#si-pw').value);
-      if (r.error) { showPasswordSignIn(r.error); $('#si-email').value = email; return; }
-      try { localStorage.setItem('sct_person', r.user.email); } catch (x) { /* stays for this tab */ }
-      applyPerson(r.user);
-      box.hidden = true;
-      await SYNC.boot();
-      render();
+      const next = $('#pw-next').value;
+      if (next !== $('#pw-again').value) return showNewPassword('Those two passwords are not the same.');
+      busy(form, 'Saving...');
+      SYNC.finishPassword(next);
     });
-    if ($('#si-email')) $('#si-email').focus();
+    $('#pw-next').focus();
   }
-  function showSignInError(msg) { const g = $('#gsi'); if (g) g.innerHTML = '<div class="auth-err" role="alert">' + esc(msg) + '</div>'; }
+  function changePasswordForm() {
+    openForm('Change password', [
+      { k: 'currentPassword', label: 'Current password', type: 'password', req: true, full: true },
+      { k: 'newPassword', label: 'New password', type: 'password', req: true, full: true, hint: 'At least 10 characters.' },
+      { k: 'again', label: 'New password again', type: 'password', req: true, full: true }
+    ], {}, o => {
+      if (o.newPassword !== o.again) { $('#ferr').textContent = 'Those two passwords are not the same.'; return false; }
+      SYNC.request({ action: 'password_change', currentPassword: o.currentPassword, newPassword: o.newPassword }).then(r => {
+        if (r.auth === true) { closeModal(); return SYNC.needSignIn(r.error); }
+        if (!r.ok) { $('#ferr').textContent = r.error; return; }
+        $('#modal-root')._dirty = false; closeModal(); toast('Password changed');
+      }).catch(() => { $('#ferr').textContent = 'Could not reach the Sheet. Try again.'; });
+      return false;
+    }, '', 'Change password', true);
+  }
+  async function resetPassword(email) {
+    const u = (S.users || []).find(x => x.email === email);
+    if (!u || !confirm('Reset the password for ' + (u.name || email) + '? Their old password stops working, and they are signed out.')) return;
+    try {
+      const r = await SYNC.request({ action: 'password_reset', email });
+      if (r.auth === true) { closeModal(); return SYNC.needSignIn(r.error); }
+      if (!r.ok) return toast(r.error, true);
+      closeModal();
+      $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Temporary password</h2></div><div class="mb"><p>For ' + esc(u.name || email) + ':</p><p class="temp-pw" id="temp-pw">' + esc(r.tempPassword) + '</p><p class="quiet">Give this to them privately. It expires in 3 days, and they choose their own password when they sign in. It will not be shown again.</p></div><div class="mf"><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
+    } catch (e) { toast('Could not reach the Sheet. Try again.', true); }
+  }
 
   // ---------- profile ----------
   function openProfileModal() {
     closeModal();
     const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + esc(v || '') + '</dd></div>';
-    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb"><dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', ME.role) + '</dl><p class="quiet">Your name and role are set by an administrator, because your name links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb">' + (safePhoto(ME) ? '<p>' + face(ME) + '</p>' : '') + '<dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + row('Manager', ME.managerEmail) + row('Joining date', ME.joiningDate ? fmtLong(ME.joiningDate) : '') + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="change-password">Change password</button><button class="btn" data-act="close-modal">Close</button></div></div></div>';
   }
 
   // ---------- forms ----------
@@ -2225,16 +2383,16 @@
     const ph = proposed ? ' placeholder="' + esc(proposed.proposed ? 'Proposed: ' + proposed.name : 'Not decided yet') + '"' : '';
     let inp;
     if (f.type === 'textarea') inp = '<textarea id="' + id + '" name="' + f.k + '" rows="' + (f.rows || 3) + '">' + esc(v) + '</textarea>';
-    else if (f.type === 'select') inp = '<select id="' + id + '" name="' + f.k + '">' + (f.allowBlank ? '<option value="">None</option>' : '') + f.options.map(o => {
+    else if (f.type === 'select') inp = '<select id="' + id + '" name="' + f.k + '">' + (f.allowBlank ? '<option value="">' + esc(f.blank || 'None') + '</option>' : '') + f.options.map(o => {
       const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o;
       return '<option value="' + esc(ov) + '" ' + (String(v) === String(ov) ? 'selected' : '') + '>' + esc(ol) + '</option>';
     }).join('') + '</select>';
     else if (f.type === 'datalist') inp = '<input id="' + id + '" name="' + f.k + '" list="dl-' + f.k + '" value="' + esc(v) + '"' + ph + ' autocomplete="off"><datalist id="dl-' + f.k + '">' + f.options.map(o => '<option value="' + esc(o) + '">').join('') + '</datalist>';
     else inp = '<input id="' + id + '" name="' + f.k + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '" ' + (f.readonly ? 'readonly ' : '') + (f.min != null ? 'min="' + f.min + '" max="' + f.max + '"' : '') + '>';
-    return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
+    return '<div class="f' + (f.full ? ' full' : '') + '"><label for="' + id + '">' + esc(f.label) + '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + (f.after || '') + '</div>';
   }
 
-  function openForm(title, fields, vals, onSave, extraBtn, saveLabel) {
+  function openForm(title, fields, vals, onSave, extraBtn, saveLabel, personal) {
     const main = fields.filter(f => !f.more), more = fields.filter(f => f.more);
     const opener = document.activeElement;
     const h = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">' + esc(title) + '</h2><button class="btn icon ghost" data-act="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div><form id="mform" class="mb"><div class="form">' + main.map(f => fieldHtml(f, vals)).join('') + '</div>' +
@@ -2242,11 +2400,14 @@
       '<div class="ferr" id="ferr" role="alert"></div></form><div class="mf">' + (extraBtn ? '<div class="mf-l">' + extraBtn + '</div>' : '') + '<button class="btn" data-act="close-modal">Cancel</button><button class="btn primary" data-act="save-modal">' + esc(saveLabel || 'Save') + '</button></div></div></div>';
     $('#modal-root').innerHTML = h;
     const form = $('#mform');
+    const readOnly = !canWrite() && !personal; // `personal` forms save only in this browser
+    if (readOnly) { form.querySelectorAll('input, select, textarea').forEach(x => { x.disabled = true; }); ['[data-act="save-modal"]', '.mf-l'].forEach(q => { const n = $('#modal .mf ' + q); if (n) n.remove(); }); $('#modal h2').textContent = title + ' (read only)'; }
     $('#modal-root')._dirty = false;
     $('#modal-root')._opener = opener;
     form.addEventListener('input', () => { $('#modal-root')._dirty = true; });
     form.addEventListener('submit', e => { e.preventDefault(); $('#modal-root')._onSave(); });
     $('#modal-root')._onSave = () => {
+      if (readOnly) return;
       const fd = new FormData(form);
       const o = {};
       fields.forEach(f => {
@@ -2321,7 +2482,7 @@
     p = p || {
       id: nextId('PRJ'), status: 'Not Started', priority: 'P2', priorityProposed: true,
       category: opt('categories')[0] || 'Revenue Generation', type: 'Project',
-      owner: 'TBD', accountable: 'TBD', sponsor: '',
+      owner: ME.role === 'Project Owner' ? ME.name : 'TBD', accountable: 'TBD', sponsor: '', // a Manager starts as owner of what they create, or they could not assign work on it
       metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [],
       milestones: [], raci: [], comments: [], flags: [], datesProposed: true
     };
@@ -2330,11 +2491,12 @@
       { k: 'objective', label: 'What is it for?', type: 'textarea', full: true, rows: 2 },
       { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
       { k: 'accountable', label: 'Answerable', type: 'datalist', options: people(), tbd: true },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'status', label: 'Status', type: 'select', options: opt('projectStatuses') },
       { k: 'start', label: 'Start date', type: 'date' },
       { k: 'due', label: 'Target end', type: 'date', hint: 'Leave blank if ongoing' },
       { k: 'nextAction', label: 'Next action', full: true },
+      { k: 'managerEmails', label: 'Managers who can assign work here (emails, comma separated)', type: 'datalist', options: dirEmails(), full: true, more: true },
       { k: 'outcome', label: 'Expected outcome', type: 'textarea', full: true, more: true },
       { k: 'problem', label: 'Problem', type: 'textarea', full: true, more: true },
       { k: 'impact', label: 'Business impact', type: 'textarea', full: true, more: true },
@@ -2362,6 +2524,7 @@
       { k: 'id', label: 'Project ID', req: true, more: true, readonly: true }
     ];
     const vals = Object.assign({}, p, {
+      managerEmails: listToStr(p.managerEmails),
       metrics: (p.metrics || []).join('\n'),
       dependencies: (p.dependencies || []).join('\n'),
       risks: (p.risks || []).join('\n'),
@@ -2375,6 +2538,7 @@
     openForm(isNew ? 'New project' : 'Edit project', f, vals, o => {
       if (isNew && P(o.id)) { $('#ferr').textContent = 'Project ID already exists.'; return false; }
       const np = Object.assign({}, p, o, {
+        managerEmails: strToList(o.managerEmails).map(x => x.toLowerCase()),
         metrics: lineList(o.metrics),
         dependencies: lineList(o.dependencies),
         risks: lineList(o.risks),
@@ -2573,9 +2737,9 @@
     const f = [
       { k: 'name', label: 'Task', req: true, full: true },
       { k: 'projectId', label: 'Project', type: 'select', req: true, full: true, options: S.projects.map(p => [p.id, p.name]) },
-      { k: 'owner', label: 'Owner', type: 'datalist', options: people(), tbd: true },
+      { k: 'owner', label: 'Owner', type: 'datalist', options: dirEmails().concat(people()), tbd: true, hint: 'Use the official email. A team name marks work nobody holds yet.' },
       { k: 'due', label: 'Due date', type: 'date' },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'stage', label: 'Stage', type: 'select', options: STAGES },
       { k: 'status', label: 'Status', type: 'select', options: opt('taskStatuses') },
       { k: 'deliverable', label: 'Expected outcome', full: true },
@@ -2603,6 +2767,9 @@
       o.weight = +o.weight || 1;
       const stage = o.stage; delete o.stage;
       const reason = o.reason; delete o.reason;
+      const owner = ownerInput(o.owner);
+      if (owner.error) { $('#ferr').textContent = owner.error; return false; }
+      if (o.owner !== t.owner) { o.owner = owner.name; o.ownerEmail = owner.email; } // a name with no email is matched again on the server
       if (stage && statusToStage(o.status) !== stage) o.status = stageToStatus(stage);
       if (o.owner === 'TBD' && t.owner && isTBD(t.owner)) o.owner = t.owner;
       if (!isNew && !reason && ((o.due !== (t.due || '') && t.due) || (o.owner !== t.owner && !isTBD(t.owner)))) { $('#ferr').textContent = 'Give a reason for changing the owner or due date.'; return false; }
@@ -2828,7 +2995,7 @@
       { k: 'why', label: 'Why it matters', type: 'textarea', full: true, rows: 2 },
       { k: 'ownerRole', label: 'Suggested owner' },
       { k: 'timeline', label: 'When' },
-      { k: 'priority', label: 'Priority', type: 'select', options: opt('priorities') },
+      { k: 'priority', label: 'Priority', type: 'select', options: prioOptions() },
       { k: 'bucket', label: 'What it needs', type: 'select', options: opt('actionBuckets') },
       { k: 'output', label: 'Expected result', full: true, more: true },
       { k: 'dependency', label: 'Depends on', full: true, more: true },
@@ -2863,9 +3030,10 @@
   function csv(rows, cols) {
     const q = v => {
       v = v == null ? '' : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      if (/^[=+@\t\r-]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'" + v; // a spreadsheet must not run text from a task as a formula
+      return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     };
-    return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(typeof c === 'function' ? c(r) : r[c])).join(',')).join('\n');
+    return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(r[c])).join(',')).join('\n');
   }
 
   function exportCsv(what) {
@@ -2876,12 +3044,13 @@
       return;
     }
     const stamp = todayStr();
-    const taskCols = ['id', 'projectId', 'name', 'owner', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
-    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(t => Object.assign({ stage: statusToStage(t.status) }, t)), taskCols), 'text/csv');
+    const fullTask = t => Object.assign({ stage: statusToStage(t.status), late: taskOverdue(t) ? 'OVERDUE' : '', files: (t.attachments || []).map(a => a.url), comments: (t.notes || []).map(n => (n.author || n.who || '') + ': ' + n.text) }, t);
+    const taskCols = ['id', 'projectId', 'name', 'owner', 'ownerEmail', 'assignedBy', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
+    if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(fullTask), taskCols), 'text/csv');
     if (what === 'activity') download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
     if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ stage: statusToStage(t.status), project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
-    if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags']), 'text/csv');
-    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(t => Object.assign({ stage: statusToStage(t.status) }, t)), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', r => taskOverdue(r) ? 'OVERDUE' : '']), 'text/csv');
+    if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { files: (p.attachments || []).map(a => a.url), health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags', 'ownerEmail', 'accountableEmail', 'managerEmails', 'members', 'files']), 'text/csv');
+    if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(fullTask), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'ownerEmail', 'assignedBy', 'assignedByEmail', 'assignedAt', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', 'late', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'completedAt', 'files', 'comments']), 'text/csv');
     if (what === 'risks') download('risks_' + stamp + '.csv', csv(S.risks, ['id', 'projectId', 'desc', 'impact', 'probability', 'mitigation', 'owner', 'deadline', 'status', 'source']), 'text/csv');
     if (what === 'dependencies') download('dependencies_' + stamp + '.csv', csv(S.dependencies, ['id', 'projectId', 'desc', 'responsible', 'externalOwner', 'status', 'requiredBy', 'escalation']), 'text/csv');
     if (what === 'decisions') download('decisions_' + stamp + '.csv', csv(S.decisions, ['id', 'projectId', 'decision', 'owner', 'raised', 'requiredBy', 'impact', 'status', 'final', 'source']), 'text/csv');
@@ -2930,7 +3099,7 @@
   // Saves are sent one changed field at a time. The Sheet checks each change against what
   // this browser last saw, so two people can work at once without overwriting each other.
   const COLL = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id', decisions: 'id', actions: 'id', updates: 'id', programs: 'id', roles: 'name' };
-  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue']);
+  const SERVER_ONLY = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt', 'completedTs']);
   const APPEND_ONLY = new Set(['notes', 'comments']);
   function canon(v) {
     if (v === null || v === undefined || v === '') return '';
@@ -2939,7 +3108,8 @@
     return String(v);
   }
   const noteKey = n => n.id || (String(n.ts) + '|' + String(n.who || n.author || ''));
-  const sameRecord = (a, b) => [...new Set(Object.keys(a).concat(Object.keys(b)))].every(k => SERVER_ONLY.has(k) || k[0] === '_' || canon(a[k]) === canon(b[k]));
+  const SERVER_WORKS_OUT = new Set(['ownerEmail', 'accountableEmail']);
+  const sameRecord = (a, b) => [...new Set(Object.keys(a).concat(Object.keys(b)))].every(k => SERVER_ONLY.has(k) || SERVER_WORKS_OUT.has(k) || k[0] === '_' || canon(a[k]) === canon(b[k]));
   function diffOps(base, cur) {
     const ops = [];
     Object.keys(COLL).forEach(c => {
@@ -2992,12 +3162,12 @@
   }
 
   const SYNC = {
-    api: 0, auth: { required: false }, session: '', version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
+    api: 0, auth: { required: true }, session: '', sheetUrl: '', serverOld: false, unreachable: false, version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
     get config() {
-      if (!S.meta.sync) S.meta.sync = { url: '', enabled: false, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
+      if (!S.meta.sync) S.meta.sync = { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
     },
-    get apiUrl() { return this.config.url; },
+    get apiUrl() { return CONFIG.apiUrl; },
     init() {
       try {
         this.session = localStorage.getItem('sct_session') || '';
@@ -3025,8 +3195,9 @@
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
     needSignIn(msg) {
       this.session = '';
-      ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.open = false; ME.local = false; UI.me = '';
+      ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.aliases = []; ME.open = false; UI.me = ''; this.sheetUrl = '';
       try { localStorage.removeItem('sct_session'); localStorage.removeItem('sct_person'); } catch (e) { /* private window */ }
+      const m = $('#main'); if (m) m.innerHTML = '';
       this.checking = false;
       showSignIn(msg);
     },
@@ -3034,48 +3205,67 @@
       try {
         const r = await this.request({ action: 'login', idToken });
         if (!r.ok) return showSignIn(r.error);
-        this.session = r.session;
-        try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
-        $('#signin').hidden = true;
-        await this.pull(true);
+        await this.enter(r);
       } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
     },
-    signOut() {
+    async passwordLogin(email, password) {
+      try {
+        const r = await this.request({ action: 'password_login', email, password });
+        if (!r.ok) return showSignIn(r.error);
+        if (r.mustChange) { this.tempSession = r.session; return showNewPassword(''); } // kept aside: it opens nothing until they have chosen
+        await this.enter(r);
+      } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    async finishPassword(newPassword) {
+      try {
+        const r = await this.request({ action: 'password_change', session: this.tempSession, newPassword });
+        if (r.auth === true) { this.tempSession = ''; return showSignIn(r.error); }
+        if (!r.ok) return showNewPassword(r.error);
+        const session = this.tempSession; this.tempSession = '';
+        await this.enter({ session });
+      } catch (e) { showNewPassword('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    async enter(r) {
+      if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
+      this.session = r.session;
+      try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
+      $('#signin').hidden = true;
+      await this.pull(true);
+    },
+    async signOut() {
       if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
+      try { await this.request({ action: 'logout' }); } catch (e) { /* the session still ends by itself */ }
       this.needSignIn('');
       // Leave no copy of the work on a shared computer.
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); } catch (e) { /* private window */ }
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_browser_copy'); localStorage.removeItem('sct_owner'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
     // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
-      const person = savedPerson();
-      if (person) applyPerson(person);
-      if (!this.config.enabled || !this.config.url) { if (!person) showSignIn(''); return; }
+      if (!this.apiUrl) { this.unreachable = true; return this.needSignIn('This site has no server link. Set CT_API_URL when building it.'); }
       this.checking = true; this.setStatus('syncing');
-      try {
-        const p = await this.get('ping');
-        this.api = p.api || 1;
-        this.auth = p.auth || { required: false };
-        ME.open = !this.auth.required;
-        if (this.auth.required) {
-          if (ME.local) { ME.local = false; ME.role = 'Viewer'; ME.email = ''; ME.name = ''; UI.me = ''; }
-          if (!this.session) return this.needSignIn('');
-        } else {
-          if (!person) { this.checking = false; this.setStatus('connected'); return showSignIn(''); }
-          ME.open = false;
-        }
-        await this.pull(true);
-      } catch (e) {
+      let p;
+      try { p = await this.get('ping'); }
+      catch (e) {
+        this.checking = false;
         this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.');
-        if (!person && !this.session) { this.checking = false; return showSignIn(''); }
+        if (!this.session) { this.unreachable = true; return this.needSignIn(''); }
+        this.updateUI(); render();
+        return;
       }
+      this.api = p.api || 1;
+      this.auth = p.auth || { required: true };
+      // An older script has no sign-in. Nothing is read from it or sent to it.
+      if (this.api < API_NEEDED) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
+      if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; }
+      else if (!this.session) { this.checking = false; return this.needSignIn(''); }
+      await this.pull(true);
       this.checking = false; this.updateUI();
       render();
     },
     normalise(state, prev) {
-      ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
+      ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions', 'programs', 'roles', 'activity', 'audit', 'snapshots', 'users', 'trash', 'directory'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
       state.options = state.options || prev.options || {};
       state.governance = state.governance || prev.governance || { cadence: {}, rag: {}, classification: [] };
       state.meta = Object.assign({}, state.meta || {}, { sync: prev.meta.sync });
@@ -3138,17 +3328,28 @@
       if (this.busy) { this.again = true; return; }
       this.setStatus('syncing');
       try {
-        const data = this.api >= 3 ? await this.request({ action: 'pull' }) : await this.get('pull');
+        const data = await this.request({ action: 'pull' });
         if (data.auth === true) return this.needSignIn(data.error);
         if (data.error && !data.ok) throw new Error(data.error);
         const state = data.state || data;
         if (!Array.isArray(state.projects) || !Array.isArray(state.tasks)) throw new Error('The server sent something unexpected.');
-        if (data.me && !ME.local) {
-          ME.role = data.me.role; ME.email = data.me.email || ''; ME.name = data.me.name || '';
-          if (this.auth.required) { UI.me = ME.name; ME.open = false; }
+        if (data.me) {
+          // Unsaved work belongs to whoever typed it. It is never sent in the name of the next person on this browser.
+          let last = '';
+          try { last = localStorage.getItem('sct_owner') || ''; localStorage.setItem('sct_owner', data.me.email); } catch (e) { /* private window */ }
+          if (last !== data.me.email && this.base) {
+            const unsent = diffOps(this.base, S).length;
+            // No owner on record means this browser's work predates sign-in. It is kept to download, but never sent as this person.
+            if (!last && unsent) { try { localStorage.setItem('sct_browser_copy', JSON.stringify(S)); } catch (e) { /* too large to keep */ } }
+            if (last || unsent) { this.base = null; this.sending = null; }
+            if (unsent) toast(last ? 'Unsaved changes from the previous person on this browser were discarded.' : 'Older unsaved work on this browser was not sent. You can download it under Administration.', true);
+          }
+          Object.assign(ME, data.me, { open: false });
+          UI.me = ME.name;
         }
+        this.sheetUrl = data.sheetUrl || '';
         if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
-        const left = this.rebase(this.limitToPerson(state), data.version !== undefined ? data.version : this.version, drop);
+        const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
         this.config.lastSync = nowIso();
         this.setStatus('connected');
         this.config.error = null;
@@ -3163,8 +3364,16 @@
       }
       this.updateUI();
       render();
+      openFromLink();
     },
-    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(this.limitToPerson(d.state), d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
+    /** One confirmed assignment. The same requestId is safe to send again. */
+    async assign(task, requestId) {
+      const r = await this.request({ action: 'assign', requestId, task });
+      if (r.auth === true) { closeModal(); this.needSignIn(r.error); return null; }
+      if (r.ok) await this.pull(true);
+      return r;
+    },
+    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
     onLocalChange() {
       if (!this.config.enabled || !this.config.url || this.config.autoSync === false) return;
       this.setStatus('syncing');
@@ -3173,39 +3382,30 @@
     },
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
-      if (!this.config.url) { toast('The Google Sheet is not connected.', true); return; }
-      if (!ME.local && !this.session) return; // nothing is sent before someone signs in
+      if (!this.apiUrl) { toast('The Google Sheet is not connected.', true); return; }
+      if (!ME.open && (!this.session || !ME.email)) return; // nothing is sent before we know who is signed in
       if (this.busy) { this.again = true; return; }
-      if (this.api < 3 && this.api !== 0) return this.legacyPush();
-      if (this.api === 0) {
-        try {
-          const p = await this.get('ping');
-          this.api = p && p.api ? p.api : 1;
-          this.auth = p && p.auth ? p.auth : { required: false };
-        } catch (e) { return this.fail(e); }
-        if (this.api < 3) return this.legacyPush();
-      }
+      if (this.api < API_NEEDED) return;
       if (!this.base) { this.setStatus('connected'); return; }
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
       this.busy = true;
-      const requestId = uid('REQ') + Date.now();
+      // Until a save is acknowledged, a retry of the same change keeps its ID, so a lost reply cannot apply it twice.
+      const sig = JSON.stringify(ops);
+      if (!this.sending || this.sending.sig !== sig) this.sending = { sig, id: uid('REQ') + Date.now() };
+      const requestId = this.sending.id;
       try {
         const res = await this.request({ action: 'apply', requestId, ops });
-        if (res && !res.ok && res.error && res.error.toLowerCase().includes('unknown action')) {
-          this.api = 1;
-          this.busy = false;
-          return this.legacyPush();
-        }
         this.busy = false;
         if (res.auth === true) return this.needSignIn(res.error);
+        this.sending = null;
         if (res.rejected) return this.refused(res.rejected, ops);
-        if (!res.ok) throw new Error(res.error || 'The Sheet refused the save.');
+        if (!res.ok) { this.sending = { sig, id: requestId }; throw new Error(res.error || 'The Sheet refused the save.'); }
         ops.forEach(o => applyOp(this.base, o));
         (res.stamped || []).forEach(st => {
           [S, this.base].forEach(state => {
             const r = (state[st.c] || []).find(x => String(x[COLL[st.c]]) === String(st.id));
-            if (r) ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue'].forEach(k => { if (st[k]) r[k] = st[k]; });
+            if (r) { ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt', 'completedTs'].forEach(k => { if (st[k]) r[k] = st[k]; }); ['ownerEmail', 'accountableEmail'].forEach(k => { if (st[k] !== undefined) r[k] = st[k]; }); }
           });
         });
         if ((res.entries || []).length) { [S, this.base].forEach(state => { state.audit = res.entries.concat(state.audit || []).slice(0, 600); }); if (UI.taskId && $('#modal')) renderTaskPanel(); else if (UI.view === 'project') render(); }
@@ -3241,59 +3441,9 @@
       render();
       if (UI.taskId && $('#modal')) renderTaskPanel();
     },
-    // With the page's own sign-in the server sends everything, so the page limits what an employee sees.
-    limitToPerson(state) {
-      this.full = null;
-      if (!ME.local || ME.role !== 'Task Owner') return state;
-      const name = ME.name.toLowerCase();
-      const own = v => !/^\s*tbd/i.test(String(v || '')) && String(v || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(x => x.trim().toLowerCase() === name);
-      const mine = new Set(), theirs = new Set();
-      state.tasks.forEach(t => { if (own(t.owner) || own(t.accountable)) { mine.add(t.id); theirs.add(t.projectId); } });
-      for (let grew = true; grew;) { grew = false; state.tasks.forEach(t => { if (!mine.has(t.id) && t.parent && mine.has(t.parent)) { mine.add(t.id); grew = true; } }); }
-      const view = Object.assign({}, state, { tasks: state.tasks.filter(t => mine.has(t.id)), activity: [], users: [], trash: [] });
-      view.projects = state.projects.map(p => theirs.has(p.id) ? p : { id: p.id, name: p.name, status: p.status, priority: '', workstreams: [], milestones: [], raci: [], comments: [] });
-      ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { view[k] = (state[k] || []).filter(r => r.projectId ? theirs.has(r.projectId) : own(r.owner)); });
-      view.audit = (state.audit || []).filter(r => r.taskId ? mine.has(r.taskId) : theirs.has(r.projectId));
-      view.snapshots = (state.snapshots || []).filter(r => theirs.has(r.projectId));
-      const shown = {};
-      ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(k => { shown[k] = new Set(view[k].map(r => r.id)); });
-      shown.projects = theirs;
-      this.full = { state, shown };
-      return view;
-    },
-    // The old script replaces whole tabs, so it must receive the rows an employee cannot see as well.
-    withHiddenRows(state) {
-      if (!this.full) return state;
-      const { state: all, shown } = this.full, out = Object.assign({}, state, { activity: (state.activity || []).concat(all.activity || []) });
-      Object.keys(shown).forEach(k => {
-        const now = new Map((state[k] || []).map(r => [r.id, r])), had = new Set((all[k] || []).map(r => r.id));
-        out[k] = (all[k] || []).filter(r => !shown[k].has(r.id) || now.has(r.id)).map(r => shown[k].has(r.id) ? now.get(r.id) : r)
-          .concat((state[k] || []).filter(r => !had.has(r.id)));
-      });
-      return out;
-    },
-    async legacyPush() {
-      if (this.busy) { this.again = true; return; }
-      if (!this.base) { this.setStatus('connected'); return; } // never send a copy that did not come from the Sheet
-      if (ME.local && ME.role === 'Task Owner' && !this.full) { this.unsent = true; return this.pull(true); } // an employee's copy alone would replace the Sheet
-      this.busy = true; this.setStatus('syncing');
-      try {
-        const state = this.withHiddenRows(Object.assign({}, S)); ['audit', 'snapshots', 'users', 'trash'].forEach(k => delete state[k]);
-        const data = await this.request({ action: 'push', baseVersion: this.config.baseVersion, client: 'website', state });
-        this.busy = false;
-        if (data.conflict) {
-          await this.pull(true); // the version moves only once the newer data is merged, even if a panel delays that
-          return;
-        }
-        if (data.error || data.ok === false) throw new Error(data.error || 'The Sheet refused the save.');
-        this.config.baseVersion = data.version; this.version = data.version; this.base = clone(S); this.persistBase();
-        this.config.lastSync = nowIso(); this.unsent = false; this.setStatus('connected'); save(false);
-        if (this.again) { this.again = false; this.legacyPush(); }
-      } catch (err) { this.busy = false; this.fail(err); }
-    },
     async poll() {
-      if (!ME.local && !this.session) return;
-      if (!this.config.url || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
+      if (!ME.open && !this.session) return;
+      if (!this.apiUrl || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
       try {
         const data = await this.get('version');
         if (this.unsent) return this.flush();
@@ -3302,10 +3452,10 @@
       } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
     },
     async dailySnapshot() {
-      if (this.api < 3 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
-      const date = todayStr();
-      if ((S.snapshots || []).some(r => r.date === date)) return;
-      const rows = portfolioRows().map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
+      if (this.api < API_NEEDED || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
+      const date = todayStr(), have = new Set((S.snapshots || []).filter(r => r.date === date).map(r => r.projectId));
+      const rows = portfolioRows().filter(r => !have.has(r.p.id) && canManageP(r.p)).map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
+      if (!rows.length) return;
       try { await this.request({ action: 'snapshot', rows }); S.snapshots = (S.snapshots || []).concat(rows); } catch (e) { /* tomorrow's visit will add the next point */ }
     },
     updateUI() {
@@ -3485,6 +3635,35 @@
 
       // Tasks
       'add-task': () => taskForm(null, el.dataset.pid),
+      'assign-task': () => assignForm(),
+      'assign-back': () => { const a = $('#modal-root')._assign; assignForm(a.o, [], a.sent ? a.req : ''); }, // after a send, the same ID stops a second task
+      'assign-send': assignSend,
+      'assign-again': () => { closeModal(); assignForm(); },
+      'assign-open': () => { closeModal(); openTask(id); },
+      'reassign-task': () => { const t = S.tasks.find(x => x.id === id); if (t) reassignForm(t); },
+      'dup-task': () => { const t = S.tasks.find(x => x.id === id); if (!t) return; closeModal(); assignForm({ name: 'Copy of ' + t.name, desc: t.desc || '', projectId: t.projectId, ownerEmail: t.ownerEmail || '', priority: t.priority || 'P2', due: t.due && t.due >= todayStr() ? t.due : '' }); },
+      'edit-report': () => reportForm((S.directory || []).find(u => u.email === id)),
+      logf: () => { UI.logFilter = el.dataset.tab; render(); },
+      empteam: () => { UI.empTeam = el.dataset.tab; render(); },
+      'log-refresh': () => { UI.notifLog = undefined; render(); },
+      'log-retry': async () => {
+        const r = await SYNC.request({ action: 'notification_retry', id: id || '' });
+        toast(r.ok ? plural(r.requeued, 'email') + ' sent for retry' : r.error, !r.ok);
+        UI.notifLog = undefined; UI.integ = undefined; render();
+      },
+      'log-resend': async () => {
+        if (!confirm('Send this email again?')) return;
+        const r = await SYNC.request({ action: 'notification_resend', id });
+        toast(r.ok ? 'Email sent again' : r.error, !r.ok);
+        UI.notifLog = undefined; render();
+      },
+      'integ-refresh': () => { UI.integ = undefined; render(); },
+      'integ-test-email': async () => {
+        const r = await SYNC.request({ action: 'test_email' });
+        toast(r.ok ? 'Test email accepted for ' + r.recipientEmail : 'Test email failed: ' + r.error, !r.ok);
+        UI.integ = undefined; render();
+      },
+      'download-copy': () => download('control_tower_browser_copy_' + todayStr() + '.json', browserCopy(), 'application/json'),
       'edit-task': () => { UI.taskId = null; taskForm(S.tasks.find(t => t.id === id)); },
       'add-subtask': () => { const t = S.tasks.find(x => x.id === id); UI.taskId = null; taskForm(null, t.projectId, t.id); },
       'del-task': () => {
@@ -3618,35 +3797,16 @@
           if (card) card.scrollIntoView({ behavior: 'smooth' });
         }, 100);
       },
-      'save-sync-config': () => {
-        const urlInput = $('#sync-url-input');
-        const autoInput = $('#sync-auto-input');
-        const url = (urlInput ? urlInput.value.trim() : '');
-        const auto = autoInput ? autoInput.checked : true;
-        S.meta.sync = S.meta.sync || {};
-        S.meta.sync.url = url;
-        S.meta.sync.enabled = !!url;
-        S.meta.sync.autoSync = auto;
-        S.meta.sync.status = url ? 'connected' : 'idle';
-        S.meta.sync.error = null;
-        save(false);
-        render();
-        toast('Sync configuration saved!');
-      },
       'sync-pull': () => SYNC.pull(false),
       'sync-retry': () => SYNC.boot(),
       'report-clear': () => { UI.report = { from: '', to: '' }; render(); },
       'sync-push': () => SYNC.push(),
       'sync-test': async () => {
-        const url = ($('#sync-url-input') ? $('#sync-url-input').value.trim() : (S.meta.sync && S.meta.sync.url)) || '';
-        if (!url) { toast('Please enter a Web App URL first.', true); return; }
-        toast('Testing connection to Google Sheet...');
+        toast('Testing the connection');
         try {
-          const sep = url.includes('?') ? '&' : '?';
-          const res = await fetch(url + sep + '_=' + Date.now());
-          const d = await res.json();
-          if (d.error && !d.ok) throw new Error(d.error);
-          toast('Connection successful! Google Sheet: ' + (d.sheet || 'Connected') + ' (v' + (d.version !== undefined ? d.version : 1) + ')');
+          const d = await SYNC.get('ping');
+          if (d.api < API_NEEDED) throw new Error('the server needs updating');
+          toast('Connected. Sheet version ' + d.version + '.');
         } catch (err) {
           toast('Connection failed: ' + err.message, true);
         }
@@ -3701,7 +3861,7 @@
       tcal: () => { UI.tcal = el.dataset.m; render(); },
       'tfilter-go': () => { UI.tasksTouched = true; go('tasks', { tab: el.dataset.f }); },
       ntab: () => { UI.notifTab = el.dataset.tab; render(); },
-      admintab: () => { UI.adminTab = el.dataset.tab; render(); },
+      admintab: () => { UI.adminTab = el.dataset.tab; if (el.dataset.tab === 'integrations') UI.integ = undefined; if (el.dataset.tab === 'log') UI.notifLog = undefined; render(); },
       'notif-read': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); render(); },
       'notif-all': () => { const r = readSet(); myNotifications().forEach(n => r.add(n.id)); writeRead(r); render(); },
       'notif-open': () => { const r = readSet(); r.add(el.dataset.n); writeRead(r); const g = JSON.parse(el.dataset.go); if (g.view) { UI.taskFilter = g.filter || UI.taskFilter; UI.tasksTouched = true; go(g.view); } else if (g.task) { render(); openTask(g.task); } else if (g.project) go('project', { id: g.project }); else render(); },
@@ -3725,6 +3885,8 @@
       },
       'sign-out': () => SYNC.signOut(),
       'open-profile': () => openProfileModal(),
+      'change-password': () => changePasswordForm(),
+      'reset-password': () => resetPassword(id),
       'filter-emp-quick': () => { UI.mgmtEmpFilter = el.dataset.emp || ''; render(); },
       'quick-status': () => {
         const t = S.tasks.find(x => x.id === id);
@@ -3757,6 +3919,7 @@
 
   document.addEventListener('change', e => {
     if (e.target && e.target.id === 'mgmt-emp-filter') { UI.mgmtEmpFilter = e.target.value; render(); return; }
+    if (e.target && e.target.id === 'mgmt-proj-filter') { UI.mgmtProject = e.target.value; render(); return; }
     const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act; const id = el.dataset.id;
     if (act === 'filter') { UI.filters[el.dataset.k] = el.value; render(); }
     else if (act === 'sort-sel') { UI.sort[el.dataset.t] = el.value; render(); }
@@ -3791,6 +3954,7 @@
   document.addEventListener('input', e => {
     if (e.target.id === 'tu-text' && UI.taskId) { try { localStorage.setItem('sct_draft_' + UI.taskId, e.target.value); } catch (err) { /* private window */ } }
     if (e.target.id === 'audit-q') { UI.auditQ = e.target.value; render(); const q = $('#audit-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    if (e.target.id === 'emp-q') { UI.empQ = e.target.value; render(); const q = $('#emp-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
     if (e.target && e.target.id === 'mgmt-search-q') {
       UI.mgmtSearchQ = e.target.value;
       render();
@@ -3846,6 +4010,7 @@
   });
 
   document.addEventListener('submit', e => {
+    if (e.target.id !== undefined && e.target.matches('form[data-act="cmd-form"]')) { e.preventDefault(); runCommand(); return; }
     const f = e.target.closest('form[data-act="add-comment"]');
     if (!f) return;
     e.preventDefault();
@@ -3885,6 +4050,31 @@
     if (e.target.closest('#theme-toggle')) { toggleTheme(); renderMe(); }
   });
 
+  // ---------- uploads ----------
+  async function uploadFile(input, kind) {
+    const file = input.files[0], id = input.dataset.id;
+    input.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast('Files can be up to 10 MB.', true); return; }
+    toast('Uploading ' + file.name);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = ''; for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+      const r = await SYNC.request({ action: 'upload', kind, id, name: file.name, data: btoa(bin) });
+      if (r.auth === true) return SYNC.needSignIn(r.error);
+      if (!r.ok) { toast(r.error || 'The file was not saved.', true); return; }
+      // The server saved the link, so take its copy rather than sending a second change.
+      const open = kind === 'task' && UI.taskId === id;
+      [S, SYNC.base].forEach(state => { const rec = state && (kind === 'task' ? state.tasks : state.projects).find(x => x.id === id); if (rec) rec.attachments = (rec.attachments || []).concat([r.attachment]); });
+      save(false); render(); if (open) renderTaskPanel();
+      toast(r.note || file.name + ' uploaded', !!r.note);
+    } catch (e) { toast('The file was not uploaded. Check your connection and try again.', true); }
+  }
+  document.addEventListener('change', e => {
+    if (e.target.id === 'tk-file') uploadFile(e.target, 'task');
+    if (e.target.id === 'pj-file') uploadFile(e.target, 'project');
+  });
+
   // ---------- theme ----------
   function themeLabel() {
     const b = $('#theme-toggle');
@@ -3912,6 +4102,8 @@
   document.addEventListener('focusin', e => {
     if (e.target.id === 'q' && e.target.value.trim()) showFind();
   });
+
+  window.addEventListener('hashchange', () => { if (S && (SYNC.session || ME.open)) openFromLink(); });
 
   // ---------- boot ----------
   initTheme();

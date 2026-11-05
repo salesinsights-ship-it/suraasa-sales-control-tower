@@ -1,36 +1,96 @@
 # Test cases and results
 
-Deliverable 13. Run on 4 November 2026 on version 2.5.1, on a copy of the live data from 3 November.
+Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**361 checks, 0 failed**, plus 72 layout checks with no problems.
+**498 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
-| `tests/engine.test.js` | 31 | The rules, directly |
-| `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
+| `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
+| `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
+| `tests/automation.test.js` | 114 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
-| `tests/e2e/features.js` | 27 | Other new features, in Chromium |
-| `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
-| `tests/e2e/login.js` | 73 | The sign-in on the page with the old and the new script: every menu section, saving, emails, employee limits, phone |
-| `tests/e2e/roles.js` | 23 | What each role sees and can do, with sign-in on, and the home page numbers |
-| `tests/e2e/stage.js` | 28 | The Stage dropdown: panel, edit form, filters, board, rights |
-| `tests/e2e/delete.js` | 30 | Deleting tasks: row, panel, selection, undo, rights, links, phone |
-| `tests/e2e/conflicts.js` | 9 | Two browsers at once: conflicts, duplicate IDs, offline work, comment delete, import |
-| `tests/e2e/compat.js` | 5 | Old script with new site, new script with old site's saves |
-| `tests/e2e/sweep.js` | 72 | 12 screens × phone, tablet, desktop × light, dark: horizontal overflow and script errors |
+| `tests/e2e/features.js` | 27 | Other features, in Chromium |
+| `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
+| `tests/e2e/assignment.js` | 61 | Assigning by email end to end, lost replies, shared computers, phone |
+| `tests/e2e/roles.js` | 24 | What each role sees and can do, and the home page numbers |
+| `tests/e2e/stage.js` | 28 | The Stage dropdown |
+| `tests/e2e/delete.js` | 30 | Deleting tasks |
+| `tests/e2e/conflicts.js` | 9 | Two browsers at once, offline work |
+| `tests/e2e/compat.js` | 3 | The site refuses to talk to an older script |
+| `tests/e2e/csp.js` | 6 | The site under the real security headers |
+| `tests/e2e/sweep.js` | 72 | 12 screens on phone, tablet and desktop, light and dark: overflow and script errors |
 
-Everything here ran on a copy of the live data.
+`tests/e2e/login.js` was removed, because the sign-in it tested no longer exists.
+
+**Before this work:** at the commit this started from, all ten browser suites failed, because that commit disconnected the site from the Sheet. The earlier claim of 361 passing checks did not hold for that commit.
+
+## What the brief asked to test
+
+| Asked for | Where | Result |
+|---|---|---|
+| Employee assignment by email | `automation`: exact match, unknown, inactive, similar, a name in place of an email | Pass |
+| Assignment email generation | `automation`: every field, link, escaping | Pass, simulated mail |
+| Google Sheets synchronization | `automation`, `assignment`: every change reaches the same row | Pass, simulated Sheet |
+| Reassignment | `automation`, `assignment` | Pass |
+| Unauthorized data access | `automation`, `assignment`, `roles`: reads, writes, links | Pass |
+| Duplicate notifications | `automation`, `assignment`: retries, double clicks, lost replies | Pass |
+| Concurrent task updates | `automation`, `conflicts` | Pass |
+| Failure recovery | `automation`: mail down, daily limit, Sheet failing partway, 5 failures | Pass |
+
+## Feature report
+
+| Feature | Implementation | Test result | Status |
+|---|---|---|---|
+| Authentication | Email and password checked on the server, with salted hashes, a lock after five wrong tries and temporary passwords. Sign in with Google is optional. Sessions end after 6 hours idle or 12 hours in total, and on sign-out | Passed on a simulated script | Needs the new script version |
+| RBAC | Super Admin, Manager, Employee and Viewer, enforced on the server for every read and write | Passed, including direct-request attacks | Ready |
+| Task creation | Form, preview, one-line command and Duplicate. Task IDs never repeat | Passed. A double click or lost reply makes one task | Ready |
+| Employee assignment | One or several registered emails, matched exactly | Passed | Needs Users tab |
+| Google Sheets | Same Sheet and tabs. New columns go right of `_extra`, and every change reaches the same row | Passed, including an upgrade of a copy of your data | Needs deployment |
+| Email notifications | All 8 events, a log, retries and duplicate prevention. Starts in test mode | Passed, simulated mail | Needs go-live |
+| Project management | All existing features kept, plus email owners, Managers lists and uploads | Passed | Ready |
+| Employee dashboard | Overdue work, deadlines, My Projects, links from emails | Passed | Ready |
+| Admin dashboard | 10 real figures, 6 charts, workload table, deadlines and filters | Passed, numbers checked against the data | Ready |
+| Deployment | Security headers added. The site refuses older scripts | Passed on a local server, not on Vercel | Needs GitHub and script access |
+| Security | Public access closed by default. The published page holds no people, keys or Sheet address | Passed, then reviewed independently | Needs deployment |
+
+## Loading your data into a new Sheet
+
+The new Sheet was built by running the real `Code.gs` on a copy of the live data, writing every tab to a workbook, reading that workbook back onto a fresh simulated Sheet, and running `setupSheet` and a Google sign-in as the Sheet's owner. Every project, task, risk, dependency, decision, action, programme, role and activity record matched the live copy, field by field. That check found one real bug, now fixed: a single sentence with a comma in a line-by-line list, such as an assumption, was being split into two items.
+
+This has not been run through Google's own import.
 
 ## What these tests do not show
 
-- **Nothing ran on real Apps Script, real Google sign-in or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. The checks in [DEPLOYMENT.md](DEPLOYMENT.md) cover that gap.
-- The copy of live data is read-only. **No test wrote to your Sheet.**
-- The layout sweep finds overflow and errors. It does not judge appearance; key screens were also reviewed by eye.
+- **On real Google, only the script's setup, its public link and the data import have been proven.** Password sign-in, real email and saving from the site have not.
+- **The tests themselves ran on stand-ins, not real Apps Script, email or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. In particular, these need checking in step 8 of [DEPLOYMENT.md](DEPLOYMENT.md): that Google sign-in works, that an email arrives and looks right, and that `setupSheet` upgrades the real Sheet.
+- **The Vercel security headers were tested on a local server** with the same headers, not on Vercel.
+- The copy of live data was read-only. **No test wrote to your Sheet, and no test sent a real email.**
+- The layout sweep finds overflow and errors. It does not judge appearance. Key screens were also reviewed by eye.
 - No screen reader or load test was done.
 
-The simulation was made stricter after the review below: it now enforces Google's grid limits, the 50,000-character cell limit and the rule against deleting the last row. It still cannot prove real behaviour.
+## Independent review of this release
 
-## Independent review
+Separate reviewers, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build.
+
+| Pass | What it covered | Result |
+|---|---|---|
+| 1 | Security and logic of the whole release | 23 confirmed problems, 8 of them high severity. All fixed, each with a test |
+| 2 and 3 | Rechecks of those fixes | 7 fixes needed more work, some new problems, then 3 smaller items. All fixed |
+| 4 | Both briefs traced line by line against the code | About 265 requirements done, 21 gaps and 7 false doc statements. Fixed, apart from the limits below |
+| 5 | Google's own documentation for every service used | The Workspace `hd` check was missing, and cache keys were unbounded. Both fixed |
+| 6 | The code added by passes 4 and 5 | 1 high severity problem in the new sign-in limit, 3 medium and 7 small. All fixed |
+| 7 | The new password sign-in | No direct bypass. 1 high severity problem in the emergency switch, 2 medium and 2 small. All fixed, each with a test |
+
+**The fixes from passes 6 and 7 have tests but were not reviewed again.** The findings have moved from serious flaws to edge cases, but a review only shows what it found.
+
+Three outcomes were accepted on purpose:
+
+- A task an employee writes for themselves does not open up its project, and gives them no right to add weekly updates there.
+- A hand-added column named after a field stored in `_extra` is ignored. Your live Sheet has none.
+- A value typed literally as `'=x` loses its quote.
+
+## Earlier reviews
 
 A separate reviewer, who had not seen the work, read the server and sync code before release and reported 13 confirmed problems. Every one is fixed and now has a test. The review's own probe script was rerun after the fixes, and each attack it demonstrated now fails. A second separate review then covered the code added afterwards, and found 13 more confirmed problems, listed in the changelog. All are fixed, with tests for the ones that can be tested automatically. Those last fixes have not been reviewed again.
 

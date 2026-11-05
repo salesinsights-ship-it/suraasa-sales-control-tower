@@ -2,7 +2,7 @@
 const { chromium } = require('playwright');
 const { backend, page, CLIENT } = require('./harness');
 const results = []; const ok = (n, c, x) => results.push([c ? 'PASS' : 'FAIL', n + (x ? ' :: ' + x : '')]);
-const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = Object.assign({ aud: CLIENT, email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }, extra || {}); return id; };
+const token = (b, email, extra) => { const id = 'tok.' + email.replace(/[^\w]/g, '-') + '.sig'; b.tokens[id] = Object.assign({ aud: CLIENT, iss: 'https://accounts.google.com', hd: email.split('@')[1], email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }, extra || {}); return id; };
 (async () => {
   const br = await chromium.launch();
   const b = backend(true);
@@ -30,6 +30,47 @@ const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = O
   ok('editing browser storage gets nowhere', tamper.gate && !tamper.projects && tamper.role === 'Viewer', JSON.stringify(tamper));
   ok('no copy of the work left in this browser', await p.evaluate(() => !SCT.state.projects.length && !/Referral Plan|Messaging/.test(JSON.stringify(localStorage))));
   ok('no page errors', !p.errs.length, p.errs.join('|'));
+
+  // Passwords, with no Google client ID on the script.
+  const q0 = backend(true); q0.props.delete('AUTH_CLIENT_ID');
+  const temp = 'temp-pass-1234'; q0.ctx.pwStore_('admin@suraasa.com', temp, true); q0.ctx.pwStore_('ak@suraasa.com', 'ankit long password', false);
+  const q = await page(br, q0);
+  const form = async (e, pw) => { await q.fill('#pw-email', e); await q.fill('#pw-pass', pw); await q.click('#pw-form button'); await q.waitForTimeout(400); };
+  ok('the password form shows without Google set up', await q.evaluate(() => !!document.querySelector('#pw-form') && !/Google sign-in has not/.test(document.querySelector('#signin').textContent)));
+  ok('the password box hides what is typed', await q.getAttribute('#pw-pass', 'type') === 'password');
+  if (process.env.SHOTS) await q.screenshot({ path: require('path').join(process.env.SHOTS, 'signin-password.png') });
+  await form('admin@suraasa.com', 'wrong password');
+  ok('a wrong password is refused, and the email stays', /not right/.test(await q.textContent('#signin')) && await q.inputValue('#pw-email') === 'admin@suraasa.com');
+  ok('nothing is shown after a wrong password', await q.evaluate(() => !SCT.state.projects.length));
+  await form('admin@suraasa.com', temp);
+  ok('a temporary password leads to choosing a new one', await q.evaluate(() => !!document.querySelector('#pw-new') && !SCT.state.projects.length));
+  await q.fill('#pw-next', 'a new long password'); await q.fill('#pw-again', 'something different'); await q.click('#pw-new button'); await q.waitForTimeout(200);
+  ok('two different passwords are caught', /not the same/.test(await q.textContent('#signin')));
+  await q.fill('#pw-next', 'a new long password'); await q.fill('#pw-again', 'a new long password'); await q.click('#pw-new button'); await q.waitForTimeout(600);
+  ok('then they are in, with their role', await q.evaluate(() => document.querySelector('#signin').hidden && SCT.ME.role === 'Administrator' && SCT.state.projects.length > 0));
+  ok('no password is kept in the browser', await q.evaluate(() => !/new long password|temp-pass/.test(JSON.stringify(localStorage) + JSON.stringify(sessionStorage))));
+  await q.reload(); await q.waitForTimeout(500);
+  ok('stays signed in on reload', await q.evaluate(() => document.querySelector('#signin').hidden));
+  await q.click('#me-btn'); await q.click('[data-act="open-profile"]'); await q.click('[data-act="change-password"]');
+  await q.fill('#f-currentPassword', 'wrong one'); await q.fill('#f-newPassword', 'second long password'); await q.fill('#f-again', 'second long password'); await q.click('[data-act="save-modal"]'); await q.waitForTimeout(300);
+  ok('changing a password needs the current one', /current password/.test(await q.textContent('#ferr')));
+  await q.fill('#f-currentPassword', 'a new long password'); await q.fill('#f-newPassword', 'second long password'); await q.fill('#f-again', 'second long password'); await q.click('[data-act="save-modal"]'); await q.waitForTimeout(400);
+  ok('a person can change their own password', await q.evaluate(() => !document.querySelector('#modal')));
+  await q.click('#me-btn'); await q.click('[data-act="sign-out"]'); await q.waitForTimeout(500);
+  await form('admin@suraasa.com', 'a new long password');
+  ok('the old password has stopped working', /not right/.test(await q.textContent('#signin')));
+  await form('admin@suraasa.com', 'second long password'); await q.waitForTimeout(300);
+  ok('the new password works', await q.evaluate(() => document.querySelector('#signin').hidden));
+  await q.click('#nav [data-v="admin"]');
+  await q.waitForTimeout(300);
+  const onUsers = await q.evaluate(() => { const n = document.querySelector('[data-act="edit-user"][data-id="ak@suraasa.com"]'); if (n) n.click(); return !!n; });
+  ok('the Employees table is open', onUsers);
+  await q.waitForTimeout(200);
+  await q.click('[data-act="reset-password"]'); await q.waitForTimeout(400);
+  const shown = await q.textContent('#temp-pw').catch(() => '');
+  ok('a Super Admin gets a temporary password to pass on', /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/.test(shown), shown);
+  ok('it works for that person', q0.post({ action: 'password_login', email: 'ak@suraasa.com', password: shown }).mustChange === true);
+  ok('no page errors with passwords', !q.errs.length, q.errs.join('|'));
   await br.close();
   for (const r of results) console.log(r[0], r[1]);
   console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

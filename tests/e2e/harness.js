@@ -31,16 +31,16 @@ async function page(browser, b, opts = {}) {
     if (p.net.down) return r.abort();
     const q = r.request();
     const out = q.method() === 'POST' ? b.post(JSON.parse(q.postData())) : b.get(Object.fromEntries(new URL(q.url()).searchParams));
+    if (p.net.loseReply && q.method() === 'POST' && p.net.loseReply(JSON.parse(q.postData()))) { p.net.loseReply = null; return r.abort(); } // it arrived, but the answer never came back
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(out) });
   });
   await p.route(/fonts\.(googleapis|gstatic)/, r => opts.fonts ? r.continue() : r.abort());
   await p.route(/accounts\.google\.com/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.google={accounts:{id:{initialize(c){window.__gsi=c},renderButton(el){el.textContent="Sign in with Google"},disableAutoSelect(){}}}}' }));
   if (opts.session) await p.addInitScript(s => { try { if (!sessionStorage.getItem('x')) { localStorage.setItem('sct_session', s); sessionStorage.setItem('x', '1'); } } catch (e) {} }, opts.session);
   if (opts.me) await p.addInitScript(m => localStorage.setItem('sct_me', m), opts.me);
-  if (!opts.session && opts.person !== null) await p.addInitScript(e => { if (!sessionStorage.getItem('out')) localStorage.setItem('sct_person', e); }, opts.person || 'divya@suraasa.com');
   await p.goto(opts.url || 'file://' + path.join(ROOT, 'dist', 'index.html'));
   await p.waitForTimeout(opts.fonts ? 1500 : 450);
-  if (!opts.session && !opts.person && opts.person !== null) await p.evaluate(n => SCT.actAs(n), opts.me || '');
+  if (!opts.session && opts.person !== null) await p.evaluate(n => SCT.actAs(n), opts.me || '');
   return p;
 }
 module.exports = { backend, page, CLIENT };

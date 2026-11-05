@@ -83,5 +83,81 @@ test('every stage can be reached from every status', () => {
     if (to !== from) assert.ok(E.TRANSITIONS[from].includes(to), from + ' to ' + to);
   }));
 });
+const CMD = { today: '2026-11-05', projects: [{ id: 'PRJ-01', name: 'CRM' }, { id: 'PRJ-02', name: 'Website redesign' }, { id: 'PRJ-03', name: 'Website audit' }, { id: 'PRJ-04', name: 'CRM clean-up' }], employees: [{ email: 'rahul@suraasa.com', name: 'Rahul Verma' }] };
+const parse = t => E.parseCommand(t, CMD);
+test('the command example from the brief is read in full', () => {
+  const r = parse('Assign the high priority website redesign task to rahul@suraasa.com under the CRM project with a deadline of 10 November 2026.');
+  assert.deepStrictEqual(r.problems, []);
+  assert.deepStrictEqual([r.task.name, r.task.ownerEmail, r.task.projectId, r.task.priority, r.task.due], ['website redesign', 'rahul@suraasa.com', 'PRJ-01', 'P1', '2026-11-10']);
+});
+test('the first brief\'s example finds everything but the title, and asks for it', () => {
+  const r = parse('Assign a high-priority task to rahul@suraasa.com for the website redesign project. Deadline 10 November 2026.');
+  assert.deepStrictEqual([r.task.projectId, r.task.priority, r.task.due], ['PRJ-02', 'P1', '2026-11-10']);
+  assert.deepStrictEqual(r.problems, ['Add a task title.']);
+});
+test('commands never guess a person or a project', () => {
+  let r = parse('Assign the logo task to rahul@example.com under the CRM project by tomorrow, P2');
+  assert.ok(r.problems.some(x => /rahul@example\.com is not a registered/.test(x)));
+  r = parse('Assign the logo task to Rahul under the CRM project by tomorrow, P2'); assert.strictEqual(r.task.ownerEmail, ''); assert.ok(r.problems.includes('Add the employee\'s email.'));
+  r = parse('Assign the logo task to rahul@suraasa.com under the Website project by tomorrow, P2'); assert.strictEqual(r.task.projectId, ''); assert.ok(r.problems.some(x => /could be Website redesign or Website audit/.test(x)));
+  r = parse('Assign the logo task to rahul@suraasa.com under the Finance project by tomorrow, P2'); assert.strictEqual(r.task.projectId, ''); assert.ok(r.problems.some(x => /No project you manage/.test(x)));
+});
+test('an exact project name beats a longer one that contains it', () => { assert.strictEqual(parse('Assign the x task to rahul@suraasa.com under the CRM project by tomorrow, P1').task.projectId, 'PRJ-01'); });
+test('missing parts are listed, not invented', () => {
+  const r = parse('Do the thing'); assert.strictEqual(r.task.priority, ''); assert.strictEqual(r.task.due, ''); assert.strictEqual(r.problems.length, 5);
+});
+test('dates: day first, relative words, and impossible dates are refused', () => {
+  const due = t => parse('Assign the x task to rahul@suraasa.com under the CRM project, P1 ' + t).task.due;
+  assert.strictEqual(due('by 10/11/2026'), '2026-11-10');
+  assert.strictEqual(due('due 2026-12-25'), '2026-12-25');
+  assert.strictEqual(due('by November 30, 2026'), '2026-11-30');
+  assert.strictEqual(due('by 3rd Dec'), '2026-12-03');
+  assert.strictEqual(due('by 2 Jan'), '2027-01-02');
+  assert.strictEqual(due('by tomorrow'), '2026-11-06');
+  assert.strictEqual(due('in 3 days'), '2026-11-08');
+  assert.strictEqual(due('by Friday'), '2026-11-06');
+  assert.strictEqual(due('by 31/02/2027'), '');
+  assert.ok(parse('Assign the x task to rahul@suraasa.com under the CRM project, P1 by 1 January 2020').problems.includes('The deadline is in the past.'));
+});
+test('priority words and P numbers both work; "high" in a title is not a priority', () => {
+  const pr = t => parse('Assign the x task to rahul@suraasa.com under the CRM project by tomorrow ' + t).task.priority;
+  assert.strictEqual(pr('critical priority'), 'P0'); assert.strictEqual(pr('priority: low'), 'P3'); assert.strictEqual(pr('P2'), 'P2'); assert.strictEqual(pr('medium priority'), 'P2'); assert.strictEqual(pr('high school outreach'), '');
+});
+test('review cases: two dates, a bare "the project", and the email in a title are not guessed', () => {
+  let r = parse('Assign the x task to rahul@suraasa.com under the CRM project, P1, by 20 November, kickoff on 3 December');
+  assert.strictEqual(r.task.due, ''); assert.ok(r.problems.some(x => /more than one date/.test(x)));
+  r = E.parseCommand('Assign the x task to rahul@suraasa.com for the project by tomorrow, P1', { today: '2026-11-05', projects: [{ id: 'P', name: 'Theatre Workshops' }], employees: CMD.employees });
+  assert.strictEqual(r.task.projectId, ''); assert.ok(r.problems.includes('Choose a project.'));
+  r = parse('Assign rahul@suraasa.com the logo task under the CRM project by tomorrow, P1'); assert.ok(!r.task.name.includes('@'), r.task.name);
+  const long = 'a '.repeat(200000), t0 = Date.now(); parse(long); assert.ok(Date.now() - t0 < 500);
+});
+test('second review: ordinary title words are not read as a date, a priority or a project', () => {
+  let r = parse('Assign the Monday report task to rahul@suraasa.com under the CRM project by tomorrow, P1');
+  assert.strictEqual(r.task.due, '2026-11-06'); assert.strictEqual(r.task.name, 'Monday report');
+  r = parse('Assign the urgent care outreach task to rahul@suraasa.com under the CRM project by tomorrow'); assert.strictEqual(r.task.priority, ''); assert.ok(r.problems.includes('Choose a priority.'));
+  r = parse('Assign the report for teachers task to rahul@suraasa.com under the CRM project by tomorrow, P1');
+  assert.strictEqual(r.task.name, 'report for teachers'); assert.strictEqual(r.task.projectId, 'PRJ-01'); assert.deepStrictEqual(r.problems, []);
+  assert.strictEqual(parse('Assign the x task to rahul@suraasa.com under the CRM project, P1 by next Friday').task.due, '2026-11-13');
+  r = parse('Assign the May 5 webinar task to rahul@suraasa.com under the CRM project, P1'); assert.strictEqual(r.task.name, 'May 5 webinar'); assert.strictEqual(r.task.due, ''); assert.ok(r.problems.includes('Choose a deadline.'));
+  r = parse('Assign the today view task to rahul@suraasa.com under the CRM project, P1 by 20 November'); assert.strictEqual(r.task.name, 'today view'); assert.strictEqual(r.task.due, '2026-11-20');
+});
+test('completion and review notices reach the person who gave out the work', () => {
+  const task = { id: 'T', projectId: 'P', name: 'Plan', status: 'In Review', owner: 'Rahul', assignedByEmail: 'boss@x.com', due: '', updatedAt: '2026-11-05' };
+  const base = { me: 'Boss', email: 'boss@x.com', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [task], projects: [{ id: 'P', name: 'P', milestones: [] }], mine: () => false, ownsProject: () => false };
+  assert.ok(E.notifications(Object.assign({}, base, { audit: [] })).some(n => n.kind === 'Review requested'));
+  const done = E.notifications(Object.assign({}, base, { tasks: [Object.assign({}, task, { status: 'Completed' })], audit: [{ activityId: 'a', action: 'status_changed', newValue: 'Completed', taskId: 'T', projectId: 'P', actorName: 'Rahul', ts: '2026-11-05T10:00:00Z', text: 'x' }] }));
+  assert.ok(done.some(n => n.kind === 'Completed' && /completed by Rahul/.test(n.text)));
+  const other = E.notifications(Object.assign({}, base, { email: 'someone@x.com', tasks: [Object.assign({}, task, { status: 'Completed' })], audit: [{ activityId: 'a', action: 'status_changed', newValue: 'Completed', taskId: 'T', projectId: 'P', actorName: 'Rahul', ts: '', text: 'x' }] }));
+  assert.ok(!other.some(n => n.kind === 'Completed'));
+});
+test('a co-owner who stays on is not told they were assigned, and one review gives one notice', () => {
+  const base = { me: 'Rahul', email: 'r@x.com', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [{ id: 'T', projectId: 'P', name: 'x', status: 'In Review', owner: 'Rahul', updatedAt: '2026' }], projects: [{ id: 'P', name: 'P', milestones: [] }], mine: v => String(v).includes('Rahul'), ownsProject: () => true };
+  const list = E.notifications(Object.assign({}, base, { audit: [{ activityId: 'a', action: 'owner_changed', field: 'owner', oldValue: 'Rahul', newValue: 'Rahul, Priya', taskId: 'T', projectId: 'P', actorName: 'Boss', ts: '1', text: 'x' }, { activityId: 'b', action: 'status_changed', newValue: 'In Review', taskId: 'T', projectId: 'P', actorName: 'Boss', ts: '2', text: 'x' }] }));
+  assert.ok(!list.some(n => n.kind === 'Assigned to you' || n.kind === 'Reassigned')); assert.strictEqual(list.filter(n => n.kind === 'Review requested').length, 1);
+});
+test('deadline notices carry a date', () => {
+  const list = E.notifications({ me: 'R', todayStr: '2026-11-05', today: E.dayNum('2026-11-05'), tasks: [{ id: 'T', projectId: 'P', name: 'x', status: 'Not Started', owner: 'R', due: '2026-11-06' }], projects: [], audit: [], mine: v => v === 'R', ownsProject: () => false });
+  assert.ok(list.every(n => n.ts));
+});
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');
