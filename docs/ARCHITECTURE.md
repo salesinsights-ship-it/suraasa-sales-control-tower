@@ -73,7 +73,7 @@ Every email is first written to `NotificationLog` as `queued`, in the same step 
 
 `dedupeKey` stops the same notice going twice. `batchId` groups one person's notices from one save, or one day's reminders, into one email.
 
-**Test mode** is the default. Until someone chooses **Emails: go live**, every email goes to the script owner. Each row keeps the mode it was queued in, so a test notice can never reach an employee after going live, and a test does not use up the real email.
+**Test mode** is the default. Until someone chooses **Emails: go live**, every email goes to the script owner. Each row keeps the mode it was queued in, so a test notice can never reach an employee after going live, and a test does not use up the real email. An email queued for an employee waits if emails are later switched to test mode.
 
 One email lists at most 30 items, and points to the dashboard for the rest, to stay within Google's size limit.
 

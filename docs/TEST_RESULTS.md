@@ -2,13 +2,13 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**420 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**421 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 40 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 74 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 75 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
@@ -48,7 +48,7 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 
 ## Independent review of this release
 
-A separate reviewer, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build. It reported 23 confirmed problems, 8 of them high severity. All are fixed, each with a test. It then rechecked the fixes and found 7 that needed more work, plus some new problems the fixes caused. Those are fixed too.
+A separate reviewer, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build. It reported 23 confirmed problems, 8 of them high severity. All are fixed, each with a test. It rechecked the fixes twice. The first recheck found 7 that needed more work, plus some new problems the fixes caused, and those were fixed. The second confirmed them and found 3 smaller items, which were fixed last: dates inside titles, emails queued while live during test mode, and restoring records with unusual IDs. **Those last three have tests, but have not been reviewed again.**
 
 Three outcomes were accepted on purpose:
 

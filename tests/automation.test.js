@@ -591,9 +591,18 @@ test('test mode holds back everything, even an email queued while live; a batch 
   const r = assign(b, a, pid); down = false; b.props.set('EMAIL_MODE', 'test');
   const e = emails(b).find(x => x.taskId === r.task.id); b.ss.getSheetByName('NotificationLog').getRange(e._row, b.ctx.NOTIF_COLS.indexOf('nextAttemptAt') + 1).setValue(new Date(Date.now() - 1000).toISOString());
   b.ctx.processNotifications();
-  assert.strictEqual(b.mails.length, 1); assert.strictEqual(b.mails[0].to, 'owner@suraasa.com');
+  assert.strictEqual(b.mails.length, 0, 'it waits rather than going to the test inbox');
+  b.props.set('EMAIL_MODE', 'live'); b.ctx.processNotifications();
+  assert.strictEqual(b.mails.length, 1); assert.strictEqual(b.mails[0].to, 'rahul@suraasa.com');
   const q = company(), t = q.b; assign(t, q.s('boss@suraasa.com'), q.pid); t.props.set('EMAIL_MODE', 'test'); assign(t, q.s('boss@suraasa.com'), q.pid);
   const ids = emails(t).map(x => x.batchId); assert.ok(ids.every(x => /\|(live|test)$/.test(x)));
+});
+test('an old record with an unusual ID can still be restored', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), sh = b.ss.getSheetByName('Tasks'), t = assign(b, a, pid).task;
+  sh.getRange(b.ctx.rowOfId_(sh, 1, t.id), 1).setValue('T 77');
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'd77', ops: [{ c: 'tasks', id: 'T 77', del: true }] }).ok);
+  const row77 = pull(b, a).state.trash.find(x => x.recordId === 'T 77');
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'r77', ops: [{ c: 'tasks', id: 'T 77', create: true, restoreOf: row77.trashId, rec: JSON.parse(row77.record) }] }).ok);
 });
 test('a task ID cannot be a formula, and a repeated column cannot override the real one', () => {
   const { b, pid, s } = company(); const a = s('boss@suraasa.com');

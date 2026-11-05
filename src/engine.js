@@ -301,7 +301,9 @@ const ENGINE = (function () {
     else problems.push('Choose a priority.');
     // Two different dates in one sentence: asking is better than picking one.
     const dates = []; let scan = rest, hit = findDate(scan, d.today);
-    while (hit && dates.length < 5) { if (hit.date && !dates.some(x => x.date === hit.date)) dates.push(hit); scan = scan.replace(hit.text, ' '); hit = findDate(scan, d.today); }
+    // A date counts only after a word that means a deadline: "May 5 webinar" is a title.
+    const clued = h => /^(?:in|next|this|by|due|on|before|until|deadline)\s/i.test(h.text) || /\b(?:by|due|on|before|until|deadline(?:\s+(?:is|of|on|by))?)\s*:?\s*$/i.test(scan.slice(0, scan.indexOf(h.text)));
+    for (let tries = 0; hit && tries < 8; tries++) { if (hit.date && clued(hit) && !dates.some(x => x.date === hit.date)) dates.push(hit); scan = scan.replace(hit.text, ' '); hit = findDate(scan, d.today); }
     if (dates.length === 1) {
       task.due = dates[0].date;
       take(new RegExp('(?:\\b(?:with\\s+a\\s+)?(?:deadline(?:\\s+is|\\s+of|:)?|due(?:\\s+on|\\s+by|:)?|by|before|on)\\s+)?' + dates[0].text.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'), 'i'));

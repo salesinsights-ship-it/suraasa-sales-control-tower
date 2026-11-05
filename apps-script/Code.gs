@@ -1080,7 +1080,7 @@ function apply_(body, a, preloaded) {
     }
     if (op.create || !cur) {
       if (cur) return reject('This ID already exists: ' + op.id, 'duplicate');
-      if (idField === 'id' && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(op.id))) return reject('That is not a valid ID.', 'invalid');
+      if (idField === 'id' && !op.restoreOf && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(op.id))) return reject('That is not a valid ID.', 'invalid');
       if (!op.rec) return reject('This record no longer exists.', 'missing');
       next = JSON.parse(JSON.stringify(op.rec));
       next[idField] = op.id;
@@ -1541,6 +1541,7 @@ function deliver_(opts) {
     if (r.channel !== 'email') return;
     if (r.deliveryStatus !== 'queued' && !(r.deliveryStatus === 'failed' && (!r.nextAttemptAt || Date.parse(r.nextAttemptAt) <= now))) return;
     if (opts.batches && !opts.batches[r.batchId]) return;
+    if (r.emailMode === 'live' && emailMode_().mode !== 'live') return; // queued for an employee: it waits until emails are live again
     if (!groups[r.batchId]) { groups[r.batchId] = []; order.push(r.batchId); }
     groups[r.batchId].push(r);
   });
@@ -1554,8 +1555,8 @@ function sendBatch_(rows) {
   try {
     if (MailApp.getRemainingDailyQuota() < 1) { quota = true; throw new Error('daily email limit reached'); }
     var mail = renderEmail_(rows), to = first.recipientEmail;
-    // Both must be live: a test notice never reaches an employee after going live, and test mode holds back everything.
-    if (first.emailMode !== 'live' || emailMode_().mode !== 'live') {
+    // A row keeps the mode it was queued in, so a test notice never reaches an employee after going live.
+    if (first.emailMode !== 'live') {
       var box = testAddress_();
       if (!box) throw new Error('test mode has no address to send to');
       mail.subject = '[TEST for ' + to + '] ' + mail.subject;

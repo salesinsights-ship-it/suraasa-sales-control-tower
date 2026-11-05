@@ -138,6 +138,8 @@ test('second review: ordinary title words are not read as a date, a priority or 
   r = parse('Assign the report for teachers task to rahul@suraasa.com under the CRM project by tomorrow, P1');
   assert.strictEqual(r.task.name, 'report for teachers'); assert.strictEqual(r.task.projectId, 'PRJ-01'); assert.deepStrictEqual(r.problems, []);
   assert.strictEqual(parse('Assign the x task to rahul@suraasa.com under the CRM project, P1 by next Friday').task.due, '2026-11-13');
+  r = parse('Assign the May 5 webinar task to rahul@suraasa.com under the CRM project, P1'); assert.strictEqual(r.task.name, 'May 5 webinar'); assert.strictEqual(r.task.due, ''); assert.ok(r.problems.includes('Choose a deadline.'));
+  r = parse('Assign the today view task to rahul@suraasa.com under the CRM project, P1 by 20 November'); assert.strictEqual(r.task.name, 'today view'); assert.strictEqual(r.task.due, '2026-11-20');
 });
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');
