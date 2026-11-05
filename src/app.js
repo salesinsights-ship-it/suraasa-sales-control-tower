@@ -61,6 +61,7 @@
   // Set when the site is built. See build.js.
   const CONFIG = /*CONFIG*/{ apiUrl: '' }/*END*/;
   const API_NEEDED = 5; // the oldest script this site can work with
+  const POLL_MS = 5000; // how often an open page asks whether the Sheet has changed
   const ROLE_LABEL = { 'Administrator': 'Super Admin', 'Project Owner': 'Manager', 'Task Owner': 'Employee', 'Viewer': 'Viewer' };
   const sheetLink = () => (window.SYNC && SYNC.sheetUrl) || '';
   const UI = {
@@ -3175,8 +3176,9 @@
         this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
         this.version = this.config.baseVersion;
       } catch (e) { this.base = null; }
-      setInterval(() => this.poll(), 30000);
+      setInterval(() => this.poll(), POLL_MS);
       window.addEventListener('focus', () => this.poll());
+      document.addEventListener('visibilitychange', () => this.poll());
       window.addEventListener('online', () => this.flush());
       window.addEventListener('beforeunload', e => { if (this.pending()) { e.preventDefault(); e.returnValue = ''; } });
     },
@@ -3348,7 +3350,7 @@
           UI.me = ME.name;
         }
         this.sheetUrl = data.sheetUrl || '';
-        if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
+        if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; this.setStatus('connected'); return; }
         const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
         this.config.lastSync = nowIso();
         this.setStatus('connected');
@@ -3443,13 +3445,19 @@
     },
     async poll() {
       if (!ME.open && !this.session) return;
-      if (!this.apiUrl || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
+      if (!this.apiUrl || !this.config.enabled || this.busy || this.polling || this.deferred || this.config.status === 'syncing' || document.hidden) return;
+      this.polling = true;
       try {
         const data = await this.get('version');
         if (this.unsent) return this.flush();
-        if (data.version !== undefined && data.version !== this.version) await this.pull(true);
-        else if (this.config.status === 'error') this.setStatus('connected');
+        if (data.version !== undefined && data.version !== this.version) {
+          // Someone typing keeps their text. The new data comes in when they leave the box.
+          const f = document.activeElement;
+          if (f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)) return;
+          await this.pull(true);
+        } else if (this.config.status === 'error') this.setStatus('connected');
       } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
+      finally { this.polling = false; }
     },
     async dailySnapshot() {
       if (this.api < API_NEEDED || !canWrite() || !seesAll()) return; // an employee's view has only part of the data

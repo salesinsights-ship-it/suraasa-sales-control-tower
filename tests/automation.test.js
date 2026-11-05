@@ -693,7 +693,7 @@ test('the exact moment of completion is stamped by the server and cannot be forg
 });
 test('direct edits to the Users and AuditLog tabs are logged, and a Users edit refreshes the site', () => {
   const { b, s } = company(); const a = s('boss@suraasa.com'), v = b.get({ action: 'version' }).version;
-  const sh = b.ss.getSheetByName('Users'); b.cache.delete('editBump');
+  const sh = b.ss.getSheetByName('Users');
   b.ctx.onEdit({ range: sh.getRange(2, 2), oldValue: 'x', value: 'y' });
   assert.ok(pull(b, a).state.audit.some(x => x.action === 'sheet_edit' && x.entityType === 'users')); assert.ok(b.get({ action: 'version' }).version > v);
   b.ctx.onEdit({ range: b.ss.getSheetByName('AuditLog').getRange(2, 2), oldValue: 'x', value: 'y' });
@@ -939,6 +939,45 @@ test('bad sign-in input is refused without an error', () => {
     const r = signIn(b, e, p); assert.ok(r.ok === false && r.auth === true, JSON.stringify(r));
   }
   assert.ok(b.post({ action: 'password_change', session: 'junk', newPassword: 'long enough password' }).auth === true);
+});
+// ---------- edits in the Sheet ----------
+test('every edit in the Sheet counts, even two within a second', () => {
+  const { b } = company(), sh = b.ss.getSheetByName('Tasks'), v = b.get({ action: 'version' }).version;
+  b.ctx.onEdit({ range: sh.getRange(2, 5), oldValue: 'x', value: 'y' });
+  const one = b.get({ action: 'version' }).version;
+  b.ctx.onEdit({ range: sh.getRange(3, 5), oldValue: 'x', value: 'y' });
+  assert.ok(one > v); assert.ok(b.get({ action: 'version' }).version > one);
+});
+test('the version check answers from the cache, and every kind of change updates it', () => {
+  const { b, s } = company(), a = s('boss@suraasa.com'), reads = b.ctx.metaMap_;
+  const v = b.get({ action: 'version' }).version; let n = 0;
+  b.ctx.metaMap_ = () => { n++; return reads(); };
+  b.get({ action: 'version' }); assert.strictEqual(n, 0, 'no Sheet read');
+  b.ctx.metaMap_ = reads;
+  const t = pull(b, a).state.tasks[0];
+  assert.ok(b.post({ action: 'apply', session: a, requestId: 'q1', ops: [{ c: 'tasks', id: t.id, set: { progress: 7 }, base: { progress: t.progress } }] }).ok);
+  assert.ok(b.get({ action: 'version' }).version > v, 'a save from the site');
+  const w = b.get({ action: 'version' }).version;
+  b.cache.delete('ver');
+  assert.strictEqual(b.get({ action: 'version' }).version, w, 'and the Sheet still answers if the cache is empty');
+});
+test('adding or removing rows counts, and formatting does not', () => {
+  const { b } = company(), v = () => b.get({ action: 'version' }).version, start = v();
+  b.ctx.onSheetChange({ changeType: 'FORMAT' }); b.ctx.onSheetChange({ changeType: 'EDIT' }); b.ctx.onSheetChange(null);
+  assert.strictEqual(v(), start);
+  b.ctx.onSheetChange({ changeType: 'REMOVE_ROW' }); assert.ok(v() > start);
+  const n = v(); b.ctx.onSheetChange({ changeType: 'INSERT_ROW' }); assert.ok(v() > n);
+});
+test('turning on instant updates makes one trigger, however many times it is clicked', () => {
+  const { b } = company(); b.ctx.SpreadsheetApp.getUi = () => ({ alert() {} });
+  b.ctx.turnOnInstantUpdates(); b.ctx.turnOnInstantUpdates();
+  assert.strictEqual(b.ctx.ScriptApp.triggers.filter(t => t.getHandlerFunction() === 'onSheetChange').length, 1);
+});
+test('an edit made while the tabs are being read still looks new afterwards', () => {
+  const { b, s } = company(), a = s('boss@suraasa.com'), sheets = b.ctx.readTab_; let done = false;
+  b.ctx.readTab_ = function (...x) { if (!done) { done = true; b.ctx.bumpVersion_('edit during a read'); } return sheets(...x); };
+  const r = pull(b, a); b.ctx.readTab_ = sheets;
+  assert.ok(r.version < b.get({ action: 'version' }).version);
 });
 const failed = results.filter(r => r[0] === 'FAIL');
 results.forEach(r => console.log(r[0], r[1]));

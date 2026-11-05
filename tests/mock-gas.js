@@ -73,7 +73,7 @@ function createBackend(opts = {}) {
     UrlFetchApp: { fetch: url => { if (opts.onFetch) { const r = opts.onFetch(); if (r) return r; } const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
     DriveApp: { Access: { DOMAIN_WITH_LINK: 'd' }, Permission: { VIEW: 'v' }, files: [], createFolder(n) { const f = { getId: () => 'FOLDER', createFile: b => { ctx.DriveApp.files.push(b); return { setSharing(a, p) { if (opts.noSharing) throw new Error('blocked'); b.sharing = a + p; }, getUrl: () => 'https://drive.google.com/file/d/' + ctx.DriveApp.files.length + '/view' }; } }; ctx.DriveApp.folder = f; return f; }, getFolderById() { return ctx.DriveApp.folder; } },
-    ScriptApp: { getProjectTriggers: () => [] }
+    ScriptApp: { triggers: [], getProjectTriggers() { return this.triggers; }, newTrigger(n) { const t = { getHandlerFunction: () => n }, c = { forSpreadsheet: () => c, onChange: () => c, timeBased: () => c, everyDays: () => c, atHour: () => c, everyMinutes: () => c, create: () => { ctx.ScriptApp.triggers.push(t); return t; } }; return c; }, deleteTrigger() {} }
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(opts.code || path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });

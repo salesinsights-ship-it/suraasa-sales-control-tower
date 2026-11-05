@@ -114,6 +114,7 @@ function onOpen() {
     .addItem('Emergency: open access for one hour', 'disableSignIn')
     .addItem('Back up this Sheet now', 'backupNow')
     .addItem('Turn on daily backup, reminders and email retries', 'turnOnDailyBackup')
+    .addItem('Turn on instant updates to the website', 'turnOnInstantUpdates')
     .addSeparator()
     .addItem('Replace AK with Ankit Khanna', 'replaceAkWithAnkitKhanna')
     .addSeparator()
@@ -235,6 +236,7 @@ function metaMap_() {
   return m;
 }
 function metaSet_(obj) {
+  if (obj.version !== undefined) CacheService.getScriptCache().put('ver', String(obj.version), VERSION_CACHE_SECONDS);
   var sh = metaSheet_(); var n = sh.getLastRow();
   var keys = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues() : [];
   // One cell per key, so a save and a hand edit cannot undo each other's other values.
@@ -247,6 +249,14 @@ function metaSet_(obj) {
   });
 }
 function getVersion_() { var v = parseInt(metaMap_().version, 10); return isNaN(v) ? 0 : v; }
+/** Open sites ask every few seconds, so the answer comes from the cache and every change updates it. */
+function quickVersion_() {
+  var cache = CacheService.getScriptCache(), v = cache.get('ver');
+  if (v !== null && v !== undefined) return parseInt(v, 10) || 0;
+  var fresh = getVersion_();
+  cache.put('ver', String(fresh), VERSION_CACHE_SECONDS);
+  return fresh;
+}
 function bumpVersion_(by) {
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: new Date().toISOString(), updatedBy: by || 'sheet' });
@@ -269,11 +279,31 @@ function onEdit(e) {
     if (SpreadsheetApp.getActive().getSheetByName(AUDIT_SHEET)) {
       appendRows_(AUDIT_SHEET, [[Utilities.getUuid(), new Date().toISOString(), who, who || 'Google Sheet', name.toLowerCase(), e.range.getA1Notation(), '', '', 'sheet_edit', '', short_(e.oldValue), short_(e.value), 'Edited ' + name + ' ' + e.range.getA1Notation() + ' directly in the Sheet', '']]);
     }
-    // Several edits within 2 seconds count as one version change.
-    var cache = CacheService.getScriptCache();
-    if (!cache.get('editBump')) { cache.put('editBump', '1', 2); bumpVersion_('sheet edit' + (who ? ' by ' + who : '')); }
+    // Every edit counts, so one made while a site is reading is never missed.
+    bumpVersion_('sheet edit' + (who ? ' by ' + who : ''));
   } catch (err) { /* never block the person's edit */ }
   if (locked) { try { lock.releaseLock(); } catch (x) {} }
+}
+
+/**
+ * onEdit does not see rows or columns being added or removed. This does, once it is
+ * turned on from the menu, because a trigger with this reach must be set up by the owner.
+ */
+function onSheetChange(e) {
+  if (['INSERT_ROW', 'REMOVE_ROW', 'INSERT_COLUMN', 'REMOVE_COLUMN', 'OTHER'].indexOf(e && e.changeType) < 0) return;
+  var lock = LockService.getScriptLock(), locked = false;
+  try { locked = lock.tryLock(4000); } catch (x) { /* the change has already happened */ }
+  try { bumpVersion_('sheet change'); } catch (err) { /* never block the person's change */ }
+  if (locked) { try { lock.releaseLock(); } catch (x) {} }
+}
+function ensureChangeTrigger_() {
+  if (ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'onSheetChange'; })) return false;
+  ScriptApp.newTrigger('onSheetChange').forSpreadsheet(SpreadsheetApp.getActive()).onChange().create();
+  return true;
+}
+function turnOnInstantUpdates() {
+  ensureChangeTrigger_();
+  SpreadsheetApp.getUi().alert('Done. Edits, and rows added or removed in this Sheet, now reach open websites within a few seconds.');
 }
 
 // ------------------------------------------------------------
@@ -285,7 +315,7 @@ function doGet(e) {
     var cfg = authCfg_();
     var pub = { required: cfg.required, clientId: cfg.required ? cfg.clientId : '', domain: cfg.domain };
     if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub, signInReady: true });
-    if (action === 'version') return json_({ ok: true, version: getVersion_() });
+    if (action === 'version') return json_({ ok: true, version: quickVersion_() });
     if (action === 'pull') {
       if (cfg.required) return json_(authError_());
       return json_(fullPull_({ role: 'Administrator', name: '' }));
@@ -360,6 +390,7 @@ function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).se
 function pull_() {
   var ss = SpreadsheetApp.getActive();
   if (!ss.getSheetByName(META_SHEET)) setupSheet();
+  var startVersion = getVersion_(); // read first: an edit made while the tabs are read must still look new afterwards
   var state = {};
   var nestedBuckets = {};
   var idsNeeded = [];
@@ -391,7 +422,7 @@ function pull_() {
   state.meta = meta || { app: APP, schema: 1 };
   state.meta.syncVersion = parseInt(m.version, 10) || 0;
   var empty = !(state.projects && state.projects.length) && !(state.tasks && state.tasks.length);
-  return { ok: true, version: parseInt(m.version, 10) || 0, updatedAt: m.updatedAt || '', updatedBy: m.updatedBy || '', empty: empty, state: state };
+  return { ok: true, version: startVersion, updatedAt: m.updatedAt || '', updatedBy: m.updatedBy || '', empty: empty, state: state };
 }
 
 function readTab_(ss, s, idsNeeded) {
@@ -548,6 +579,7 @@ var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six h
 var SESSION_MAX_MS = 12 * 3600 * 1000;
 var MAX_OWNERS = 10;
 var LOGIN_LIMIT_PER_PERSON = 10, LOGIN_LIMIT_UNREADABLE = 30;
+var VERSION_CACHE_SECONDS = 60;
 var PW_MIN = 10, PW_ROUNDS = 500, PW_FAILS = 5, PW_LOCK_SECONDS = 900, PW_TEMP_DAYS = 3;
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
@@ -2140,6 +2172,7 @@ function turnOnDailyBackup() {
   ScriptApp.newTrigger('backupNow').timeBased().everyDays(1).atHour(2).create();
   ScriptApp.newTrigger('dailyChecks').timeBased().everyDays(1).atHour(6).create();
   ScriptApp.newTrigger('processNotifications').timeBased().everyMinutes(5).create();
+  ensureChangeTrigger_();
   SpreadsheetApp.getUi().alert('Done. A copy of this Sheet is saved every night, late work and reminders are checked each morning, and unsent emails are retried every 5 minutes.');
 }
 
