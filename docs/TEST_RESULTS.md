@@ -2,13 +2,13 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**499 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**498 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 115 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 114 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
