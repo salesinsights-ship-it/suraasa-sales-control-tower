@@ -1,36 +1,62 @@
 # Test cases and results
 
-Deliverable 13. Run on 4 November 2026 on version 2.5.1, on a copy of the live data from 3 November.
+Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**361 checks, 0 failed**, plus 72 layout checks with no problems.
+**420 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
-| `tests/engine.test.js` | 31 | The rules, directly |
+| `tests/engine.test.js` | 40 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
+| `tests/automation.test.js` | 74 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
-| `tests/e2e/features.js` | 27 | Other new features, in Chromium |
+| `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
-| `tests/e2e/login.js` | 73 | The sign-in on the page with the old and the new script: every menu section, saving, emails, employee limits, phone |
-| `tests/e2e/roles.js` | 23 | What each role sees and can do, with sign-in on, and the home page numbers |
-| `tests/e2e/stage.js` | 28 | The Stage dropdown: panel, edit form, filters, board, rights |
-| `tests/e2e/delete.js` | 30 | Deleting tasks: row, panel, selection, undo, rights, links, phone |
-| `tests/e2e/conflicts.js` | 9 | Two browsers at once: conflicts, duplicate IDs, offline work, comment delete, import |
-| `tests/e2e/compat.js` | 5 | Old script with new site, new script with old site's saves |
-| `tests/e2e/sweep.js` | 72 | 12 screens × phone, tablet, desktop × light, dark: horizontal overflow and script errors |
+| `tests/e2e/assignment.js` | 45 | Assigning by email end to end, lost replies, shared computers, phone |
+| `tests/e2e/roles.js` | 23 | What each role sees and can do, and the home page numbers |
+| `tests/e2e/stage.js` | 28 | The Stage dropdown |
+| `tests/e2e/delete.js` | 30 | Deleting tasks |
+| `tests/e2e/conflicts.js` | 9 | Two browsers at once, offline work |
+| `tests/e2e/compat.js` | 3 | The site refuses to talk to an older script |
+| `tests/e2e/csp.js` | 6 | The site under the real security headers |
+| `tests/e2e/sweep.js` | 72 | 12 screens on phone, tablet and desktop, light and dark: overflow and script errors |
 
-Everything here ran on a copy of the live data.
+`tests/e2e/login.js` was removed, because the sign-in it tested no longer exists.
+
+**Before this work:** at the commit this started from, all ten browser suites failed, because that commit disconnected the site from the Sheet. The earlier claim of 361 passing checks did not hold for that commit.
+
+## What the brief asked to test
+
+| Asked for | Where | Result |
+|---|---|---|
+| Employee assignment by email | `automation`: exact match, unknown, inactive, similar, a name in place of an email | Pass |
+| Assignment email generation | `automation`: every field, link, escaping | Pass, simulated mail |
+| Google Sheets synchronization | `automation`, `assignment`: every change reaches the same row | Pass, simulated Sheet |
+| Reassignment | `automation`, `assignment` | Pass |
+| Unauthorized data access | `automation`, `assignment`, `roles`: reads, writes, links | Pass |
+| Duplicate notifications | `automation`, `assignment`: retries, double clicks, lost replies | Pass |
+| Concurrent task updates | `automation`, `conflicts` | Pass |
+| Failure recovery | `automation`: mail down, daily limit, Sheet failing partway, 5 failures | Pass |
 
 ## What these tests do not show
 
-- **Nothing ran on real Apps Script, real Google sign-in or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. The checks in [DEPLOYMENT.md](DEPLOYMENT.md) cover that gap.
-- The copy of live data is read-only. **No test wrote to your Sheet.**
-- The layout sweep finds overflow and errors. It does not judge appearance; key screens were also reviewed by eye.
+- **Nothing ran on real Apps Script, real Google sign-in, real email or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. In particular, these need checking in step 8 of [DEPLOYMENT.md](DEPLOYMENT.md): that Google sign-in works, that an email arrives and looks right, and that `setupSheet` upgrades the real Sheet.
+- **The Vercel security headers were tested on a local server** with the same headers, not on Vercel.
+- The copy of live data was read-only. **No test wrote to your Sheet, and no test sent a real email.**
+- The layout sweep finds overflow and errors. It does not judge appearance. Key screens were also reviewed by eye.
 - No screen reader or load test was done.
 
-The simulation was made stricter after the review below: it now enforces Google's grid limits, the 50,000-character cell limit and the rule against deleting the last row. It still cannot prove real behaviour.
+## Independent review of this release
 
-## Independent review
+A separate reviewer, who had not seen the work, read the code and ran attacks against the real `Code.gs` and a scratch build. It reported 23 confirmed problems, 8 of them high severity. All are fixed, each with a test. It then rechecked the fixes and found 7 that needed more work, plus some new problems the fixes caused. Those are fixed too.
+
+Three outcomes were accepted on purpose:
+
+- A task an employee writes for themselves does not open up its project, and gives them no right to add weekly updates there.
+- A hand-added column named after a field stored in `_extra` is ignored. Your live Sheet has none.
+- A value typed literally as `'=x` loses its quote.
+
+## Earlier reviews
 
 A separate reviewer, who had not seen the work, read the server and sync code before release and reported 13 confirmed problems. Every one is fixed and now has a test. The review's own probe script was rerun after the fixes, and each attack it demonstrated now fails. A second separate review then covered the code added afterwards, and found 13 more confirmed problems, listed in the changelog. All are fixed, with tests for the ones that can be tested automatically. Those last fixes have not been reviewed again.
 
