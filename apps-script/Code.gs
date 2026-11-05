@@ -539,6 +539,7 @@ var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'emplo
 var USER_EDIT = ['name', 'role', 'active', 'department', 'designation', 'managerEmail', 'joiningDate', 'aliases'];
 var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six hours at most
 var SESSION_MAX_MS = 12 * 3600 * 1000;
+var LOGIN_LIMIT_PER_MINUTE = 60;
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
@@ -653,15 +654,22 @@ function login_(body) {
   var cfg = authCfg_();
   if (!cfg.required) return { ok: true, open: true };
   if (!cfg.clientId) return { ok: false, auth: true, error: 'Google sign-in has not been set up yet. Ask your administrator.' };
-  if (!body.idToken) return { ok: false, auth: true, error: 'Sign in with your Suraasa Google account.' };
-  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
+  var idToken = String(body.idToken || '');
+  if (!idToken) return { ok: false, auth: true, error: 'Sign in with your Suraasa Google account.' };
+  // Anyone can reach this, and each check uses part of a daily allowance, so junk stops here.
+  if (idToken.length > 4096 || !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(idToken)) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
+  var cache = CacheService.getScriptCache(), minute = 'login:' + Math.floor(Date.now() / 60000), tries = Number(cache.get(minute) || 0);
+  if (tries >= LOGIN_LIMIT_PER_MINUTE) return { ok: false, auth: true, error: 'Too many sign-ins just now. Wait a minute and try again.' };
+  cache.put(minute, String(tries + 1), 120);
+  var res = checkToken_(idToken);
   if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
   var t = JSON.parse(res.getContentText());
   var email = String(t.email || '').toLowerCase();
   if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
-  if (t.iss && t.iss !== 'https://accounts.google.com' && t.iss !== 'accounts.google.com') return { ok: false, auth: true, error: 'This sign-in did not come from Google.' };
+  if (t.iss !== 'https://accounts.google.com' && t.iss !== 'accounts.google.com') return { ok: false, auth: true, error: 'This sign-in did not come from Google.' };
   if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
-  if (email.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
+  // Google: the email's domain alone does not show that the organisation manages the account. `hd` does.
+  if (email.split('@')[1] !== cfg.domain || t.hd !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' Workspace account.' };
   if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
   var u = userByEmail_(email);
   if (!u || !u.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + email + '.' };
@@ -670,8 +678,20 @@ function login_(body) {
   CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS }), SESSION_IDLE_SECONDS);
   return { ok: true, session: token, user: publicUser_(u) };
 }
+/** Google warns this check can fail now and then, or be throttled, so one failure gets a second try. */
+function checkToken_(idToken) {
+  var url = 'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), res = null;
+  for (var i = 0; i < 2; i++) {
+    try { res = UrlFetchApp.fetch(url, { muteHttpExceptions: true }); } catch (x) { res = null; }
+    if (res && res.getResponseCode() < 500 && res.getResponseCode() !== 429) return res;
+    if (i === 0) Utilities.sleep(500);
+  }
+  return res || { getResponseCode: function () { return 503; } };
+}
+/** A session is two IDs. Anything else is not looked up: Google refuses cache keys over 250 characters. */
+function validSession_(v) { return /^[0-9a-f-]{72}$/i.test(String(v || '')); }
 function logout_(body) {
-  if (body.session) CacheService.getScriptCache().remove('sess:' + String(body.session));
+  if (validSession_(body.session)) CacheService.getScriptCache().remove('sess:' + String(body.session));
   return { ok: true };
 }
 function publicUser_(u) { return { email: u.email, name: u.name, aliases: u.aliases || [], role: u.role, employeeId: u.employeeId || '', department: u.department || '', designation: u.designation || '', managerEmail: u.managerEmail || '' }; }
@@ -679,7 +699,7 @@ function publicUser_(u) { return { email: u.email, name: u.name, aliases: u.alia
 function actor_(body) {
   var cfg = authCfg_();
   if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), aliases: [], role: 'Administrator' };
-  if (!body.session) return null;
+  if (!validSession_(body.session)) return null;
   var cache = CacheService.getScriptCache(), key = 'sess:' + String(body.session), raw = cache.get(key);
   if (!raw) return null;
   var s;
@@ -1013,7 +1033,7 @@ function apply_(body, a, preloaded) {
   if (ops.length > 500) return { ok: false, error: 'Too many changes at once.' };
   if (ops.filter(function (o) { return o.del; }).length > 25) return { ok: false, error: 'Refused: this save would delete more than 25 records at once.' };
   var cache = CacheService.getScriptCache();
-  var reqId = String(body.requestId || Utilities.getUuid());
+  var reqId = String(body.requestId || Utilities.getUuid()).slice(0, 120);
   var replayKey = 'req:' + (a.email || a.name || '') + ':' + reqId; // one person's request ID can never fetch another person's reply
   var seen = cache.get(replayKey);
   if (seen) return JSON.parse(seen); // the same save arrived twice: do not apply it twice
@@ -1379,7 +1399,7 @@ function nextTaskId_(tasks) {
 /** One confirmed assignment, end to end. The same requestId can never make two tasks. */
 function assign_(body, a) {
   if (a.role !== 'Administrator' && a.role !== 'Project Owner') return { ok: false, code: 'denied', error: 'Only Super Admins and Managers can assign tasks.' };
-  var t = body.task || {}, reqId = String(body.requestId || '').trim();
+  var t = body.task || {}, reqId = String(body.requestId || '').trim().slice(0, 120);
   var name = String(t.name || '').trim(), email = String(t.ownerEmail || '').trim().toLowerCase(), due = String(t.due || '').trim();
   if (!reqId) return { ok: false, code: 'invalid', error: 'This request has no ID. Refresh the page and try again.' };
   if (!name) return { ok: false, code: 'invalid', field: 'name', error: 'A task needs a title.' };

@@ -42,7 +42,7 @@ test('with nothing configured, every data route is closed', () => {
   assert.strictEqual(b.post({ action: 'push', force: true, state: { projects: [], tasks: [] } }).auth, true);
   assert.strictEqual(b.post({ action: 'assign', task: {} }).auth, true);
   assert.strictEqual(b.post({ action: 'integration_status' }).auth, true);
-  assert.ok(/not been set up/.test(b.post({ action: 'login', idToken: 'x' }).error));
+  assert.ok(/not been set up/.test(b.post({ action: 'login', idToken: 'x.y.z' }).error));
 });
 test('AUTH_REQUIRED=false alone does not open the data: an old setting cannot leave it public', () => {
   const b = createBackend({ strict: true, props: { AUTH_REQUIRED: 'false' } });
@@ -70,11 +70,14 @@ test('deactivating someone ends their access at their next request', () => {
   const { b, s } = company(); const se = s('rahul@suraasa.com'), a = s('boss@suraasa.com');
   assert.ok(b.post({ action: 'apply', session: a, requestId: 'x1', ops: [{ c: 'users', id: 'rahul@suraasa.com', rec: { active: false } }] }).ok);
   assert.strictEqual(pull(b, se).auth, true);
-  assert.ok(b.post({ action: 'login', idToken: 'tok-rahul@suraasa.com' }).error.includes('no access'));
+  assert.ok(b.post({ action: 'login', idToken: 'tok.rahul-suraasa-com.sig' }).error.includes('no access'));
 });
 test('a token from the wrong issuer is refused', () => {
-  const { b } = company(); b.tokens.bad = { aud: CLIENT, iss: 'https://evil.example', email: 'boss@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };
-  assert.ok(/did not come from Google/.test(b.post({ action: 'login', idToken: 'bad' }).error));
+  const { b } = company(); const good = { aud: CLIENT, hd: 'suraasa.com', email: 'boss@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };
+  b.tokens['a.b.c'] = Object.assign({}, good, { iss: 'https://evil.example' });
+  assert.ok(/did not come from Google/.test(b.post({ action: 'login', idToken: 'a.b.c' }).error));
+  b.tokens['a.b.d'] = good;
+  assert.ok(/did not come from Google/.test(b.post({ action: 'login', idToken: 'a.b.d' }).error), 'the issuer is required, not optional');
 });
 test('Super Admin, Manager, Employee and Viewer are accepted in the Users tab', () => {
   const { b } = company(); const r = e => b.ctx.userByEmail_(e).role;
@@ -615,6 +618,35 @@ test('a quoted formula reads back cleanly in list fields too', () => {
   const { b, s } = company(); const a = s('boss@suraasa.com'); const p = pull(b, a).state.projects[0];
   assert.ok(b.post({ action: 'apply', session: a, requestId: 'l1', ops: [{ c: 'projects', id: p.id, set: { metrics: ['=ROI>2'] }, base: { metrics: p.metrics } }] }).ok);
   assert.strictEqual(pull(b, a).state.projects[0].metrics.join(), '=ROI>2');
+});
+
+// ---------- checked against Google's documentation ----------
+test('an account with a suraasa.com address that the organisation does not manage is refused', () => {
+  const { b } = company(); const t = { aud: CLIENT, iss: 'accounts.google.com', email: 'boss@suraasa.com', email_verified: 'true', exp: String(Date.now() / 1000 + 999) };
+  b.tokens['h.d.none'] = t; b.tokens['h.d.other'] = Object.assign({}, t, { hd: 'evil.com' });
+  assert.ok(/Workspace/.test(b.post({ action: 'login', idToken: 'h.d.none' }).error));
+  assert.ok(/Workspace/.test(b.post({ action: 'login', idToken: 'h.d.other' }).error));
+  b.tokens['h.d.real'] = Object.assign({}, t, { hd: 'suraasa.com' }); assert.ok(b.post({ action: 'login', idToken: 'h.d.real' }).ok);
+});
+test('junk never reaches Google, and a flood of sign-ins is limited', () => {
+  let calls = 0; const { b } = company({ onFetch: () => { calls++; } });
+  for (const t of ['junk', 'a.b', '<script>.b.c', 'a.b.' + 'x'.repeat(5000)]) assert.ok(!b.post({ action: 'login', idToken: t }).ok); assert.strictEqual(calls, 0);
+  let last; for (let i = 0; i < 70; i++) last = b.post({ action: 'login', idToken: 'a.b.c' });
+  assert.strictEqual(calls, 60); assert.ok(/Too many/.test(last.error));
+});
+test('one failed check with Google gets a second try, and a real outage is reported plainly', () => {
+  let n = 0; const { b } = company({ onFetch: () => (++n === 1 ? { getResponseCode: () => 503, getContentText: () => '' } : null) });
+  const s = b.sessionFor('boss@suraasa.com'); assert.ok(s.ok, JSON.stringify(s)); assert.strictEqual(n, 2);
+  let m = 0; const down = company({ onFetch: () => { m++; throw new Error('network'); } }).b;
+  const r = down.post({ action: 'login', idToken: 'a.b.c' }); assert.ok(!r.ok && /could not confirm/.test(r.error)); assert.strictEqual(m, 2);
+});
+test('oversized session and request IDs are refused calmly, within Google\'s 250 character key limit', () => {
+  const { b, pid, s } = company(); const a = s('boss@suraasa.com'), put = b.cache.set.bind(b.cache), get = b.cache.get.bind(b.cache);
+  const guard = k => { if (k.length > 250) throw new Error('Argument too large: key'); }; b.cache.get = k => { guard(k); return get(k); }; b.cache.set = (k, v) => { guard(k); return put(k, v); };
+  assert.strictEqual(b.post({ action: 'pull', session: 'x'.repeat(500) }).auth, true);
+  assert.ok(b.post({ action: 'logout', session: 'x'.repeat(500) }).ok);
+  const r = assign(b, a, pid, {}, 'R'.repeat(500)); assert.ok(r.ok, JSON.stringify(r).slice(0, 200));
+  assert.ok(edit(b, a, r.task.id, { progress: 5 }, { progress: 0 }, 'Q'.repeat(500)).ok);
 });
 
 const failed = results.filter(r => r[0] === 'FAIL');

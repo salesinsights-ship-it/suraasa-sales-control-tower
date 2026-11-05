@@ -2,7 +2,7 @@
 const { chromium } = require('playwright');
 const { backend, page, CLIENT } = require('./harness');
 const results = []; const ok = (n, c, x) => results.push([c ? 'PASS' : 'FAIL', n + (x ? ' :: ' + x : '')]);
-const token = (b, email, extra) => { const id = 'tok-' + email; b.tokens[id] = Object.assign({ aud: CLIENT, email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }, extra || {}); return id; };
+const token = (b, email, extra) => { const id = 'tok.' + email.replace(/[^\w]/g, '-') + '.sig'; b.tokens[id] = Object.assign({ aud: CLIENT, iss: 'https://accounts.google.com', hd: email.split('@')[1], email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }, extra || {}); return id; };
 (async () => {
   const br = await chromium.launch();
   const b = backend(true);

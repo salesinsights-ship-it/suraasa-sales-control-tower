@@ -140,14 +140,14 @@ test('with sign-in on, nothing can be read or changed without a session', () => 
 });
 test('sign-in checks audience, domain, verification, expiry and the Users list', () => {
   const b = secured();
-  const base = { aud: CLIENT, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) };
-  b.tokens.wrongaud = { ...base, aud: 'x', email: 'admin@suraasa.com' };
-  b.tokens.wrongdom = { ...base, email: 'admin@gmail.com' };
-  b.tokens.unverified = { ...base, email: 'admin@suraasa.com', email_verified: 'false' };
-  b.tokens.expired = { ...base, email: 'admin@suraasa.com', exp: '1000' };
-  b.tokens.stranger = { ...base, email: 'new@suraasa.com' };
-  b.tokens.inactive = { ...base, email: 'gone@suraasa.com' };
-  for (const t of ['wrongaud', 'wrongdom', 'unverified', 'expired', 'stranger', 'inactive', 'fake']) assert.ok(!b.post({ action: 'login', idToken: t }).ok, t);
+  const base = { aud: CLIENT, iss: 'https://accounts.google.com', hd: 'suraasa.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) };
+  b.tokens['a.b.wrongaud'] = { ...base, aud: 'x', email: 'admin@suraasa.com' };
+  b.tokens['a.b.wrongdom'] = { ...base, email: 'admin@gmail.com' };
+  b.tokens['a.b.unverified'] = { ...base, email: 'admin@suraasa.com', email_verified: 'false' };
+  b.tokens['a.b.expired'] = { ...base, email: 'admin@suraasa.com', exp: '1000' };
+  b.tokens['a.b.stranger'] = { ...base, email: 'new@suraasa.com' };
+  b.tokens['a.b.inactive'] = { ...base, email: 'gone@suraasa.com' };
+  for (const t of ['wrongaud', 'wrongdom', 'unverified', 'expired', 'stranger', 'inactive', 'fake']) assert.ok(!b.post({ action: 'login', idToken: 'a.b.' + t }).ok, t);
   assert.ok(b.sessionFor('admin@suraasa.com').ok);
 });
 test('the author comes from the session, not from what the browser claims', () => {

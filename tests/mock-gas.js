@@ -69,8 +69,8 @@ function createBackend(opts = {}) {
     MailApp: { sendEmail(o) { if (typeof opts.mailFails === 'function' ? opts.mailFails(o) : opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => opts.owner || 'owner@suraasa.com' }) },
-    Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10) },
-    UrlFetchApp: { fetch: url => { const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
+    Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10), sleep() {} },
+    UrlFetchApp: { fetch: url => { if (opts.onFetch) { const r = opts.onFetch(); if (r) return r; } const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
     DriveApp: {}, ScriptApp: { getProjectTriggers: () => [] }
   };
@@ -84,7 +84,7 @@ function createBackend(opts = {}) {
     post: body => parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } })),
     load(state) { const r = parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'push', force: true, state }) } })); if (!r.ok) throw new Error(r.error); return r; },
     addUser(u) { const sh = ss.getSheetByName('Users'), row = sh.getLastRow() + 1; sh.getRange(row, 1, 1, 6).setValues([[u.email, u.name, u.role, u.active === false ? 'FALSE' : 'TRUE', 'test', '']]); },
-    sessionFor(email) { const id = 'tok-' + email; tokens[id] = { aud: props.get('AUTH_CLIENT_ID'), email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }; return parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'login', idToken: id }) } })); }
+    sessionFor(email) { const id = 'tok.' + email.replace(/[^\w]/g, '-') + '.sig'; tokens[id] = { aud: props.get('AUTH_CLIENT_ID'), iss: 'https://accounts.google.com', hd: email.split('@')[1], email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }; return parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'login', idToken: id }) } })); }
   };
 }
 module.exports = { createBackend };
