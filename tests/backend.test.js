@@ -32,9 +32,9 @@ test('every record survives a round trip through the Sheet', () => {
   for (const k of ['projects', 'tasks', 'risks', 'dependencies', 'decisions', 'actions', 'programs', 'roles']) assert.strictEqual(st[k].length, s[k].length, k);
   assert.strictEqual(st.projects[0].milestones.length, s.projects[0].milestones.length);
 });
-test('pull reports API 3 and adds system tabs without touching data tabs', () => {
-  const b = open(); assert.strictEqual(b.get({ action: 'ping' }).api, 3);
-  for (const t of ['Users', 'AuditLog', 'Trash', 'Snapshots', 'WeeklyUpdates', 'Tasks']) assert.ok(b.ss.getSheetByName(t), t);
+test('pull reports API 4 and adds system tabs without touching data tabs', () => {
+  const b = open(); assert.strictEqual(b.get({ action: 'ping' }).api, 4);
+  for (const t of ['Users', 'AuditLog', 'Trash', 'Snapshots', 'NotificationLog', 'WeeklyUpdates', 'Tasks']) assert.ok(b.ss.getSheetByName(t), t);
 });
 test('ping does not reveal the Sheet address or name', () => {
   const r = JSON.stringify(open().get({ action: 'ping' })); assert.ok(!/docs\.google|Test Sheet/.test(r));
@@ -530,7 +530,7 @@ test('management assigning a task emails the new owner and says who assigned it'
   const b = team(); const t = b.post({ action: 'pull' }).state.tasks.find(x => x.owner !== 'Akhand Mishra');
   assert.ok(give(b, t, 'Akhand Mishra', 'Manish Pandey').ok);
   assert.strictEqual(b.mails.length, 1); const m = b.mails[0];
-  assert.strictEqual(m.to, 'akhand@suraasa.com'); assert.match(m.subject, /^Manish Pandey assigned you a task: /); assert.ok(m.body.includes(t.name)); assert.strictEqual(m.replyTo, 'manish@suraasa.com');
+  assert.strictEqual(m.to, 'akhand@suraasa.com'); assert.strictEqual(m.subject, 'New Task Assigned - Suraasa Sales Control Tower'); assert.ok(m.body.includes(t.name)); assert.ok(m.body.includes('Assigned By: Manish Pandey')); assert.strictEqual(m.replyTo, 'manish@suraasa.com');
   assert.ok(b.post({ action: 'pull' }).state.audit.some(a => a.action === 'email_sent' && a.taskId === t.id));
 });
 test('a name in brackets finds the person: Head of Sales reaches Manish', () => {
@@ -542,17 +542,17 @@ test('a name in brackets finds the person: Head of Sales reaches Manish', () => 
 test('assigning a project emails its new owner', () => {
   const b = team(); const p = b.post({ action: 'pull' }).state.projects[0];
   b.post({ action: 'apply', actorName: 'Manish Pandey', ops: [{ c: 'projects', id: p.id, set: { owner: 'Divya' }, base: { owner: p.owner } }] });
-  assert.strictEqual(b.mails.length, 1); assert.match(b.mails[0].subject, /assigned you a project/);
+  assert.strictEqual(b.mails.length, 1); assert.strictEqual(b.mails[0].subject, 'New Project Assigned - Suraasa Sales Control Tower');
 });
 test('a new task with an owner emails them', () => {
   const b = team(); const pid = b.post({ action: 'pull' }).state.projects[0].id;
   b.post({ action: 'apply', actorName: 'Divya', ops: [{ c: 'tasks', id: 'N1', create: true, rec: { id: 'N1', name: 'Fresh', projectId: pid, owner: 'Akhand Mishra', status: 'Not Started', due: '2026-12-01', priority: 'P1' } }] });
-  assert.strictEqual(b.mails.length, 1); assert.ok(b.mails[0].body.includes('2026-12-01'));
+  assert.strictEqual(b.mails.length, 1); assert.ok(b.mails[0].body.includes('1 Dec 2026'));
 });
 test('bulk assignment is one email per person', () => {
   const b = team(); const ts = b.post({ action: 'pull' }).state.tasks.slice(0, 4);
   b.post({ action: 'apply', actorName: 'Divya', ops: ts.map(t => ({ c: 'tasks', id: t.id, set: { owner: 'Akhand Mishra' }, base: { owner: t.owner } })) });
-  assert.strictEqual(b.mails.length, 1); assert.match(b.mails[0].subject, /assigned you 4 items/);
+  assert.strictEqual(b.mails.length, 1); assert.match(b.mails[0].subject, /^4 New Items Assigned/);
 });
 test('no email for other edits, self-assignment, employees, or inactive people', () => {
   const b = team(); const st = b.post({ action: 'pull' }).state; const t = st.tasks[0];

@@ -1,15 +1,19 @@
 /**
  * ============================================================
- *  Suraasa Sales Control Tower: Google Sheet backend (API 3)
+ *  Suraasa Sales Control Tower: Google Sheet backend (API 4)
  * ============================================================
  *  Paste this whole file over Code.gs in the Sheet's Apps Script
  *  editor, run setupSheet once, then Deploy > Manage deployments >
  *  Edit > New version. The /exec URL stays the same.
  *
  *  It is built on the version already running, so every existing
- *  tab and column stays as it is. It adds four tabs: Users,
- *  AuditLog, Trash and Snapshots. Sign-in stays off until an
- *  administrator turns it on from the Control Tower menu.
+ *  tab and column stays as it is. It adds the tabs Users, AuditLog,
+ *  Trash, Snapshots and NotificationLog. New columns go to the right
+ *  of `_extra`, so an older script can still read the Sheet.
+ *
+ *  Nothing is readable without a Google sign-in. There is no setting
+ *  that leaves the data open, apart from the one-hour emergency switch
+ *  in the Sheet menu, which turns itself off.
  *
  *  Sheet conventions
  *  -----------------
@@ -28,13 +32,14 @@ var META_SHEET = '_Meta';
 var ACTIVITY_SHEET = 'Activity';
 var EXTRA = '_extra';
 var NL = '\n';
-var API = 3;
-var SITE_URL = 'https://suraasa-sales-control-tower-rouge.vercel.app/';
+var API = 4;
+var DEFAULT_SITE_URL = 'https://suraasa-sales-control-tower-rouge.vercel.app/';
 
 var STATUS_P = ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'];
 var STATUS_T = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'On Hold', 'In Review', 'Awaiting Approval', 'Changes Requested', 'Completed', 'Cancelled'];
 var PRIOS = ['P0', 'P1', 'P2', 'P3'];
 var HML = ['High', 'Medium', 'Low'];
+var PRIO_WORDS = { P0: 'Critical', P1: 'High', P2: 'Medium', P3: 'Low' };
 
 /**
  * One entry per tab. `cols` is the column order; `lists` are array
@@ -45,6 +50,7 @@ var HML = ['High', 'Medium', 'Low'];
 var SCHEMA = [
   { tab: 'Projects', key: 'projects', id: 'id', prefix: 'PRJ', width: 220,
     cols: ['id', 'name', 'category', 'type', 'program', 'valueClass', 'priority', 'priorityProposed', 'status', 'owner', 'accountable', 'sponsor', 'start', 'due', 'datesProposed', 'objective', 'problem', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'assumptions', 'hypothesis', 'successCriteria', 'testPeriod', 'baseline', 'cadence', 'nextAction', 'priorityRationale', 'flags', 'clarification', 'parent', 'completedAt'],
+    tail: ['ownerEmail', 'accountableEmail'],
     lists: { metrics: NL, dependencies: NL, risks: NL, assumptions: NL, flags: ', ' },
     bools: ['priorityProposed', 'datesProposed'],
     drop: { status: STATUS_P, priority: PRIOS,
@@ -63,6 +69,7 @@ var SCHEMA = [
     cols: ['projectId', 'who', 'text', 'ts'] },
   { tab: 'Tasks', key: 'tasks', id: 'id', prefix: 'T',
     cols: ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'accountable', 'start', 'due', 'priority', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', 'datesProposed', 'completedAt'],
+    tail: ['ownerEmail', 'assignedBy', 'assignedByEmail', 'assignedAt'],
     nums: ['progress'], bools: ['datesProposed'],
     drop: { status: STATUS_T, priority: PRIOS, kind: ['Task', 'Subtask', 'Recurring', 'Decision'] } },
   { tab: 'Risks', key: 'risks', id: 'id', prefix: 'R',
@@ -89,6 +96,10 @@ var SCHEMA = [
     drop: { kind: ['Confirmed', 'Confirmed (team)', 'External', 'Proposed role'] } }
 ];
 
+/** All columns of a tab. `tail` columns sit right of `_extra`, so older code that reads by position still works. */
+function allCols_(s) { return s.cols.concat([EXTRA]).concat(s.tail || []); }
+function ensureCols_(sh, n) { var max = sh.getMaxColumns(); if (n > max) sh.insertColumnsAfter(max, n - max); }
+
 // ------------------------------------------------------------
 //  Menu + setup
 // ------------------------------------------------------------
@@ -98,16 +109,19 @@ function onOpen() {
     .addItem('Bump version (force website refresh)', 'bumpVersionMenu')
     .addItem('Show sync status', 'showStatus')
     .addSeparator()
-    .addItem('Turn on sign-in', 'enableSignIn')
-    .addItem('Turn off sign-in', 'disableSignIn')
+    .addItem('Set Google sign-in client ID', 'enableSignIn')
+    .addItem('Emergency: open access for one hour', 'disableSignIn')
     .addItem('Back up this Sheet now', 'backupNow')
-    .addItem('Turn on daily backup', 'turnOnDailyBackup')
+    .addItem('Turn on daily backup, reminders and email retries', 'turnOnDailyBackup')
     .addSeparator()
     .addItem('Replace AK with Ankit Khanna', 'replaceAkWithAnkitKhanna')
     .addSeparator()
+    .addItem('Match task owners to registered emails', 'backfillOwnerEmailsMenu')
+    .addSeparator()
     .addItem('Send a test email to me', 'sendTestEmail')
-    .addItem('Turn on assignment emails', 'turnOnAssignmentEmails')
-    .addItem('Turn off assignment emails', 'turnOffAssignmentEmails')
+    .addItem('Emails: test mode (everything comes to me)', 'emailTestMode')
+    .addItem('Emails: go live (employees receive them)', 'emailGoLive')
+    .addItem('Turn off emails', 'turnOffAssignmentEmails')
     .addToUi();
 }
 
@@ -115,7 +129,8 @@ function setupSheet() {
   var ss = SpreadsheetApp.getActive();
   SCHEMA.forEach(function (s) {
     var sh = ss.getSheetByName(s.tab) || ss.insertSheet(s.tab);
-    var cols = s.cols.concat([EXTRA]);
+    var cols = allCols_(s);
+    ensureCols_(sh, cols.length);
     var existing = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
     var sameHeader = existing.length >= cols.length && cols.every(function (c, i) { return existing[i] === c; });
     if (!sameHeader) {
@@ -170,12 +185,14 @@ function setupSheet() {
   meta.getRange(2, 1, Math.max(meta.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   meta.hideSheet();
   ensureSystemTabs_();
+  backfillEmployeeIds_();
+  backfillOwnerEmails();
   // remove the default empty "Sheet1" if present and empty
   var def = ss.getSheetByName('Sheet1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(def);
   // put Projects first
   ss.setActiveSheet(ss.getSheetByName('Projects')); ss.moveActiveSheet(1);
-  try { SpreadsheetApp.getUi().alert('Control Tower sheet is ready.\n\nNext: Deploy → New deployment → Web app (Execute as Me, access Anyone), then paste the /exec URL into the website under Data & settings → Google Sheet sync.'); } catch (e) {}
+  try { SpreadsheetApp.getUi().alert('Control Tower sheet is ready.\n\nYour data was kept. Next: check the Users tab, then Deploy > Manage deployments > New version. See docs/DEPLOYMENT.md.'); } catch (e) {}
 }
 
 function migrateColumns_(sh, oldCols, newCols) {
@@ -183,6 +200,7 @@ function migrateColumns_(sh, oldCols, newCols) {
   var data = n > 1 ? sh.getRange(2, 1, n - 1, oldCols.length).getValues() : [];
   // Columns someone added by hand move to the right. They are never dropped.
   var all = newCols.concat(oldCols.filter(function (c) { return c !== '' && newCols.indexOf(c) < 0; }));
+  ensureCols_(sh, Math.max(all.length, oldCols.length));
   var out = data.map(function (row) { return all.map(function (c) { var i = oldCols.indexOf(c); return i >= 0 ? row[i] : ''; }); });
   sh.getRange(1, 1, 1, all.length).setValues([all]);
   if (out.length) { sh.getRange(2, 1, out.length, all.length).setValues(out); }
@@ -248,7 +266,7 @@ function doGet(e) {
   try {
     var cfg = authCfg_();
     var pub = { required: cfg.required, clientId: cfg.required ? cfg.clientId : '', domain: cfg.domain };
-    if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub });
+    if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub, signInReady: !!cfg.clientId });
     if (action === 'version') return json_({ ok: true, version: getVersion_() });
     if (action === 'pull') {
       if (cfg.required) return json_(authError_());
@@ -267,14 +285,18 @@ function fullPull_(a) {
   var m = metaMap_();
   try { if (m.options) res.state.options = JSON.parse(m.options); } catch (x) {}
   res.state = scopeState_(res.state, a);
+  delete res.state.meta.sync; // the website keeps its own connection settings
+  if (a.role === 'Project Owner') res.state.directory = directory_();
   if (a.role === 'Administrator') {
+    res.state.directory = directory_();
     res.state.users = users_();
     res.state.trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
       return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
     });
   }
-  if (!a.open) res.me = { name: a.name || '', email: a.email || '', role: a.role }; // with sign-in off, the server does not know who this is
+  if (!a.open) res.me = a; // with sign-in off, the server does not know who this is
   res.auth = { required: authCfg_().required };
+  if (a.role === 'Administrator' || a.role === 'Project Owner') res.sheetUrl = SpreadsheetApp.getActive().getUrl();
   return res;
 }
 
@@ -286,11 +308,18 @@ function doPost(e) {
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
+    if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
     if (!a) return json_(authError_());
     lock.waitLock(25000); locked = true;
     if (action === 'pull') return json_(fullPull_(a));
     if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
+    if (action === 'assign') { var given = assign_(body, a); SpreadsheetApp.flush(); return json_(given); }
+    if (action === 'notification_log') return json_(notificationLog_(a));
+    if (action === 'notification_retry') { var retried = notificationRetry_(body, a); SpreadsheetApp.flush(); return json_(retried); }
+    if (action === 'notification_resend') { var resent = notificationResend_(body, a); SpreadsheetApp.flush(); return json_(resent); }
+    if (action === 'integration_status') return json_(integrationStatus_(a));
+    if (action === 'test_email') return json_(testEmail_(a));
     if (action === 'snapshot') return json_(a.role === 'Viewer' || a.role === 'Task Owner' ? { ok: true, added: 0 } : snapshot_(body, a));
     if (action === 'push') {
       if (authCfg_().required) return json_({ ok: false, error: 'This version of the site is out of date. Refresh the page.' });
@@ -358,13 +387,14 @@ function readTab_(ss, s, idsNeeded) {
       if (!h) return;
       var v = r[i];
       if (h === EXTRA) { if (v) { try { var ex = JSON.parse(v); Object.keys(ex).forEach(function (k) { o[k] = ex[k]; }); } catch (x) {} } return; }
+      if (s.tail && s.tail.indexOf(h) >= 0 && (v === '' || v == null) && o[h] !== undefined) return;
       if (s.lists && s.lists[h] !== undefined) { o[h] = splitList_(v); return; }
       if (s.bools && s.bools.indexOf(h) >= 0) { o[h] = toBool_(v); return; }
       if (s.nums && s.nums.indexOf(h) >= 0) { var n = parseFloat(v); o[h] = isNaN(n) ? 0 : n; return; }
       o[h] = cell_(v);
     });
     // required-ish defaults so the website never sees undefined where it expects a string
-    s.cols.forEach(function (c) { if (o[c] === undefined) o[c] = (s.lists && s.lists[c] !== undefined) ? [] : (s.bools && s.bools.indexOf(c) >= 0) ? false : (s.nums && s.nums.indexOf(c) >= 0) ? 0 : ''; });
+    s.cols.concat(s.tail || []).forEach(function (c) { if (o[c] === undefined) o[c] = (s.lists && s.lists[c] !== undefined) ? [] : (s.bools && s.bools.indexOf(c) >= 0) ? false : (s.nums && s.nums.indexOf(c) >= 0) ? 0 : ''; });
     if (s.key === 'projects' && o.program === '') o.program = null;
     // auto-ID for rows added by hand
     if (s.id && (o[s.id] === '' || o[s.id] == null)) {
@@ -431,26 +461,14 @@ function push_(body) {
 
 function writeTab_(ss, s, rows) {
   var sh = ss.getSheetByName(s.tab) || ss.insertSheet(s.tab);
-  var cols = s.cols.concat([EXTRA]);
+  var cols = allCols_(s);
+  ensureCols_(sh, cols.length);
   var lastCol = sh.getLastColumn();
   var header = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
   if (header.slice(0, cols.length).join('\u0001') !== cols.join('\u0001')) { sh.getRange(1, 1, 1, cols.length).setValues([cols]); header = cols; if (lastCol > cols.length) sh.getRange(1, cols.length + 1, 1, lastCol - cols.length).clearContent(); }
   clearData_(sh, cols.length);
   if (!rows.length) return;
-  var known = {}; s.cols.forEach(function (c) { known[c] = true; });
-  var values = rows.map(function (o) {
-    var extra = {};
-    Object.keys(o).forEach(function (k) { if (!known[k] && k !== 'workstreams' && k !== 'milestones' && k !== 'raci' && k !== 'comments') extra[k] = o[k]; });
-    return s.cols.map(function (c) {
-      var v = o[c];
-      if (s.lists && s.lists[c] !== undefined) return Array.isArray(v) ? v.join(s.lists[c]) : (v == null ? '' : String(v));
-      if (s.bools && s.bools.indexOf(c) >= 0) return v === false || v === 'false' ? 'FALSE' : (v === true || v === 'true' ? 'TRUE' : (v == null || v === '' ? '' : String(v)));
-      if (s.nums && s.nums.indexOf(c) >= 0) return v == null || v === '' ? 0 : Number(v);
-      if (v == null) return '';
-      if (typeof v === 'object') return JSON.stringify(v);
-      return String(v);
-    }).concat([Object.keys(extra).length ? JSON.stringify(extra) : '']);
-  });
+  var values = rows.map(function (o) { return rowValues_(s, o); });
   ensureRows_(sh, values.length + 1);
   var rng = sh.getRange(2, 1, values.length, cols.length);
   rng.setNumberFormat('@');
@@ -491,16 +509,21 @@ function splitList_(v) {
 //  Nothing below changes the existing tabs. New record fields
 //  travel in each tab's _extra column.
 // ============================================================
-var USERS_SHEET = 'Users', AUDIT_SHEET = 'AuditLog', TRASH_SHEET = 'Trash', SNAP_SHEET = 'Snapshots';
+var USERS_SHEET = 'Users', AUDIT_SHEET = 'AuditLog', TRASH_SHEET = 'Trash', SNAP_SHEET = 'Snapshots', NOTIF_SHEET = 'NotificationLog';
+// Stored names. The site shows them as Super Admin, Manager, Employee and Viewer.
 var ROLES = ['Administrator', 'Project Owner', 'Task Owner', 'Viewer'];
-var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt'];
+var ROLE_WORDS = { 'management': 'Administrator', 'admin': 'Administrator', 'administrator': 'Administrator', 'super admin': 'Administrator', 'superadmin': 'Administrator', 'manager': 'Project Owner', 'project owner': 'Project Owner', 'employee': 'Task Owner', 'task owner': 'Task Owner', 'viewer': 'Viewer' };
+var USER_COLS = ['email', 'name', 'role', 'active', 'addedBy', 'addedAt', 'employeeId', 'department', 'designation', 'managerEmail', 'joiningDate', 'updatedAt'];
+var USER_EDIT = ['name', 'role', 'active', 'department', 'designation', 'managerEmail', 'joiningDate', 'aliases'];
+var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six hours at most
+var SESSION_MAX_MS = 12 * 3600 * 1000;
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
 var SNAP_COLS = ['date', 'projectId', 'progress', 'done', 'active', 'overdue', 'blocked', 'health'];
 var NESTED = ['workstreams', 'milestones', 'raci', 'comments'];
 var APPEND_ONLY = ['comments', 'notes'];
-var STAMPS = ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue'];
+var STAMPS = ['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'originalDue', 'assignedBy', 'assignedByEmail', 'assignedAt'];
 var TRANSITIONS = {
   'Backlog': ['Not Started', 'In Progress', 'On Hold', 'Completed', 'Cancelled'],
   'Not Started': ['Backlog', 'In Progress', 'Blocked', 'On Hold', 'Completed', 'Cancelled'],
@@ -517,14 +540,18 @@ var TRANSITIONS = {
 var TASK_OWNER_FIELDS = ['status', 'progress', 'notes', 'checklist', 'blocker', 'completedAt', 'latestUpdate', 'attachments', 'cancelReason', 'review', 'extensionRequest', 'actualEffort'];
 
 function props_() { return PropertiesService.getScriptProperties(); }
+/** Sign-in is always required. The only exception is the emergency switch, which ends by itself. */
 function authCfg_() {
   var p = props_();
-  return { required: p.getProperty('AUTH_REQUIRED') === 'true', clientId: p.getProperty('AUTH_CLIENT_ID') || '', domain: p.getProperty('AUTH_DOMAIN') || 'suraasa.com' };
+  var off = p.getProperty('AUTH_REQUIRED') === 'false' && Number(p.getProperty('AUTH_OFF_UNTIL') || 0) > Date.now();
+  return { required: !off, clientId: p.getProperty('AUTH_CLIENT_ID') || '', domain: p.getProperty('AUTH_DOMAIN') || 'suraasa.com' };
 }
+function siteUrl_() { return String(props_().getProperty('SITE_URL') || DEFAULT_SITE_URL).replace(/\/*$/, '/'); }
+function itemLink_(kind, id) { return siteUrl_() + '#' + (kind === 'project' ? 'project' : 'task') + '=' + encodeURIComponent(id); }
 
 function ensureSystemTabs_() {
   var ss = SpreadsheetApp.getActive();
-  [[USERS_SHEET, USER_COLS], [AUDIT_SHEET, AUDIT_COLS], [TRASH_SHEET, TRASH_COLS], [SNAP_SHEET, SNAP_COLS]].forEach(function (t) {
+  [[USERS_SHEET, USER_COLS], [AUDIT_SHEET, AUDIT_COLS], [TRASH_SHEET, TRASH_COLS], [SNAP_SHEET, SNAP_COLS], [NOTIF_SHEET, NOTIF_COLS]].forEach(function (t) {
     var sh = ss.getSheetByName(t[0]);
     if (!sh) {
       sh = ss.insertSheet(t[0]);
@@ -535,73 +562,135 @@ function ensureSystemTabs_() {
       if (t[0] !== USERS_SHEET) { try { sh.protect().setWarningOnly(true); } catch (x) { /* protection is a courtesy only */ } }
     }
   });
+  ensureUserColumns_();
+}
+/** Adds any missing directory columns at the right of the Users tab. Columns already there, and hand-added ones, stay put. */
+function ensureUserColumns_() {
+  var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
+  if (!sh) return;
+  var have = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); }) : [];
+  var missing = USER_COLS.filter(function (c) { return have.indexOf(c) < 0; });
+  if (!missing.length) return;
+  ensureCols_(sh, have.length + missing.length);
+  sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#0f172a').setFontColor('#ffffff');
 }
 
 // ---------- users and sessions ----------
-/** "management" and "employee" are accepted in the Users tab as plain words for two of the roles. */
+/** Plain words such as "Super Admin", "Manager" and "employee" are accepted in the Users tab. */
 function roleOf_(v) {
   var r = String(v == null ? '' : v).trim();
-  var low = r.toLowerCase();
-  if (low === 'management' || low === 'admin') return 'Administrator';
-  if (low === 'employee') return 'Task Owner';
-  return ROLES.indexOf(r) >= 0 ? r : 'Viewer';
+  return ROLE_WORDS[r.toLowerCase()] || (ROLES.indexOf(r) >= 0 ? r : 'Viewer');
+}
+function userColumns_(sh) {
+  var head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0], at = {};
+  head.forEach(function (h, i) { var k = String(h).trim(); if (k && at[k] === undefined) at[k] = i; });
+  return at;
 }
 function users_() {
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
-  return sh.getRange(2, 1, sh.getLastRow() - 1, USER_COLS.length).getValues().filter(function (r) { return r[0] !== ''; }).map(function (r) {
+  var at = userColumns_(sh);
+  if (at.email === undefined) return [];
+  var cell = function (r, k) { return at[k] === undefined ? '' : r[at[k]]; };
+  return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().filter(function (r) { return String(cell(r, 'email')).trim() !== ''; }).map(function (r) {
     // "Manish Pandey (Head of Sales)": the part in brackets is another name tasks may use for this person.
-    var raw = String(r[1]).trim(), m = raw.match(/^(.*?)\s*\((.+)\)$/);
-    return { email: String(r[0]).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(r[2]), active: toBool_(r[3]), addedBy: String(r[4] || ''), addedAt: String(r[5] || '') };
+    var raw = String(cell(r, 'name')).trim(), m = raw.match(/^(.*?)\s*\((.+)\)$/);
+    return { email: String(cell(r, 'email')).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(cell(r, 'role')), active: toBool_(cell(r, 'active')), addedBy: String(cell(r, 'addedBy') || ''), addedAt: String(cell(r, 'addedAt') || ''), employeeId: String(cell(r, 'employeeId') || ''), department: String(cell(r, 'department') || ''), designation: String(cell(r, 'designation') || ''), managerEmail: String(cell(r, 'managerEmail') || '').trim().toLowerCase(), joiningDate: cell_(cell(r, 'joiningDate')), updatedAt: String(cell(r, 'updatedAt') || '') };
   });
 }
 function userByEmail_(email) {
-  email = String(email || '').toLowerCase();
+  email = String(email || '').trim().toLowerCase();
   return users_().filter(function (u) { return u.email === email; })[0] || null;
+}
+/** What a manager needs to assign work by email. Roles and history stay with Super Admins. */
+function directory_() {
+  return users_().filter(function (u) { return u.active; }).map(function (u) { return { employeeId: u.employeeId, name: u.name, email: u.email, department: u.department, designation: u.designation }; });
+}
+function nextEmployeeId_(users) {
+  var top = 0;
+  users.forEach(function (u) { var m = String(u.employeeId || '').match(/^EMP-(\d+)$/); if (m) top = Math.max(top, Number(m[1])); });
+  return 'EMP-' + ('00' + (top + 1)).slice(-3);
+}
+/** Gives everyone already in the Users tab an ID. Existing IDs never change. */
+function backfillEmployeeIds_() {
+  var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var at = userColumns_(sh), n = 0, list = users_();
+  if (at.employeeId === undefined || at.email === undefined) return 0;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  rows.forEach(function (r, i) {
+    if (String(r[at.email]).trim() === '' || String(r[at.employeeId]).trim() !== '') return;
+    var id = nextEmployeeId_(list);
+    list.push({ employeeId: id });
+    sh.getRange(i + 2, at.employeeId + 1).setValue(id);
+    n++;
+  });
+  return n;
 }
 function login_(body) {
   var cfg = authCfg_();
   if (!cfg.required) return { ok: true, open: true };
+  if (!cfg.clientId) return { ok: false, auth: true, error: 'Google sign-in has not been set up yet. Ask your administrator.' };
   if (!body.idToken) return { ok: false, auth: true, error: 'Sign in with your Suraasa Google account.' };
   var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(body.idToken), { muteHttpExceptions: true });
   if (res.getResponseCode() !== 200) return { ok: false, auth: true, error: 'Google could not confirm this sign-in. Try again.' };
   var t = JSON.parse(res.getContentText());
   var email = String(t.email || '').toLowerCase();
   if (t.aud !== cfg.clientId) return { ok: false, auth: true, error: 'This sign-in was issued for a different app.' };
+  if (t.iss && t.iss !== 'https://accounts.google.com' && t.iss !== 'accounts.google.com') return { ok: false, auth: true, error: 'This sign-in did not come from Google.' };
   if (String(t.email_verified) !== 'true') return { ok: false, auth: true, error: 'This Google account is not verified.' };
   if (email.split('@')[1] !== cfg.domain) return { ok: false, auth: true, error: 'Use your @' + cfg.domain + ' account.' };
   if (Number(t.exp || 0) * 1000 < Date.now()) return { ok: false, auth: true, error: 'This sign-in expired. Try again.' };
   var u = userByEmail_(email);
   if (!u || !u.active) return { ok: false, auth: true, denied: true, error: 'Your account has no access yet. Ask an administrator to add ' + email + '.' };
-  var token = Utilities.getUuid();
-  CacheService.getScriptCache().put('sess:' + token, email, 21600);
+  var token = Utilities.getUuid() + Utilities.getUuid();
+  var now = Date.now();
+  CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS }), SESSION_IDLE_SECONDS);
   return { ok: true, session: token, user: publicUser_(u) };
 }
-function publicUser_(u) { return { email: u.email, name: u.name, role: u.role }; }
-/** Returns who is calling. Role is read fresh on every request, so a role change applies at once. */
+function logout_(body) {
+  if (body.session) CacheService.getScriptCache().remove('sess:' + String(body.session));
+  return { ok: true };
+}
+function publicUser_(u) { return { email: u.email, name: u.name, aliases: u.aliases || [], role: u.role, employeeId: u.employeeId || '', department: u.department || '', designation: u.designation || '', managerEmail: u.managerEmail || '' }; }
+/** Returns who is calling. Role is read fresh on every request, so a role change or deactivation applies at once. */
 function actor_(body) {
   var cfg = authCfg_();
-  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), role: 'Administrator' };
+  if (!cfg.required) return { open: true, email: '', name: String(body.actorName || 'Website').slice(0, 80), aliases: [], role: 'Administrator' };
   if (!body.session) return null;
-  var email = CacheService.getScriptCache().get('sess:' + body.session);
-  if (!email) return null;
-  var u = userByEmail_(email);
-  return u && u.active ? publicUser_(u) : null;
+  var cache = CacheService.getScriptCache(), key = 'sess:' + String(body.session), raw = cache.get(key);
+  if (!raw) return null;
+  var s;
+  try { s = JSON.parse(raw); } catch (x) { return null; }
+  if (!s || !s.e || Date.now() > s.x) { cache.remove(key); return null; }
+  var u = userByEmail_(s.e);
+  if (!u || !u.active) { cache.remove(key); return null; }
+  if (Date.now() - s.t > 600000) { s.t = Date.now(); cache.put(key, JSON.stringify(s), SESSION_IDLE_SECONDS); } // still in use, so the idle limit moves on
+  return publicUser_(u);
 }
 function authError_() { return { ok: false, auth: true, error: 'Your session has ended. Sign in again.' }; }
 
 // ---------- what a person may see and do ----------
 /** True only for a confirmed name. "TBD — proposed: AK" gives AK no rights, and "AK" never matches "Mak". */
-function isMine_(field, name) {
-  if (!name || /^\s*tbd/i.test(String(field || ''))) return false;
-  return String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(function (x) { return x.trim().toLowerCase() === String(name).trim().toLowerCase(); });
+function isMine_(field, a) {
+  var names = typeof a === 'string' ? [a] : [a.name].concat(a.aliases || []);
+  names = names.filter(Boolean).map(function (n) { return String(n).trim().toLowerCase(); });
+  if (!names.length || /^\s*tbd/i.test(String(field || ''))) return false;
+  return String(field || '').split(/\s*[,\/&]\s*|\s+or\s+/i).some(function (x) { return names.indexOf(x.trim().toLowerCase()) >= 0; });
 }
-function ownsProject_(p, a) { return !!p && (isMine_(p.owner, a.name) || isMine_(p.accountable, a.name)); }
+/** A registered email decides. Records from before emails were stored fall back to the exact name. */
+function holds_(rec, nameField, emailField, a) {
+  var mail = String(rec[emailField] || '').toLowerCase();
+  if (mail && a.email) return mail.split(/\s*,\s*/).indexOf(a.email) >= 0;
+  return isMine_(rec[nameField], a);
+}
+function ownsTask_(t, a) { return holds_(t, 'owner', 'ownerEmail', a); }
+function ownsProject_(p, a) { return !!p && (holds_(p, 'owner', 'ownerEmail', a) || holds_(p, 'accountable', 'accountableEmail', a) || (!!a.email && (p.managerEmails || []).indexOf(a.email) >= 0)); }
 function canSeeProject_(p, tasks, a) {
   if (a.role === 'Administrator' || !p.restricted) return true;
-  if (ownsProject_(p, a) || isMine_(p.sponsor, a.name)) return true;
-  if ((p.members || []).some(function (m) { return isMine_(m, a.name); })) return true;
-  return tasks.some(function (t) { return t.projectId === p.id && isMine_(t.owner, a.name); });
+  if (ownsProject_(p, a) || isMine_(p.sponsor, a)) return true;
+  if ((p.members || []).some(function (m) { return isMine_(m, a); })) return true;
+  return tasks.some(function (t) { return t.projectId === p.id && ownsTask_(t, a); });
 }
 function scopeState_(state, a) {
   if (a.role === 'Administrator') return state;
@@ -616,7 +705,7 @@ function scopeState_(state, a) {
   if (a.role === 'Task Owner') {
     // Employees see their own tasks and subtasks, and only what belongs to the projects those tasks are in.
     var mine = {}, theirs = {};
-    state.tasks.forEach(function (t) { if (isMine_(t.owner, a.name) || isMine_(t.accountable, a.name)) { mine[t.id] = true; theirs[t.projectId] = true; } });
+    state.tasks.forEach(function (t) { if (ownsTask_(t, a) || isMine_(t.accountable, a)) { mine[t.id] = true; theirs[t.projectId] = true; } });
     var grew = true;
     while (grew) {
       grew = false;
@@ -628,7 +717,7 @@ function scopeState_(state, a) {
       return theirs[p.id] ? p : { id: p.id, name: p.name, status: p.status, priority: '', workstreams: [], milestones: [], raci: [], comments: [] };
     });
     ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
-      state[k] = (state[k] || []).filter(function (r) { return r.projectId ? theirs[r.projectId] : isMine_(r.owner, a.name); });
+      state[k] = (state[k] || []).filter(function (r) { return r.projectId ? theirs[r.projectId] : isMine_(r.owner, a); });
     });
     state.audit = state.audit.filter(function (r) { return r.taskId ? mine[r.taskId] : theirs[r.projectId]; });
     state.snapshots = state.snapshots.filter(function (r) { return theirs[r.projectId]; });
@@ -644,7 +733,7 @@ function changedFields_(cur, next) {
   Object.keys(keys).forEach(function (k) { if (STAMPS.indexOf(k) < 0 && canon_(cur ? cur[k] : '') !== canon_(next ? next[k] : '')) out.push(k); });
   return out;
 }
-function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.projectId === pid && (isMine_(t.owner, a.name) || isMine_(t.accountable, a.name)); }); }
+function hasWorkIn_(pid, st, a) { return st.tasks.some(function (t) { return t.projectId === pid && (ownsTask_(t, a) || isMine_(t.accountable, a)); }); }
 /** Returns a refusal message, or '' when allowed. Checked on the server for every record. */
 function deny_(a, coll, cur, next, st) {
   if (a.role === 'Administrator') return '';
@@ -664,12 +753,12 @@ function deny_(a, coll, cur, next, st) {
   var from = cur ? byId(cur.projectId) : proj;
   if (a.role === 'Project Owner' && ownsProject_(proj, a) && ownsProject_(from, a)) return '';
   if (cur && next && cur.projectId !== next.projectId) return 'Only the owner of both projects can move this.';
-  if (['risks', 'decisions', 'actions', 'dependencies'].indexOf(coll) >= 0 && cur && next && isMine_(cur.owner || cur.responsible, a.name)) {
+  if (['risks', 'decisions', 'actions', 'dependencies'].indexOf(coll) >= 0 && cur && next && isMine_(cur.owner || cur.responsible, a)) {
     var off = changedFields_(cur, next).filter(function (f) { return f === 'owner' || f === 'responsible'; });
     return off.length ? 'Ask the project owner to reassign this.' : '';
   }
   if (coll === 'tasks' && cur && next) {
-    if (!isMine_(cur.owner, a.name)) {
+    if (!ownsTask_(cur, a)) {
       var cf = changedFields_(cur, next);
       return a.role !== 'Task Owner' && cf.length === 1 && APPEND_ONLY.indexOf(cf[0]) >= 0 ? '' : 'Only the task owner or project owner can change this task.';
     }
@@ -678,9 +767,9 @@ function deny_(a, coll, cur, next, st) {
   }
   if (coll === 'tasks' && !cur && next && next.parent) {
     var parent = st.tasks.filter(function (t) { return t.id === next.parent; })[0];
-    return parent && parent.projectId === next.projectId && isMine_(parent.owner, a.name) ? '' : 'You can add subtasks only to your own tasks.';
+    return parent && parent.projectId === next.projectId && ownsTask_(parent, a) ? '' : 'You can add subtasks only to your own tasks.';
   }
-  if (coll === 'tasks' && !cur && next) return isMine_(next.owner, a.name) ? '' : 'You can add tasks only for yourself. Set yourself as the owner.';
+  if (coll === 'tasks' && !cur && next) return ownsTask_(next, a) ? '' : 'You can add tasks only for yourself. Set yourself as the owner.';
   if (coll === 'updates' && !cur) return a.role !== 'Task Owner' || hasWorkIn_(rec.projectId, st, a) ? '' : 'You can add updates only to projects you have tasks in.';
   return 'You do not have permission to change this.';
 }
@@ -741,8 +830,14 @@ function invalid_(coll, cur, next, st, a) {
     }
   }
   if (coll === 'users') {
+    var dom = authCfg_().domain, mail = String(next.email || '');
     if (ROLES.indexOf(next.role) < 0) return 'Unknown role.';
-    if (!/^[^@\s]+@[^@\s]+$/.test(String(next.email || ''))) return 'Enter a valid email address.';
+    if (!/^[^@\s]+@[^@\s]+$/.test(mail)) return 'Enter a valid email address.';
+    if (!cur && mail.split('@')[1] !== dom) return 'Use an official @' + dom + ' address.';
+    if (!String(next.name || '').trim()) return 'An employee needs a name.';
+    if (!dateOk(next.joiningDate)) return 'Dates must be YYYY-MM-DD.';
+    if (next.managerEmail && next.managerEmail === mail) return 'An employee cannot be their own manager.';
+    if (next.managerEmail && !userByEmail_(next.managerEmail)) return 'The manager must be a registered employee.';
   }
   return '';
 }
@@ -789,7 +884,7 @@ function noteProblem_(f, cur, next, a, canManage) {
 }
 
 // ---------- audit ----------
-var FIELD_NAMES = { status: 'Status', owner: 'Owner', accountable: 'Answerable', due: 'Due date', priority: 'Priority', progress: 'Progress', name: 'Name', desc: 'Description', criteria: 'Acceptance criteria', deliverable: 'Expected outcome', start: 'Start date', objective: 'Objective', outcome: 'Expected outcome', blocker: 'Blocker', dependsOn: 'Dependencies', archivedAt: 'Archived', final: 'Final decision' };
+var FIELD_NAMES = { ownerEmail: 'Owner email', accountableEmail: 'Answerable email', managerEmails: 'Project managers', status: 'Status', owner: 'Owner', accountable: 'Answerable', due: 'Due date', priority: 'Priority', progress: 'Progress', name: 'Name', desc: 'Description', criteria: 'Acceptance criteria', deliverable: 'Expected outcome', start: 'Start date', objective: 'Objective', outcome: 'Expected outcome', blocker: 'Blocker', dependsOn: 'Dependencies', archivedAt: 'Archived', final: 'Final decision' };
 var FIELD_ACTIONS = { status: 'status_changed', owner: 'owner_changed', accountable: 'owner_changed', due: 'deadline_changed', progress: 'progress_changed', priority: 'priority_changed', blocker: 'blocker_changed', dependsOn: 'dependency_changed', archivedAt: 'archive_changed' };
 function short_(v) { var s = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v == null ? '' : v); return s.length > 300 ? s.slice(0, 297) + '...' : s; }
 function auditFor_(coll, cur, next, a, reqId, ts, reason) {
@@ -799,10 +894,16 @@ function auditFor_(coll, cur, next, a, reqId, ts, reason) {
   var projectId = coll === 'projects' ? rec.id : (rec.projectId || '');
   var taskId = coll === 'tasks' ? rec.id : '';
   var row = function (action, field, oldV, newV, text) { return [Utilities.getUuid(), ts, a.email || '', a.name || '', coll, String(id), projectId, taskId, action, field, short_(oldV), short_(newV), text + (reason ? ' Reason: ' + reason : ''), reqId]; };
-  if (!cur) return [row('created', '', '', '', 'Created ' + coll.replace(/s$/, '') + ' "' + short_(label) + '"')];
+  if (!cur) {
+    var made = [row('created', '', '', '', 'Created ' + coll.replace(/s$/, '') + ' "' + short_(label) + '"')];
+    if (coll === 'tasks' && next.owner && !/^\s*tbd/i.test(String(next.owner))) made.push(row('task_assigned', 'owner', '', next.owner, 'Assigned "' + short_(label) + '" to ' + short_(next.owner)));
+    return made;
+  }
   if (!next) return [row('deleted', '', '', '', 'Deleted ' + coll.replace(/s$/, '') + ' "' + short_(label) + '"')];
-  var out = [];
-  changedFields_(cur, next).forEach(function (f) {
+  var out = [], fields = changedFields_(cur, next);
+  fields.forEach(function (f) {
+    if (f === 'ownerEmail' && fields.indexOf('owner') >= 0) return; // the owner row already says this
+    if (f === 'accountableEmail' && fields.indexOf('accountable') >= 0) return;
     if (APPEND_ONLY.indexOf(f) >= 0) {
       var was = {}; (cur[f] || []).forEach(function (n) { was[noteKey_(n)] = n; });
       var Kind = function (k) { return k.charAt(0).toUpperCase() + k.slice(1); };
@@ -871,16 +972,17 @@ var COLLECTIONS = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id'
 function schemaFor_(key) { return SCHEMA.filter(function (s) { return s.key === key; })[0]; }
 function findIn_(list, field, id) { for (var i = 0; i < list.length; i++) if (String(list[i][field]) === String(id)) return i; return -1; }
 
-function apply_(body, a) {
+function apply_(body, a, preloaded) {
   var ops = body.ops || [];
   if (!ops.length) return { ok: true, version: getVersion_(), stamped: [] };
   if (ops.length > 500) return { ok: false, error: 'Too many changes at once.' };
   if (ops.filter(function (o) { return o.del; }).length > 25) return { ok: false, error: 'Refused: this save would delete more than 25 records at once.' };
   var cache = CacheService.getScriptCache();
   var reqId = String(body.requestId || Utilities.getUuid());
-  var seen = cache.get('req:' + reqId);
+  var replayKey = 'req:' + (a.email || a.name || '') + ':' + reqId; // one person's request ID can never fetch another person's reply
+  var seen = cache.get(replayKey);
   if (seen) return JSON.parse(seen); // the same save arrived twice: do not apply it twice
-  var pulled = pull_();
+  var pulled = preloaded || pull_();
   var st = pulled.state;
   var users = users_();
   var rejected = [], plan = [];
@@ -903,12 +1005,20 @@ function apply_(body, a) {
     }
     if (op.c === 'users') {
       var uCur = users.filter(function (u) { return u.email === String(op.id).toLowerCase(); })[0] || null;
-      var uNext = op.del ? null : Object.assign({}, uCur || {}, op.rec || {}, { email: String(op.id).toLowerCase() });
+      var uPatch = {}; USER_EDIT.forEach(function (k) { if (op.rec && op.rec[k] !== undefined) uPatch[k] = op.rec[k]; });
+      var uNext = op.del ? null : Object.assign({}, uCur || {}, uPatch, { email: String(op.id).trim().toLowerCase() });
+      if (uNext) {
+        uNext.managerEmail = String(uNext.managerEmail || '').trim().toLowerCase();
+        ['name', 'department', 'designation'].forEach(function (k) { uNext[k] = String(uNext[k] || '').trim().slice(0, 120); });
+        var al = uNext.aliases; al = Array.isArray(al) ? al : String(al || '').split(/\s*,\s*/);
+        uNext.aliases = al.map(function (x) { return String(x).trim(); }).filter(Boolean);
+        uNext.rawName = uNext.name + (uNext.aliases.length ? ' (' + uNext.aliases.join(', ') + ')' : '');
+      }
       var ud = deny_(a, 'users', uCur, uNext, st) || invalid_('users', uCur, uNext, st, a);
       if (ud) return reject(ud, 'denied');
       var admins = users.filter(function (u) { return u.active && u.role === 'Administrator' && u.email !== String(op.id).toLowerCase(); }).length;
       if (authCfg_().required && !admins && (!uNext || !uNext.active || uNext.role !== 'Administrator')) return reject('There must always be at least one active administrator.', 'invalid');
-      if (uNext) { uNext.active = uNext.active !== false && String(uNext.active) !== 'false'; uNext.addedBy = uNext.addedBy || a.name; uNext.addedAt = uNext.addedAt || ts; }
+      if (uNext) { uNext.active = uNext.active !== false && String(uNext.active) !== 'false'; uNext.addedBy = uNext.addedBy || a.name; uNext.addedAt = uNext.addedAt || ts; uNext.updatedAt = ts; uNext.employeeId = uNext.employeeId || nextEmployeeId_(users); }
       users = users.filter(function (u) { return u.email !== String(op.id).toLowerCase(); }).concat(uNext ? [uNext] : []);
       plan.push({ users: true, cur: uCur, next: uNext });
       return;
@@ -958,6 +1068,8 @@ function apply_(body, a) {
       var dest = st.projects.filter(function (p) { return p.id === next.projectId; })[0];
       if (dest && !canSeeProject_(dest, st.tasks, a)) return reject('You do not have access to this project.', 'denied');
     }
+    var unknown = identity_(op.c, cur, next, users, a, ts);
+    if (unknown) return reject(unknown, 'invalid', 'ownerEmail');
     var denied = deny_(a, op.c, cur, next, st);
     if (denied) return reject(denied, 'denied');
     var problem = '';
@@ -1002,7 +1114,7 @@ function apply_(body, a) {
   });
 
   var ss = SpreadsheetApp.getActive();
-  var audit = [], trash = [], stamped = [];
+  var audit = [], trash = [], stamped = [], done = [];
   var headerBad = '';
   var tabs = {}; plan.forEach(function (p) { if (p.c) { tabs[p.c] = true; if (p.c === 'projects') NESTED.forEach(function (k) { tabs[k] = true; }); } });
   Object.keys(tabs).forEach(function (k) { var sc = schemaFor_(k); if (sc && !headerBad) headerBad = checkHeader_(ss, sc); });
@@ -1027,18 +1139,23 @@ function apply_(body, a) {
     var rows = auditFor_(p.c, p.cur, p.next, a, reqId, ts, p.reason);
     if (p.restoreOf && rows[0]) { rows[0][8] = 'restored'; rows[0][12] = String(rows[0][12]).replace(/^Created/, 'Restored'); }
     audit = audit.concat(rows);
-    if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue });
+    if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue, ownerEmail: p.next.ownerEmail, accountableEmail: p.next.accountableEmail, assignedBy: p.next.assignedBy, assignedByEmail: p.next.assignedByEmail, assignedAt: p.next.assignedAt });
+    done.push(p);
   }); } catch (err) { failure = err; }
   // Whatever did get written is recorded and announced, so a retry finishes the rest.
-  if (!failure) audit = audit.concat(assignmentEmails_(plan, a, users, st, ts, reqId));
+  // A notification problem is logged and retried. It never stops a save.
+  var told = { audit: [], notified: [] };
+  try { told = notify_(done, a, users, st, ts, reqId); }
+  catch (err) { audit.push([Utilities.getUuid(), ts, a.email || '', a.name || '', 'notifications', reqId, '', '', 'notification_error', '', '', '', 'Notifications could not be queued: ' + short_(err && err.message || err), reqId]); }
+  audit = audit.concat(told.audit);
   appendRows_(TRASH_SHEET, trash);
   appendRows_(AUDIT_SHEET, audit);
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: ts, updatedBy: a.name || 'website' });
   if (failure) return { ok: false, version: v, error: 'Only part of this save reached the Sheet (' + String(failure.message || failure) + ').' };
-  var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved };
+  var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved, notified: told.notified };
   res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return a.role === 'Administrator' || !o.projectId || o.entityType !== 'users'; });
-  try { cache.put('req:' + reqId, JSON.stringify(res), 600); } catch (x) { /* very large reply: skip the replay cache */ }
+  try { cache.put(replayKey, JSON.stringify(res), 600); } catch (x) { /* very large reply: skip the replay cache */ }
   return res;
 }
 function same_(a, b) { return canon_(a) === canon_(b); }
@@ -1053,13 +1170,13 @@ function oversize_(key, rec) {
 /** Columns are written by position, so a column moved by hand must stop the save. */
 function checkHeader_(ss, s) {
   var sh = ss.getSheetByName(s.tab);
-  var cols = s.cols.concat([EXTRA]);
-  var have = sh ? sh.getRange(1, 1, 1, cols.length).getValues()[0] : [];
+  var cols = allCols_(s);
+  var have = sh ? sh.getRange(1, 1, 1, Math.min(cols.length, Math.max(sh.getLastColumn(), 1))).getValues()[0] : [];
   return cols.every(function (c, i) { return String(have[i]) === c; }) ? '' : 'The columns of the ' + s.tab + ' tab were changed. An administrator should run Control Tower > Set up / repair tabs.';
 }
 
 function rowValues_(s, o) {
-  var known = {}; s.cols.forEach(function (c) { known[c] = true; });
+  var known = {}; s.cols.concat(s.tail || []).forEach(function (c) { known[c] = true; });
   var extra = {};
   Object.keys(o).forEach(function (k) { if (!known[k] && NESTED.indexOf(k) < 0) extra[k] = o[k]; });
   return s.cols.map(function (c) {
@@ -1070,7 +1187,7 @@ function rowValues_(s, o) {
     if (v == null) return '';
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
-  }).concat([Object.keys(extra).length ? JSON.stringify(extra) : '']);
+  }).concat([Object.keys(extra).length ? JSON.stringify(extra) : '']).concat((s.tail || []).map(function (c) { return o[c] == null ? '' : String(o[c]); }));
 }
 function rowOfId_(sh, col, id) {
   var n = sh.getLastRow(); if (n < 2) return -1;
@@ -1122,19 +1239,25 @@ function replaceNested_(ss, s, projectId, rows) {
   if (last - 1 > all.length) sh.getRange(all.length + 2, 1, last - 1 - all.length, width).clearContent();
 }
 function writeUser_(cur, next) {
+  ensureUserColumns_();
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
-  var email = (next || cur).email;
+  var at = userColumns_(sh), email = (next || cur).email;
   // The tab may hold an address typed in capitals. Sign-in ignores case, so this must too.
   var row = -1, n = sh.getLastRow();
-  if (n >= 2) sh.getRange(2, 1, n - 1, 1).getValues().forEach(function (r, i) { if (row < 0 && String(r[0]).trim().toLowerCase() === email) row = i + 2; });
+  if (n >= 2) sh.getRange(2, at.email + 1, n - 1, 1).getValues().forEach(function (r, i) { if (row < 0 && String(r[0]).trim().toLowerCase() === email) row = i + 2; });
   if (!next) { if (row > 0) deleteSheetRow_(sh, row); return; }
-  var vals = USER_COLS.map(function (c) {
-    if (c === 'name' && cur && next.name === cur.name && cur.rawName) return cur.rawName; // keep the part in brackets
-    return c === 'active' ? (next.active ? 'TRUE' : 'FALSE') : String(next[c] == null ? '' : next[c]);
-  });
-  if (row < 0) row = Math.max(sh.getLastRow(), 1) + 1;
+  if (row < 0) row = Math.max(n, 1) + 1;
   ensureRows_(sh, row);
-  sh.getRange(row, 1, 1, vals.length).setValues([vals]);
+  var width = sh.getLastColumn();
+  var vals = sh.getRange(row, 1, 1, width).getValues()[0]; // hand-added columns keep their values
+  USER_COLS.forEach(function (c) {
+    if (at[c] === undefined) return;
+    var v = c === 'active' ? (next.active ? 'TRUE' : 'FALSE') : c === 'name' ? (next.rawName || next.name) : next[c];
+    vals[at[c]] = String(v == null ? '' : v);
+  });
+  var rng = sh.getRange(row, 1, 1, width);
+  rng.setNumberFormat('@');
+  rng.setValues([vals]);
 }
 function markRestored_(trashId, ts) {
   var sh = SpreadsheetApp.getActive().getSheetByName(TRASH_SHEET);
@@ -1142,66 +1265,439 @@ function markRestored_(trashId, ts) {
   if (row > 0) sh.getRange(row, TRASH_COLS.indexOf('restoredAt') + 1, 1, 1).setValues([[ts]]);
 }
 
-// ---------- assignment emails ----------
+// ---------- who a record belongs to ----------
 function ownerNames_(field) {
   if (!field || /^\s*tbd/i.test(String(field))) return [];
   return String(field).split(/\s*[,\/&]\s*|\s+or\s+/i).map(function (x) { return x.trim(); }).filter(Boolean);
 }
-function personNamed_(name, users) {
-  var n = String(name).toLowerCase();
+function peopleNamed_(name, users) {
+  var n = String(name).trim().toLowerCase();
   return users.filter(function (u) {
     return u.active && (u.name.toLowerCase() === n || (u.rawName || '').toLowerCase() === n || u.email === n || (u.aliases || []).some(function (x) { return x.toLowerCase() === n; }));
-  })[0] || null;
-}
-function escHtml_(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-/**
- * Tells each new owner what they have just been given, and by whom. One email per person per
- * save, however many items. A problem here never stops the save: it is written to the audit log.
- */
-function assignmentEmails_(plan, a, users, st, ts, reqId) {
-  if (props_().getProperty('ASSIGN_EMAIL') === 'off') return [];
-  var boss = a.email ? users.filter(function (u) { return u.email === a.email; })[0] : personNamed_(a.name, users);
-  if (!boss || !boss.active || (boss.role !== 'Administrator' && boss.role !== 'Project Owner')) return [];
-  var byPerson = {}, rows = [];
-  var row = function (item, action, text) { return [Utilities.getUuid(), ts, a.email || '', a.name || '', item.kind + 's', item.id, item.projectId, item.kind === 'task' ? item.id : '', action, 'owner', '', item.owner, text, reqId]; };
-  plan.forEach(function (p) {
-    if (!p.next || p.restoreOf || (p.c !== 'tasks' && p.c !== 'projects')) return;
-    var before = ownerNames_(p.cur && p.cur.owner).map(function (x) { return x.toLowerCase(); });
-    var isTask = p.c === 'tasks';
-    var proj = isTask ? st.projects.filter(function (x) { return x.id === p.next.projectId; })[0] : p.next;
-    ownerNames_(p.next.owner).forEach(function (name) {
-      if (before.indexOf(name.toLowerCase()) >= 0) return;
-      var item = { kind: isTask ? 'task' : 'project', id: p.next.id, name: p.next.name, owner: name, project: proj ? proj.name : '', projectId: proj ? proj.id : '', due: p.next.due || '', priority: p.next.priority || '' };
-      var u = personNamed_(name, users);
-      if (!u) { rows.push(row(item, 'email_skipped', 'No email sent: "' + short_(name) + '" is not in the Users tab')); return; }
-      if (u.email === boss.email) return; // nobody needs telling what they gave themselves
-      var list = byPerson[u.email] = byPerson[u.email] || { user: u, items: [] };
-      if (!list.items.some(function (x) { return x.kind === item.kind && x.id === item.id; })) list.items.push(item);
-    });
   });
-  Object.keys(byPerson).forEach(function (email) {
-    var who = byPerson[email].user, items = byPerson[email].items, first = items[0];
-    var subject = items.length === 1 ? boss.name + ' assigned you a ' + first.kind + ': ' + first.name : boss.name + ' assigned you ' + items.length + ' items';
-    var line = function (i) { return (i.kind === 'task' ? 'Task: ' : 'Project: ') + i.name + (i.kind === 'task' && i.project ? ' (' + i.project + ')' : '') + (i.due ? ', due ' + i.due : '') + (i.priority ? ', priority ' + i.priority : ''); };
-    var body = 'Hi ' + who.name + ',\n\n' + boss.name + ' has assigned you:\n\n' + items.map(function (i) { return '- ' + line(i); }).join('\n') + '\n\nOpen the Control Tower: ' + SITE_URL;
-    var html = '<p>Hi ' + escHtml_(who.name) + ',</p><p><b>' + escHtml_(boss.name) + '</b> has assigned you:</p><ul>' + items.map(function (i) { return '<li>' + escHtml_(line(i)) + '</li>'; }).join('') + '</ul><p><a href="' + SITE_URL + '">Open the Control Tower</a></p>';
-    try {
-      if (MailApp.getRemainingDailyQuota() < 1) throw new Error('daily email limit reached');
-      MailApp.sendEmail({ to: email, subject: subject, body: body, htmlBody: html, name: 'Suraasa Control Tower', replyTo: boss.email });
-      items.forEach(function (i) { rows.push(row(i, 'email_sent', 'Assignment email sent to ' + email)); });
-    } catch (err) {
-      items.forEach(function (i) { rows.push(row(i, 'email_failed', 'Assignment email to ' + email + ' failed: ' + short_(err && err.message || err))); });
+}
+/** Exact matches only, and never a guess: a name two people share belongs to neither. */
+function personNamed_(name, users) { var hits = peopleNamed_(name, users); return hits.length === 1 ? hits[0] : null; }
+function fieldIdentity_(cur, next, nameF, mailF, users) {
+  var was = String(cur ? cur[mailF] || '' : '').toLowerCase(), now = String(next[mailF] || '').trim().toLowerCase();
+  if (now && now !== was) {
+    var mails = [], names = [], bad = '';
+    now.split(/\s*,\s*/).filter(Boolean).forEach(function (m) {
+      var u = users.filter(function (x) { return x.email === m; })[0];
+      if (!u) bad = bad || m + ' is not a registered employee. Check the address, or add them under Administration.';
+      else if (!u.active) bad = bad || u.name + ' (' + m + ') is inactive, so work cannot be assigned to them.';
+      else { mails.push(u.email); names.push(u.name); }
+    });
+    if (bad) return bad;
+    next[mailF] = mails.join(', '); next[nameF] = names.join(', ');
+    return '';
+  }
+  if (cur && String(cur[nameF] || '') === String(next[nameF] || '')) return '';
+  var parts = ownerNames_(next[nameF]), found = [];
+  parts.forEach(function (n) { var u = personNamed_(n, users); if (u) found.push(u.email); });
+  next[mailF] = parts.length && found.length === parts.length ? found.join(', ') : '';
+  return '';
+}
+/** The email is what identifies a person. The server works it out, checks it and stamps who assigned the work. */
+function identity_(coll, cur, next, users, a, ts) {
+  if (coll !== 'tasks' && coll !== 'projects') return '';
+  var bad = fieldIdentity_(cur, next, 'owner', 'ownerEmail', users);
+  if (coll === 'projects') {
+    bad = bad || fieldIdentity_(cur, next, 'accountable', 'accountableEmail', users);
+    if (next.managerEmails !== undefined) {
+      var list = Array.isArray(next.managerEmails) ? next.managerEmails : String(next.managerEmails || '').split(/\s*[,;]\s*/);
+      list = list.map(function (m) { return String(m).trim().toLowerCase(); }).filter(Boolean);
+      list.forEach(function (m) { if (!users.some(function (u) { return u.email === m && u.active; })) bad = bad || m + ' is not an active registered employee.'; });
+      next.managerEmails = list;
+    }
+  }
+  if (bad) return bad;
+  if (coll === 'tasks') {
+    var changed = !cur ? ownerNames_(next.owner).length > 0 : String(cur.owner || '') !== String(next.owner || '') || String(cur.ownerEmail || '') !== String(next.ownerEmail || '');
+    if (changed) { next.assignedBy = a.name || ''; next.assignedByEmail = a.email || ''; next.assignedAt = ts; }
+  }
+  return '';
+}
+function nextTaskId_(tasks) {
+  var top = 0, look = function (id) { var m = String(id).match(/^T-(\d+)$/); if (m) top = Math.max(top, Number(m[1])); };
+  tasks.forEach(function (t) { look(t.id); });
+  readTable_(TRASH_SHEET, TRASH_COLS).forEach(function (t) { if (t.collection === 'tasks') look(t.recordId); }); // a deleted task's ID is never reused
+  return 'T-' + ('00' + (top + 1)).slice(-3);
+}
+
+// ---------- assigning a task by email ----------
+/** One confirmed assignment, end to end. The same requestId can never make two tasks. */
+function assign_(body, a) {
+  if (a.role !== 'Administrator' && a.role !== 'Project Owner') return { ok: false, code: 'denied', error: 'Only Super Admins and Managers can assign tasks.' };
+  var t = body.task || {}, reqId = String(body.requestId || '').trim();
+  var name = String(t.name || '').trim(), email = String(t.ownerEmail || '').trim().toLowerCase(), due = String(t.due || '').trim();
+  if (!reqId) return { ok: false, code: 'invalid', error: 'This request has no ID. Refresh the page and try again.' };
+  if (!name) return { ok: false, code: 'invalid', field: 'name', error: 'A task needs a title.' };
+  if (!email) return { ok: false, code: 'invalid', field: 'ownerEmail', error: 'Enter the employee\'s official email.' };
+  if (PRIOS.indexOf(t.priority) < 0) return { ok: false, code: 'invalid', field: 'priority', error: 'Choose a priority.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return { ok: false, code: 'invalid', field: 'due', error: 'Choose a deadline.' };
+  ensureSystemTabs_();
+  var pulled = pull_(), st = pulled.state, users = users_();
+  var again = st.tasks.filter(function (x) { return x.assignKey === reqId; })[0];
+  if (again) return { ok: true, duplicate: true, version: pulled.version, task: again, notified: notifiedFor_(reqId) };
+  var who = users.filter(function (u) { return u.email === email; })[0];
+  if (!who) return { ok: false, code: 'unknown_employee', field: 'ownerEmail', error: email + ' is not a registered employee.' };
+  if (!who.active) return { ok: false, code: 'inactive_employee', field: 'ownerEmail', error: who.name + ' (' + email + ') is inactive.' };
+  var proj = st.projects.filter(function (p) { return p.id === t.projectId; })[0];
+  if (!proj) return { ok: false, code: 'invalid', field: 'projectId', error: 'That project does not exist.' };
+  if (proj.archivedAt) return { ok: false, code: 'invalid', field: 'projectId', error: 'That project is archived.' };
+  if (a.role === 'Project Owner' && !ownsProject_(proj, a)) return { ok: false, code: 'denied', error: 'You can assign tasks only on projects you manage.' };
+  var today = Utilities.formatDate(new Date(), SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  if (due < today) return { ok: false, code: 'invalid', field: 'due', error: 'The deadline is in the past.' };
+  var id = nextTaskId_(st.tasks);
+  var rec = { id: id, projectId: proj.id, name: name.slice(0, 300), desc: String(t.desc || '').slice(0, 5000), owner: who.name, ownerEmail: who.email, accountable: a.name || '', start: today, due: due, priority: t.priority, status: 'Not Started', progress: 0, kind: 'Task', datesProposed: false, assignKey: reqId };
+  var res = apply_({ ops: [{ c: 'tasks', id: id, create: true, rec: rec }], requestId: reqId }, a, pulled);
+  if (!res.ok) return { ok: false, code: res.rejected ? res.rejected[0].code : 'failed', error: res.rejected ? res.rejected[0].reason : res.error };
+  res.task = st.tasks.filter(function (x) { return x.id === id; })[0];
+  res.employee = { name: who.name, email: who.email, employeeId: who.employeeId, designation: who.designation, department: who.department };
+  return res;
+}
+
+// ---------- notifications ----------
+// Every email starts as a "queued" row in NotificationLog, so nothing is lost if sending fails.
+// "accepted" means Google's mail service took it. Nobody can see from here whether it reached the inbox.
+var NOTIF_COLS = ['notificationId', 'ts', 'channel', 'eventType', 'recipientEmail', 'recipientName', 'taskId', 'projectId', 'subject', 'deliveryStatus', 'attempts', 'lastAttemptAt', 'nextAttemptAt', 'errorDetails', 'dedupeKey', 'batchId', 'actorEmail', 'actorName', 'requestId', 'payload'];
+var EMAIL_MAX_ATTEMPTS = 5, RETRY_MINUTES = [5, 15, 60, 360], SEND_NOW = 5, DEDUPE_WINDOW = 6000;
+var EVENT_TITLE = { task_assigned: 'New Task Assigned', task_reassigned: 'Task Reassigned to You', project_assigned: 'New Project Assigned', deadline_reminder: 'Deadline Reminder', task_overdue: 'Task Overdue', task_completed: 'Task Completed', manager_comment: 'New Comment on Your Task', review_requested: 'Task Review Requested' };
+var EVENT_INTRO = { task_assigned: 'A new task has been assigned to you.', task_reassigned: 'A task has been reassigned to you.', project_assigned: 'A project has been assigned to you.', deadline_reminder: 'This task is coming up to its deadline.', task_overdue: 'This task is past its deadline.', task_completed: 'This task has been marked as completed.', manager_comment: 'There is a new comment on your task.', review_requested: 'This task is waiting for a review.' };
+var EVENT_GROUP = { task_assigned: 'assign', task_reassigned: 'assign', project_assigned: 'assign', deadline_reminder: 'daily', task_overdue: 'daily', task_completed: 'completed', manager_comment: 'comment', review_requested: 'review' };
+
+/** off: nothing is sent. test: everything goes to one address. live: employees receive their own. */
+function emailMode_() {
+  var p = props_();
+  if (p.getProperty('ASSIGN_EMAIL') === 'off') return { mode: 'off' };
+  if (p.getProperty('EMAIL_MODE') === 'live') return { mode: 'live' };
+  var to = p.getProperty('EMAIL_TEST_TO') || '';
+  try { to = to || Session.getEffectiveUser().getEmail(); } catch (x) { /* shown as a failure when sending */ }
+  return { mode: 'test', to: to };
+}
+function itemOf_(kind, rec, proj) {
+  return { kind: kind, id: rec.id, name: rec.name, project: proj ? proj.name : '', projectId: proj ? proj.id : '', priority: rec.priority || '', due: rec.due || '', desc: String((kind === 'task' ? rec.desc : rec.objective) || '').slice(0, 600), status: rec.status || '', by: '', note: '' };
+}
+function owners_(rec, users) {
+  var mails = String(rec.ownerEmail || '').toLowerCase().split(/\s*,\s*/).filter(Boolean);
+  if (mails.length) return mails.map(function (m) {
+    var u = users.filter(function (x) { return x.email === m; })[0];
+    return { key: m, user: u && u.active ? u : null, name: u ? u.name : m };
+  });
+  return ownerNames_(rec.owner).map(function (n) {
+    var u = personNamed_(n, users);
+    return { key: u ? u.email : n.toLowerCase(), user: u, name: n };
+  });
+}
+/** Whoever gave out the work and whoever answers for the project. */
+function overseers_(rec, proj, users) {
+  var out = owners_({ owner: proj && proj.owner, ownerEmail: proj && proj.ownerEmail }, users)
+    .concat(owners_({ owner: proj && proj.accountable, ownerEmail: proj && proj.accountableEmail }, users))
+    .concat(((proj && proj.managerEmails) || []).map(function (m) { return { key: m, user: users.filter(function (u) { return u.email === m && u.active; })[0] || null }; }));
+  if (rec.assignedByEmail) out.push({ key: rec.assignedByEmail, user: users.filter(function (u) { return u.email === rec.assignedByEmail && u.active; })[0] || null });
+  return out;
+}
+function eventsFor_(done, a, users, st) {
+  var boss = a.email ? users.filter(function (u) { return u.email === a.email; })[0] : personNamed_(a.name, users);
+  var manages = !!boss && boss.active && (boss.role === 'Administrator' || boss.role === 'Project Owner');
+  var me = boss ? boss.email : (a.email || '');
+  var events = [], skipped = [];
+  var add = function (type, user, item, key) {
+    if (!user || !user.active || user.email === me) return;
+    if (events.some(function (e) { return e.type === type && e.item.id === item.id && e.user.email === user.email; })) return;
+    events.push({ type: type, user: user, item: item, key: key });
+  };
+  done.forEach(function (p) {
+    if (!p.next || p.restoreOf || (p.c !== 'tasks' && p.c !== 'projects')) return;
+    var isTask = p.c === 'tasks', cur = p.cur, rec = p.next;
+    var proj = isTask ? st.projects.filter(function (x) { return x.id === rec.projectId; })[0] : rec;
+    var item = itemOf_(isTask ? 'task' : 'project', rec, proj);
+    item.by = (boss && boss.name) || a.name || ''; item.byEmail = (boss && boss.email) || a.email || '';
+    var before = cur ? owners_(cur, users) : [];
+    if (manages) owners_(rec, users).forEach(function (o) {
+      if (before.some(function (b) { return b.key === o.key; })) return;
+      if (!o.user) { skipped.push({ item: item, name: o.name }); return; }
+      add(!isTask ? 'project_assigned' : before.length ? 'task_reassigned' : 'task_assigned', o.user, item, '');
+    });
+    if (!isTask || !cur) return;
+    var reached = cur.status !== rec.status ? rec.status : '';
+    if (reached === 'Completed') overseers_(rec, proj, users).forEach(function (o) { add('task_completed', o.user, item, ''); });
+    if (reached === 'In Review' || reached === 'Awaiting Approval') overseers_(rec, proj, users).concat(owners_(rec, users)).forEach(function (o) { add('review_requested', o.user, item, ''); });
+    if (manages) {
+      var had = {}; (cur.notes || []).forEach(function (n) { had[noteKey_(n)] = true; });
+      (rec.notes || []).forEach(function (n) {
+        if (had[noteKey_(n)] || ['comment', 'question', 'decision'].indexOf(n.type || 'comment') < 0) return;
+        var withNote = Object.assign({}, item, { note: String(n.text || '').slice(0, 600) });
+        owners_(rec, users).forEach(function (o) { add('manager_comment', o.user, withNote, noteKey_(n)); });
+      });
     }
   });
+  return { events: events, skipped: skipped };
+}
+function notifRow_(o) { return NOTIF_COLS.map(function (c) { return o[c] === undefined ? '' : o[c]; }); }
+function readNotifs_(limit) {
+  var sh = SpreadsheetApp.getActive().getSheetByName(NOTIF_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var n = sh.getLastRow() - 1, take = Math.min(n, limit || DEDUPE_WINDOW), first = n - take + 2;
+  return sh.getRange(first, 1, take, NOTIF_COLS.length).getValues().map(function (r, i) {
+    var o = { _row: first + i }; NOTIF_COLS.forEach(function (c, j) { o[c] = String(r[j] == null ? '' : r[j]); }); return o;
+  });
+}
+function queue_(events, ts, reqId, actor, batchOf) {
+  ensureSystemTabs_();
+  var seen = {}; readNotifs_().forEach(function (r) { seen[r.dedupeKey] = true; });
+  var off = emailMode_().mode === 'off', rows = [];
+  events.forEach(function (ev) {
+    var key = [ev.type, ev.item.id, ev.user.email, ev.key || reqId].join('|');
+    if (seen[key]) return; // this person already has this exact notice
+    seen[key] = true;
+    var base = { ts: ts, eventType: ev.type, recipientEmail: ev.user.email, recipientName: ev.user.name, taskId: ev.item.kind === 'task' ? ev.item.id : '', projectId: ev.item.projectId, subject: EVENT_TITLE[ev.type] + ': ' + short_(ev.item.name), attempts: 0, actorEmail: ev.item.byEmail || actor.email || '', actorName: ev.item.by || actor.name || '', requestId: reqId };
+    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'in-app', deliveryStatus: 'created', dedupeKey: 'inapp|' + key }));
+    rows.push(Object.assign({}, base, { notificationId: 'N-' + Utilities.getUuid(), channel: 'email', deliveryStatus: off ? 'skipped' : 'queued', errorDetails: off ? 'Emails are turned off' : '', dedupeKey: key, batchId: batchOf(ev), payload: JSON.stringify(ev.item) }));
+  });
+  if (rows.length) appendRows_(NOTIF_SHEET, rows.map(notifRow_));
   return rows;
+}
+/** Runs after a save: queue what it caused, try to send it straight away, and report what really happened. */
+function notify_(done, a, users, st, ts, reqId) {
+  var found = eventsFor_(done, a, users, st), audit = [];
+  found.skipped.forEach(function (s) { audit.push(emailAudit_(s.item.kind === 'task' ? s.item.id : '', s.item.projectId, s.item.kind, s.item.id, a.email, a.name, 'email_skipped', s.name, 'No email sent: "' + short_(s.name) + '" is not in the Users tab', ts, reqId)); });
+  if (!found.events.length) return { audit: audit, notified: [] };
+  var queued = queue_(found.events, ts, reqId, a, function (ev) { return [ev.user.email, EVENT_GROUP[ev.type], reqId].join('|'); });
+  var batches = {}; queued.forEach(function (r) { if (r.batchId && r.deliveryStatus === 'queued') batches[r.batchId] = true; });
+  audit = audit.concat(deliver_({ batches: batches, limit: SEND_NOW }));
+  return { audit: audit, notified: notifiedFor_(reqId) };
+}
+function notifiedFor_(reqId) {
+  return readNotifs_(600).filter(function (r) { return r.requestId === reqId; }).map(function (r) {
+    return { channel: r.channel, eventType: r.eventType, recipientEmail: r.recipientEmail, recipientName: r.recipientName, deliveryStatus: r.deliveryStatus, errorDetails: r.errorDetails };
+  });
+}
+function emailAudit_(taskId, projectId, kind, id, actorEmail, actorName, action, value, text, ts, reqId) {
+  return [Utilities.getUuid(), ts, actorEmail || '', actorName || '', kind + 's', id, projectId || '', taskId || '', action, 'owner', '', value, text, reqId];
+}
+/** Sends what is due. Failures wait and try again, then stop at EMAIL_MAX_ATTEMPTS so a bad address cannot retry forever. */
+function deliver_(opts) {
+  opts = opts || {};
+  var now = Date.now(), groups = {}, order = [];
+  readNotifs_().forEach(function (r) {
+    if (r.channel !== 'email') return;
+    if (r.deliveryStatus !== 'queued' && !(r.deliveryStatus === 'failed' && (!r.nextAttemptAt || Date.parse(r.nextAttemptAt) <= now))) return;
+    if (opts.batches && !opts.batches[r.batchId]) return;
+    if (!groups[r.batchId]) { groups[r.batchId] = []; order.push(r.batchId); }
+    groups[r.batchId].push(r);
+  });
+  var audit = [];
+  order.slice(0, opts.limit || 40).forEach(function (id) { audit = audit.concat(sendBatch_(groups[id])); });
+  return audit;
+}
+function retryTime_(attempt) { return new Date(Date.now() + RETRY_MINUTES[Math.min(attempt - 1, RETRY_MINUTES.length - 1)] * 60000).toISOString(); }
+function sendBatch_(rows) {
+  var first = rows[0], ts = new Date().toISOString(), mode = emailMode_(), note = '', status = 'accepted', error = '', wait = '';
+  if (mode.mode === 'off') { status = 'skipped'; note = 'Emails are turned off'; }
+  else {
+    try {
+      if (MailApp.getRemainingDailyQuota() < 1) throw new Error('daily email limit reached');
+      var mail = renderEmail_(rows), to = first.recipientEmail;
+      if (mode.mode === 'test') {
+        if (!mode.to) throw new Error('test mode has no address to send to');
+        mail.subject = '[TEST for ' + to + '] ' + mail.subject;
+        to = mode.to; note = 'Test mode: sent to ' + to + ' instead of the employee';
+      }
+      var msg = { to: to, subject: mail.subject, body: mail.body, htmlBody: mail.html, name: 'Suraasa Control Tower' };
+      if (first.actorEmail) msg.replyTo = first.actorEmail;
+      MailApp.sendEmail(msg);
+    } catch (err) {
+      error = short_(err && err.message || err);
+      var tries = Number(first.attempts || 0) + 1;
+      status = tries >= EMAIL_MAX_ATTEMPTS ? 'abandoned' : 'failed';
+      wait = status === 'failed' ? retryTime_(tries) : '';
+    }
+  }
+  var sh = SpreadsheetApp.getActive().getSheetByName(NOTIF_SHEET), at = NOTIF_COLS.indexOf('deliveryStatus') + 1, audit = [];
+  rows.forEach(function (r) {
+    var tries = Number(r.attempts || 0) + (status === 'skipped' ? 0 : 1);
+    r.deliveryStatus = status; r.attempts = tries; r.lastAttemptAt = ts; r.nextAttemptAt = wait; r.errorDetails = error || note;
+    sh.getRange(r._row, at, 1, 5).setValues([[status, String(tries), ts, wait, r.errorDetails]]);
+    if (status === 'skipped') return;
+    var kind = r.taskId ? 'task' : 'project', id = r.taskId || r.projectId;
+    audit.push(emailAudit_(r.taskId, r.projectId, kind, id, r.actorEmail, r.actorName, status === 'accepted' ? 'email_sent' : 'email_failed', r.recipientName, status === 'accepted' ? 'Email for ' + r.eventType + ' accepted by the mail service for ' + r.recipientEmail + (note ? ' (' + note + ')' : '') + '. Delivery to the inbox is not confirmed.' : 'Email for ' + r.eventType + ' to ' + r.recipientEmail + ' failed: ' + error, ts, r.requestId));
+  });
+  return audit;
+}
+function niceDate_(v) {
+  var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return v ? String(v) : 'Not set';
+  return Number(m[3]) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m[2]) - 1] + ' ' + m[1];
+}
+function prioLabel_(p) { return PRIO_WORDS[p] ? PRIO_WORDS[p] + ' (' + p + ')' : (p || 'Not set'); }
+/** Plain and HTML versions from the same facts. All values are escaped: task text comes from people. */
+function renderEmail_(rows) {
+  var list = rows.map(function (r) { var it = JSON.parse(r.payload || '{}'); it.type = r.eventType; return it; });
+  var one = list.length === 1, first = list[0], who = rows[0].recipientName || 'there', group = EVENT_GROUP[first.type];
+  var title = one ? EVENT_TITLE[first.type] : group === 'assign' ? list.length + ' New Items Assigned' : group === 'daily' ? list.length + ' Tasks Need Your Attention' : list.length + ' ' + EVENT_TITLE[first.type];
+  var intro = one ? EVENT_INTRO[first.type] : group === 'assign' ? 'These items have been assigned to you.' : group === 'daily' ? 'These tasks are due soon or overdue.' : 'These items need your attention.';
+  var byWord = first.type === 'task_completed' ? 'Completed By' : first.type === 'manager_comment' ? 'Comment By' : first.type === 'review_requested' ? 'Requested By' : first.type === 'deadline_reminder' || first.type === 'task_overdue' ? '' : 'Assigned By';
+  var facts = function (i) {
+    var f = [[i.kind === 'project' ? 'Project' : 'Task', i.name]];
+    f.push([i.kind === 'project' ? 'Project ID' : 'Task ID', i.id]);
+    if (i.kind !== 'project') f.push(['Project', i.project || 'Not set']);
+    f.push(['Priority', prioLabel_(i.priority)]);
+    if (byWord) f.push([byWord, i.by || 'Control Tower']);
+    f.push(['Deadline', niceDate_(i.due)]);
+    if (group === 'daily') f.push(['Reminder', EVENT_TITLE[i.type]]);
+    return f;
+  };
+  var button = function (i) { return i.kind === 'project' ? 'View Project' : 'View Task'; };
+  var text = 'Hello ' + who + ',\n\n' + intro + '\n\n' + list.map(function (i) {
+    return facts(i).map(function (f) { return f[0] + ': ' + f[1]; }).join('\n') + (i.note ? '\n\nComment:\n' + i.note : '') + (i.desc ? '\n\nDescription:\n' + i.desc : '') + '\n\n' + button(i) + ': ' + itemLink_(i.kind, i.id);
+  }).join('\n\n---\n\n') + '\n\nPlease log in to your dashboard to review and update your task.\n\nRegards,\nSuraasa Sales Control Tower';
+  var card = function (i) {
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;margin:0 0 16px"><tr><td style="padding:16px 20px">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + facts(i).map(function (f, n) { return '<tr><td style="padding:4px 12px 4px 0;color:#64748b;font-size:13px;width:110px;vertical-align:top">' + escHtml_(f[0]) + '</td><td style="padding:4px 0;color:#0f172a;font-size:14px' + (n === 0 ? ';font-weight:600' : '') + '">' + escHtml_(f[1]) + '</td></tr>'; }).join('') + '</table>' +
+      (i.note ? '<p style="margin:14px 0 0;color:#64748b;font-size:13px">Comment</p><p style="margin:4px 0 0;color:#0f172a;font-size:14px;white-space:pre-wrap">' + escHtml_(i.note) + '</p>' : '') +
+      (i.desc ? '<p style="margin:14px 0 0;color:#64748b;font-size:13px">Description</p><p style="margin:4px 0 0;color:#0f172a;font-size:14px;white-space:pre-wrap">' + escHtml_(i.desc) + '</p>' : '') +
+      '<p style="margin:16px 0 2px"><a href="' + escHtml_(itemLink_(i.kind, i.id)) + '" style="display:inline-block;background:#225BA5;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 18px;border-radius:6px">' + button(i) + '</a></p></td></tr></table>';
+  };
+  var html = '<div style="background:#f1f5f9;padding:24px 12px;font-family:Inter,Arial,Helvetica,sans-serif"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px"><tr><td style="background:#0f172a;border-radius:10px 10px 0 0;padding:16px 24px;color:#ffffff;font-size:15px;font-weight:600">Suraasa Sales Control Tower</td></tr><tr><td style="padding:24px"><h1 style="margin:0 0 12px;color:#0f172a;font-size:20px">' + escHtml_(title) + '</h1><p style="margin:0 0 6px;color:#0f172a;font-size:14px">Hello ' + escHtml_(who) + ',</p><p style="margin:0 0 18px;color:#334155;font-size:14px">' + escHtml_(intro) + '</p>' + list.map(card).join('') + '<p style="margin:8px 0 0;color:#334155;font-size:14px">Please log in to your dashboard to review and update your task.</p><p style="margin:16px 0 0;color:#334155;font-size:14px">Regards,<br>Suraasa Sales Control Tower</p></td></tr></table></div>';
+  return { subject: title + ' - ' + APP, body: text, html: html };
+}
+function escHtml_(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+/** Daily: 3 days, 1 day and the day itself; overdue on the first day and then weekly. One email per person per day. */
+function reminders_(st, today, ts) {
+  if (emailMode_().mode === 'off') return [];
+  var users = users_(), events = [];
+  var days = function (d) { var m = d.split('-'); return Math.round(Date.UTC(Number(m[0]), Number(m[1]) - 1, Number(m[2])) / 86400000); };
+  var live = {}; st.projects.forEach(function (p) { if (!p.archivedAt) live[p.id] = p; });
+  st.tasks.forEach(function (t) {
+    if (!live[t.projectId] || !/^\d{4}-\d{2}-\d{2}$/.test(String(t.due)) || ['Completed', 'Cancelled'].indexOf(t.status) >= 0) return;
+    var left = days(t.due) - days(today), type = '', key = '';
+    if (left < 0) { type = 'task_overdue'; key = t.due + ':' + Math.floor((-left - 1) / 7); }
+    else if (left === 0 || left === 1 || left === 3) { type = 'deadline_reminder'; key = t.due + ':' + left; }
+    if (!type) return;
+    owners_(t, users).forEach(function (o) { if (o.user) events.push({ type: type, user: o.user, item: itemOf_('task', t, live[t.projectId]), key: key }); });
+  });
+  if (!events.length) return [];
+  var reqId = 'daily-' + today;
+  queue_(events, ts, reqId, { email: '', name: 'Control Tower' }, function (ev) { return ev.user.email + '|daily|' + today; });
+  return deliver_({ limit: 40 });
+}
+/** Every 5 minutes: sends anything still queued and retries failures. */
+function processNotifications() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: true, busy: true };
+  try {
+    ensureSystemTabs_();
+    var audit = deliver_({ limit: 40 });
+    appendRows_(AUDIT_SHEET, audit);
+    return { ok: true, handled: audit.length };
+  } finally { lock.releaseLock(); }
+}
+var seesLog_ = function (a) { return a.role === 'Administrator' || a.role === 'Project Owner'; };
+/** Super Admins see everything. Managers see notices for the projects they manage. The stored message body is never sent out. */
+function notificationLog_(a) {
+  if (!seesLog_(a)) return { ok: false, code: 'denied', error: 'Only Super Admins and Managers can see the notification log.' };
+  var projects = pull_().state.projects, mine = {};
+  projects.forEach(function (p) { if (a.role === 'Administrator' || ownsProject_(p, a)) mine[p.id] = true; });
+  var rows = readNotifs_(800).filter(function (r) { return a.role === 'Administrator' || mine[r.projectId]; }).reverse().slice(0, 400).map(function (r) {
+    return { notificationId: r.notificationId, ts: r.ts, channel: r.channel, eventType: r.eventType, recipientEmail: r.recipientEmail, recipientName: r.recipientName, taskId: r.taskId, projectId: r.projectId, subject: r.subject, deliveryStatus: r.deliveryStatus, attempts: r.attempts, nextAttemptAt: r.nextAttemptAt, errorDetails: r.errorDetails };
+  });
+  return { ok: true, rows: rows };
+}
+function notificationRetry_(body, a) {
+  if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can retry emails.' };
+  var sh = SpreadsheetApp.getActive().getSheetByName(NOTIF_SHEET), at = NOTIF_COLS.indexOf('deliveryStatus') + 1, batches = {}, n = 0;
+  readNotifs_().forEach(function (r) {
+    if (r.channel !== 'email' || (r.deliveryStatus !== 'failed' && r.deliveryStatus !== 'abandoned')) return;
+    if (body.id && r.notificationId !== body.id) return;
+    sh.getRange(r._row, at, 1, 5).setValues([['queued', '0', r.lastAttemptAt, '', r.errorDetails]]);
+    batches[r.batchId] = true; n++;
+  });
+  appendRows_(AUDIT_SHEET, deliver_({ batches: batches, limit: 40 }));
+  return { ok: true, requeued: n };
+}
+function notificationResend_(body, a) {
+  if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can resend emails.' };
+  var r = readNotifs_().filter(function (x) { return x.notificationId === body.id && x.channel === 'email'; })[0];
+  if (!r) return { ok: false, code: 'missing', error: 'That notification was not found.' };
+  var id = 'N-' + Utilities.getUuid(), ts = new Date().toISOString(), req = 'resend-' + id;
+  var copy = Object.assign({}, r, { notificationId: id, ts: ts, deliveryStatus: 'queued', attempts: 0, lastAttemptAt: '', nextAttemptAt: '', errorDetails: 'Resent by ' + (a.name || a.email), dedupeKey: req, batchId: req, requestId: req });
+  appendRows_(NOTIF_SHEET, [notifRow_(copy)]);
+  var batches = {}; batches[req] = true;
+  appendRows_(AUDIT_SHEET, deliver_({ batches: batches, limit: 1 }));
+  return { ok: true, notified: notifiedFor_(req) };
+}
+/** Health of every moving part, for the Integrations screen. Holds no secrets. */
+function integrationStatus_(a) {
+  if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can see this.' };
+  ensureSystemTabs_();
+  var cfg = authCfg_(), m = metaMap_(), mode = emailMode_(), users = users_(), count = {}, lastAccepted = '';
+  readNotifs_().forEach(function (r) { if (r.channel !== 'email') return; count[r.deliveryStatus] = (count[r.deliveryStatus] || 0) + 1; if (r.deliveryStatus === 'accepted' && r.lastAttemptAt > lastAccepted) lastAccepted = r.lastAttemptAt; });
+  var triggers = [];
+  try { triggers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); }); } catch (x) { /* reported as not running */ }
+  var quota = 0;
+  try { quota = MailApp.getRemainingDailyQuota(); } catch (x) { /* shown as 0 */ }
+  var sender = '';
+  try { sender = Session.getEffectiveUser().getEmail(); } catch (x) { /* some account types hide this */ }
+  var tabs = SCHEMA.map(function (s) { return checkHeader_(SpreadsheetApp.getActive(), s); }).filter(Boolean);
+  return { ok: true, api: API, sheet: { version: parseInt(m.version, 10) || 0, updatedAt: m.updatedAt || '', updatedBy: m.updatedBy || '', problems: tabs },
+    auth: { required: cfg.required, clientIdSet: !!cfg.clientId, domain: cfg.domain },
+    email: { mode: mode.mode, testTo: mode.to || '', sender: sender, quota: quota, queued: count.queued || 0, accepted: count.accepted || 0, failed: count.failed || 0, abandoned: count.abandoned || 0, lastAcceptedAt: lastAccepted },
+    automation: { backup: triggers.indexOf('backupNow') >= 0, daily: triggers.indexOf('dailyChecks') >= 0, retry: triggers.indexOf('processNotifications') >= 0 },
+    directory: { total: users.length, active: users.filter(function (u) { return u.active; }).length, admins: users.filter(function (u) { return u.active && u.role === 'Administrator'; }).length } };
+}
+function testEmail_(a) {
+  if (a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can send a test email.' };
+  if (!a.email) return { ok: false, error: 'Sign in with Google to send a test email.' };
+  var ts = new Date().toISOString(), row = { notificationId: 'N-' + Utilities.getUuid(), ts: ts, channel: 'email', eventType: 'test_email', recipientEmail: a.email, recipientName: a.name, subject: 'Control Tower test email', attempts: 1, lastAttemptAt: ts, dedupeKey: 'test|' + ts, batchId: 'test|' + ts, actorEmail: a.email, actorName: a.name, requestId: 'test|' + ts };
+  try {
+    if (MailApp.getRemainingDailyQuota() < 1) throw new Error('daily email limit reached');
+    MailApp.sendEmail({ to: a.email, subject: 'Control Tower test email', body: 'Emails can be sent from this script.', name: 'Suraasa Control Tower' }); // only ever to the person pressing the button
+    row.deliveryStatus = 'accepted';
+  } catch (err) { row.deliveryStatus = 'failed'; row.errorDetails = short_(err && err.message || err); }
+  appendRows_(NOTIF_SHEET, [notifRow_(row)]);
+  return { ok: row.deliveryStatus === 'accepted', deliveryStatus: row.deliveryStatus, recipientEmail: a.email, error: row.errorDetails || '' };
+}
+/** Fills in ownerEmail on older tasks and projects from exact, unique name matches. Sends nothing. Safe to run twice. */
+function backfillOwnerEmails() {
+  var ss = SpreadsheetApp.getActive(), users = users_(), ts = new Date().toISOString(), req = 'match-' + Utilities.getUuid(), audit = [];
+  SCHEMA.filter(function (s) { return s.key === 'tasks' || s.key === 'projects'; }).forEach(function (s) {
+    var sh = ss.getSheetByName(s.tab), cols = allCols_(s);
+    if (!sh || sh.getLastRow() < 2) return;
+    var oc = cols.indexOf('owner'), ec = cols.indexOf('ownerEmail'), ic = cols.indexOf('id');
+    sh.getRange(2, 1, sh.getLastRow() - 1, cols.length).getValues().forEach(function (r, i) {
+      if (String(r[ec]).trim()) return;
+      var names = ownerNames_(r[oc]), hits = names.map(function (n) { return personNamed_(n, users); });
+      if (!names.length || hits.some(function (u) { return !u; })) return;
+      var value = hits.map(function (u) { return u.email; }).join(', ');
+      sh.getRange(i + 2, ec + 1).setNumberFormat('@').setValue(value);
+      audit.push([Utilities.getUuid(), ts, '', 'System', s.key, String(r[ic]), s.key === 'tasks' ? String(r[cols.indexOf('projectId')]) : String(r[ic]), s.key === 'tasks' ? String(r[ic]) : '', 'owner_email_matched', 'ownerEmail', '', value, 'Matched "' + short_(r[oc]) + '" to ' + value, req]);
+    });
+  });
+  if (audit.length) { appendRows_(AUDIT_SHEET, audit); bumpVersion_('Owner emails matched'); }
+  return audit.length;
+}
+function backfillOwnerEmailsMenu() {
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  var n = 0;
+  try { n = backfillOwnerEmails(); } finally { lock.releaseLock(); }
+  SpreadsheetApp.getUi().alert(n + ' tasks and projects were matched to a registered email. No emails were sent.');
 }
 function sendTestEmail() {
   var me = Session.getEffectiveUser().getEmail();
-  MailApp.sendEmail({ to: me, subject: 'Control Tower test email', body: 'Assignment emails can be sent from this account.', name: 'Suraasa Control Tower' });
+  MailApp.sendEmail({ to: me, subject: 'Control Tower test email', body: 'Emails can be sent from this account.', name: 'Suraasa Control Tower' });
   SpreadsheetApp.getUi().alert('A test email was sent to ' + me + '. Emails left today: ' + MailApp.getRemainingDailyQuota());
 }
-function turnOffAssignmentEmails() { props_().setProperty('ASSIGN_EMAIL', 'off'); SpreadsheetApp.getUi().alert('Assignment emails are off.'); }
-function turnOnAssignmentEmails() { props_().setProperty('ASSIGN_EMAIL', 'on'); SpreadsheetApp.getUi().alert('Assignment emails are on.'); }
+function emailTestMode() { props_().setProperties({ ASSIGN_EMAIL: 'on', EMAIL_MODE: 'test' }); SpreadsheetApp.getUi().alert('Test mode: every email now goes to ' + Session.getEffectiveUser().getEmail() + ', with the intended person named in the subject.'); }
+function emailGoLive() {
+  var ui = SpreadsheetApp.getUi();
+  if (ui.alert('Go live?', 'Employees will start receiving emails. The first morning, each person with overdue work gets one summary email.', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  props_().setProperties({ ASSIGN_EMAIL: 'on', EMAIL_MODE: 'live' });
+  ui.alert('Emails are live.');
+}
+function turnOffAssignmentEmails() { props_().setProperty('ASSIGN_EMAIL', 'off'); SpreadsheetApp.getUi().alert('Emails are off. Notices are still logged in NotificationLog.'); }
 
 // ---------- one-off: AK and Ankit Khanna are the same person ----------
 var ANKIT = 'Ankit Khanna';
@@ -1307,11 +1803,18 @@ function enableSignIn() {
   if (!/\.apps\.googleusercontent\.com$/.test(id)) { ui.alert('That does not look like a Web client ID.'); return; }
   ensureSystemTabs_();
   var admins = users_().filter(function (u) { return u.active && u.role === 'Administrator'; });
-  if (!admins.length) { ui.alert('Add at least one active Administrator to the Users tab first, then run this again.'); return; }
-  props_().setProperties({ AUTH_CLIENT_ID: id, AUTH_REQUIRED: 'true' });
-  ui.alert('Sign-in is on. Only people listed in the Users tab can now open the site.');
+  if (!admins.length) { ui.alert('Add at least one active Super Admin to the Users tab first, then run this again.'); return; }
+  props_().setProperties({ AUTH_CLIENT_ID: id, AUTH_REQUIRED: 'true', AUTH_OFF_UNTIL: '0' });
+  ui.alert('Google sign-in is ready. Only people listed in the Users tab can open the site.');
 }
-function disableSignIn() { props_().setProperty('AUTH_REQUIRED', 'false'); SpreadsheetApp.getUi().alert('Sign-in is off. Anyone with the link can read and change the data.'); }
+/** For a lockout that fixing the Users tab cannot solve. Anyone with the link can read and change data until it ends. */
+function disableSignIn() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert('Open access for one hour?', 'Until it ends, anyone with the web app link can read and change all the data. Normally you should fix the Users tab instead.', ui.ButtonSet.YES_NO);
+  if (ok !== ui.Button.YES) return;
+  props_().setProperties({ AUTH_REQUIRED: 'false', AUTH_OFF_UNTIL: String(Date.now() + 3600000) });
+  ui.alert('Access is open for one hour. Sign-in returns by itself after that.');
+}
 function backupNow() {
   var ss = SpreadsheetApp.getActive();
   var file = DriveApp.getFileById(ss.getId());
@@ -1321,10 +1824,11 @@ function backupNow() {
   return copy.getId();
 }
 function turnOnDailyBackup() {
-  ScriptApp.getProjectTriggers().filter(function (t) { return ['backupNow', 'dailyChecks'].indexOf(t.getHandlerFunction()) >= 0; }).forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().filter(function (t) { return ['backupNow', 'dailyChecks', 'processNotifications'].indexOf(t.getHandlerFunction()) >= 0; }).forEach(function (t) { ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('backupNow').timeBased().everyDays(1).atHour(2).create();
   ScriptApp.newTrigger('dailyChecks').timeBased().everyDays(1).atHour(6).create();
-  SpreadsheetApp.getUi().alert('A copy of this Sheet will be saved in the same Drive folder every night, and late work will be recorded each morning.');
+  ScriptApp.newTrigger('processNotifications').timeBased().everyMinutes(5).create();
+  SpreadsheetApp.getUi().alert('Done. A copy of this Sheet is saved every night, late work and reminders are checked each morning, and unsent emails are retried every 5 minutes.');
 }
 
 /**
@@ -1357,6 +1861,8 @@ function dailyChecks() {
       if (!live[p.id]) return;
       (p.milestones || []).forEach(function (m) { if (m.due && m.due < today && m.status !== 'Completed') add('milestones', m.id, p.id, '', 'milestone_overdue', m.due, 'Milestone "' + m.name + '"'); });
     });
+    var sent = reminders_(st, today, ts);
+    rows = rows.concat(sent);
     if (rows.length) { appendRows_(AUDIT_SHEET, rows); bumpVersion_('System'); }
     return { ok: true, added: rows.length };
   } finally { lock.releaseLock(); }

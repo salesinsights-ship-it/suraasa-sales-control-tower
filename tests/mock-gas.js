@@ -15,7 +15,8 @@ class Sheet {
   getMaxRows() { return this.maxRows; }
   insertRowsAfter(after, n) { this.maxRows += n; }
   getFrozenRows() { return this.frozen; }
-  getMaxColumns() { return 40; }
+  getMaxColumns() { return this.maxCols || 60; }
+  insertColumnsAfter(after, n) { this.maxCols = (this.maxCols || 60) + n; }
   getRange(row, col, nr = 1, nc = 1) {
     if (row < 1 || col < 1 || nr < 1 || nc < 1) throw new Error(`Bad range ${row},${col},${nr},${nc}`);
     if (row + nr - 1 > this.maxRows) throw new Error('The coordinates of the range are outside the dimensions of the sheet.');
@@ -26,7 +27,7 @@ class Sheet {
         if (vals.length !== nr || vals[0].length !== nc) throw new Error(`Size mismatch ${vals.length}x${vals[0].length} vs ${nr}x${nc}`);
         vals.forEach(line => line.forEach(v => { if (String(v).length > 50000) throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.'); }));
         vals.forEach((line, r) => { sh.cells[row - 1 + r] = sh.cells[row - 1 + r] || []; line.forEach((v, c) => { sh.cells[row - 1 + r][col - 1 + c] = v; }); });
-        return api;
+        return self;
       },
       setValue(v) { sh.cells[row - 1] = sh.cells[row - 1] || []; sh.cells[row - 1][col - 1] = v; return api; },
       clearContent() { for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) if (sh.cells[row - 1 + r]) sh.cells[row - 1 + r][col - 1 + c] = ''; return api; },
@@ -49,12 +50,13 @@ class Spreadsheet {
   getSheets() { return Object.values(this.sheets); }
   deleteSheet(s) { delete this.sheets[s.getName()]; }
   setActiveSheet() {} moveActiveSheet() {}
-  getName() { return 'Test Sheet'; } getId() { return 'x'; } getSpreadsheetTimeZone() { return 'Asia/Kolkata'; }
+  getName() { return 'Test Sheet'; } getId() { return 'x'; } getUrl() { return 'https://docs.google.com/spreadsheets/d/test/edit'; } getSpreadsheetTimeZone() { return 'Asia/Kolkata'; }
 }
 
 function createBackend(opts = {}) {
   const ss = new Spreadsheet();
-  const props = new Map(Object.entries(opts.props || {}));
+  // AUTH_OFF_UNTIL lets the older tests run without a session. opts.strict tests the real default: sign-in always on.
+  const props = new Map(Object.entries(Object.assign(opts.strict ? {} : { AUTH_REQUIRED: 'false', AUTH_OFF_UNTIL: String(Date.now() + 1e10), EMAIL_MODE: 'live' }, opts.props || {})));
   const cache = new Map();
   const tokens = opts.tokens || {}; // id token -> Google tokeninfo reply
   const mails = [];
@@ -62,13 +64,14 @@ function createBackend(opts = {}) {
     console, JSON, Date, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, encodeURIComponent, RegExp,
     SpreadsheetApp: { flush() {}, getActive: () => ss, getUi: () => { throw new Error('no UI'); }, newDataValidation: () => chain() },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), setProperty: (k, v) => props.set(k, v), setProperties: o => Object.entries(o).forEach(([k, v]) => props.set(k, v)) }) },
-    CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v) }) },
-    MailApp: { sendEmail(o) { if (opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
+    MailApp: { sendEmail(o) { if (typeof opts.mailFails === 'function' ? opts.mailFails(o) : opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
+    Session: { getEffectiveUser: () => ({ getEmail: () => opts.owner || 'owner@suraasa.com' }) },
     Utilities: { getUuid: () => crypto.randomUUID(), formatDate: d => d.toISOString().slice(0, 10) },
     UrlFetchApp: { fetch: url => { const t = decodeURIComponent(url.split('id_token=')[1] || ''); const hit = tokens[t]; return { getResponseCode: () => (hit ? 200 : 400), getContentText: () => JSON.stringify(hit || {}) }; } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
-    DriveApp: {}, ScriptApp: {}
+    DriveApp: {}, ScriptApp: { getProjectTriggers: () => [] }
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(opts.code || path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });
@@ -79,7 +82,7 @@ function createBackend(opts = {}) {
     get: params => parse(ctx.doGet({ parameter: params })),
     post: body => parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } })),
     load(state) { const r = parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'push', force: true, state }) } })); if (!r.ok) throw new Error(r.error); return r; },
-    addUser(u) { ss.getSheetByName('Users').getRange(ss.getSheetByName('Users').getLastRow() + 1, 1, 1, 6).setValues([[u.email, u.name, u.role, u.active === false ? 'FALSE' : 'TRUE', 'test', '']]); },
+    addUser(u) { const sh = ss.getSheetByName('Users'), row = sh.getLastRow() + 1; sh.getRange(row, 1, 1, 6).setValues([[u.email, u.name, u.role, u.active === false ? 'FALSE' : 'TRUE', 'test', '']]); },
     sessionFor(email) { const id = 'tok-' + email; tokens[id] = { aud: props.get('AUTH_CLIENT_ID'), email, email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 3600) }; return parse(ctx.doPost({ postData: { contents: JSON.stringify({ action: 'login', idToken: id }) } })); }
   };
 }
