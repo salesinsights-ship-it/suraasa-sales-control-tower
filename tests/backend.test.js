@@ -33,7 +33,7 @@ test('every record survives a round trip through the Sheet', () => {
   assert.strictEqual(st.projects[0].milestones.length, s.projects[0].milestones.length);
 });
 test('pull reports API 4 and adds system tabs without touching data tabs', () => {
-  const b = open(); assert.strictEqual(b.get({ action: 'ping' }).api, 4);
+  const b = open(); assert.strictEqual(b.get({ action: 'ping' }).api, 5);
   for (const t of ['Users', 'AuditLog', 'Trash', 'Snapshots', 'NotificationLog', 'WeeklyUpdates', 'Tasks']) assert.ok(b.ss.getSheetByName(t), t);
 });
 test('ping does not reveal the Sheet address or name', () => {

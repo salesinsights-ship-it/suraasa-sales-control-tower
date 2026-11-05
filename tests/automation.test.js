@@ -365,7 +365,7 @@ test('if the Sheet fails partway the save reports it, and a notification problem
 test('integration status reports the truth and holds no secrets', () => {
   const { b, pid, s } = company(); const a = s('boss@suraasa.com'); assign(b, a, pid); b.props.set('AUTH_CLIENT_SECRET_TEST', 'hush');
   const r = b.post({ action: 'integration_status', session: a });
-  assert.strictEqual(r.api, 4); assert.strictEqual(r.auth.required, true); assert.strictEqual(r.auth.clientIdSet, true); assert.strictEqual(r.email.mode, 'live'); assert.strictEqual(r.email.accepted, 1); assert.strictEqual(r.automation.retry, false); assert.strictEqual(r.sheet.problems.length, 0);
+  assert.strictEqual(r.api, 5); assert.strictEqual(r.auth.required, true); assert.strictEqual(r.auth.clientIdSet, true); assert.strictEqual(r.email.mode, 'live'); assert.strictEqual(r.email.accepted, 1); assert.strictEqual(r.automation.retry, false); assert.strictEqual(r.sheet.problems.length, 0);
   assert.ok(!JSON.stringify(r).includes('hush'));
 });
 test('a test email goes only to the person who pressed the button', () => {
@@ -764,6 +764,131 @@ test('the Google profile picture is stored, and only from Google\'s image host',
   assert.strictEqual(b.ctx.userByEmail_('rahul@suraasa.com').photoUrl, 'https://lh3.googleusercontent.com/a/abc=s96-c');
 });
 
+// ---------- passwords ----------
+function pwBackend() {
+  const b = createBackend({ strict: true, props: { AUTH_DOMAIN: 'suraasa.com' } });
+  b.addUser({ email: 'boss@suraasa.com', name: 'Boss', role: 'Administrator' });
+  b.addUser({ email: 'staff@suraasa.com', name: 'Staff', role: 'Task Owner' });
+  b.addUser({ email: 'left@suraasa.com', name: 'Left', role: 'Task Owner', active: false });
+  return b;
+}
+const signIn = (b, email, password) => b.post({ action: 'password_login', email, password });
+test('sign-in works with no Google client ID at all', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const p = b.get({ action: 'ping' }); assert.strictEqual(p.api, 5); assert.strictEqual(p.auth.clientId, ''); assert.strictEqual(p.signInReady, true);
+  const r = signIn(b, 'Staff@Suraasa.com ', 'correct horse battery');
+  assert.ok(r.ok && r.session); assert.strictEqual(r.mustChange, false);
+  const s = b.post({ action: 'pull', session: r.session }); assert.ok(s.ok !== false && s.state); assert.strictEqual(s.me.email, 'staff@suraasa.com');
+});
+test('a wrong password, an unknown email and a person with no password all get the same answer', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const a1 = signIn(b, 'staff@suraasa.com', 'wrong password'), a2 = signIn(b, 'nobody@suraasa.com', 'wrong password'), a3 = signIn(b, 'boss@suraasa.com', 'wrong password');
+  assert.ok(!a1.ok && !a1.session); assert.strictEqual(a1.error, a2.error); assert.strictEqual(a1.error, a3.error);
+});
+test('five wrong tries lock that person for a while, and nobody else', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false); b.ctx.pwStore_('boss@suraasa.com', 'another long password', false);
+  for (let i = 0; i < 5; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  const r = signIn(b, 'staff@suraasa.com', 'correct horse battery');
+  assert.ok(!r.ok && /Too many/.test(r.error));
+  assert.ok(signIn(b, 'boss@suraasa.com', 'another long password').ok);
+});
+test('a right password after a few wrong ones clears the count', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  for (let i = 0; i < 4; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  assert.ok(signIn(b, 'staff@suraasa.com', 'correct horse battery').ok);
+  for (let i = 0; i < 4; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  assert.ok(signIn(b, 'staff@suraasa.com', 'correct horse battery').ok);
+});
+test('someone made inactive cannot sign in, even with the right password', () => {
+  const b = pwBackend(); b.ctx.pwStore_('left@suraasa.com', 'correct horse battery', false);
+  assert.ok(!signIn(b, 'left@suraasa.com', 'correct horse battery').ok);
+});
+test('a temporary password opens nothing until the person chooses their own', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'temp-pass-1234', true);
+  const r = signIn(b, 'staff@suraasa.com', 'temp-pass-1234');
+  assert.ok(r.ok && r.mustChange);
+  const blocked = b.post({ action: 'pull', session: r.session }); assert.ok(blocked.auth === true && !blocked.state);
+  assert.ok(b.post({ action: 'apply', session: r.session, requestId: 'x', ops: [] }).auth === true);
+  assert.ok(/at least 10/.test(b.post({ action: 'password_change', session: r.session, newPassword: 'short' }).error));
+  assert.ok(/different/.test(b.post({ action: 'password_change', session: r.session, newPassword: 'temp-pass-1234' }).error));
+  assert.ok(b.post({ action: 'password_change', session: r.session, newPassword: 'my own good password' }).ok);
+  assert.ok(b.post({ action: 'pull', session: r.session }).state, 'the same session now works');
+  assert.ok(!signIn(b, 'staff@suraasa.com', 'temp-pass-1234').ok, 'the temporary password has stopped working');
+  assert.strictEqual(signIn(b, 'staff@suraasa.com', 'my own good password').mustChange, false);
+});
+test('changing a password needs the current one, and wrong guesses count', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const s = signIn(b, 'staff@suraasa.com', 'correct horse battery').session;
+  assert.ok(/current password/.test(b.post({ action: 'password_change', session: s, currentPassword: 'guess', newPassword: 'new long password' }).error));
+  assert.ok(/current password/.test(b.post({ action: 'password_change', session: s, newPassword: 'new long password' }).error));
+  assert.ok(b.post({ action: 'password_change', session: s, currentPassword: 'correct horse battery', newPassword: 'new long password' }).ok);
+  assert.ok(signIn(b, 'staff@suraasa.com', 'new long password').ok);
+  for (let i = 0; i < 5; i++) b.post({ action: 'password_change', session: s, currentPassword: 'guess', newPassword: 'another long password' });
+  assert.ok(/Too many/.test(b.post({ action: 'password_change', session: s, currentPassword: 'new long password', newPassword: 'another long password' }).error));
+});
+test('a changed password ends every other session', async () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const one = signIn(b, 'staff@suraasa.com', 'correct horse battery').session, two = signIn(b, 'staff@suraasa.com', 'correct horse battery').session;
+  const wait = Date.now() + 3; while (Date.now() < wait); // so the new password is newer than both sessions
+  assert.ok(b.post({ action: 'password_change', session: one, currentPassword: 'correct horse battery', newPassword: 'new long password' }).ok);
+  assert.ok(b.post({ action: 'pull', session: one }).state, 'the session that changed it stays');
+  assert.ok(b.post({ action: 'pull', session: two }).auth === true, 'the other one is ended');
+});
+test('only a Super Admin can reset a password, and the result works once', () => {
+  const b = pwBackend(); b.ctx.pwStore_('boss@suraasa.com', 'boss long password', false); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  const staff = signIn(b, 'staff@suraasa.com', 'correct horse battery').session, boss = signIn(b, 'boss@suraasa.com', 'boss long password').session;
+  const no = b.post({ action: 'password_reset', session: staff, email: 'boss@suraasa.com' });
+  assert.ok(!no.ok && no.code === 'denied' && !no.tempPassword); assert.ok(signIn(b, 'boss@suraasa.com', 'boss long password').ok);
+  assert.ok(b.post({ action: 'password_reset', email: 'boss@suraasa.com' }).auth === true, 'nobody signed in gets nothing');
+  assert.ok(!b.post({ action: 'password_reset', session: boss, email: 'left@suraasa.com' }).ok);
+  const wait = Date.now() + 3; while (Date.now() < wait);
+  const r = b.post({ action: 'password_reset', session: boss, email: 'staff@suraasa.com' });
+  assert.ok(r.ok && /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/.test(r.tempPassword), r.tempPassword);
+  assert.ok(!/[01ilo]/.test(r.tempPassword));
+  assert.ok(b.post({ action: 'pull', session: staff }).auth === true, 'their old session has ended');
+  assert.ok(!signIn(b, 'staff@suraasa.com', 'correct horse battery').ok, 'their old password has stopped');
+  assert.strictEqual(signIn(b, 'staff@suraasa.com', r.tempPassword).mustChange, true);
+  const log = JSON.stringify(b.ss.getSheetByName('AuditLog').cells);
+  assert.ok(log.includes('password_reset') && !log.includes(r.tempPassword));
+});
+test('a reset gets a locked-out person back in straight away', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  for (let i = 0; i < 5; i++) signIn(b, 'staff@suraasa.com', 'wrong password');
+  b.ctx.pwStore_('staff@suraasa.com', 'temp-pass-1234', true);
+  assert.ok(signIn(b, 'staff@suraasa.com', 'temp-pass-1234').ok);
+});
+test('the Sheet menu gives the first person a temporary password, for a listed person only', () => {
+  const b = pwBackend(), shown = []; let answer = 'BOSS@suraasa.com';
+  b.ctx.SpreadsheetApp.getUi = () => ({ Button: { OK: 'ok' }, ButtonSet: { OK_CANCEL: 1, OK: 2 }, prompt: () => ({ getSelectedButton: () => 'ok', getResponseText: () => answer }), alert: (...x) => { shown.push(x.join(' ')); } });
+  b.ctx.tempPasswordMenu();
+  const temp = (shown[0].match(/[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}/) || [])[0];
+  assert.ok(temp); assert.strictEqual(signIn(b, 'boss@suraasa.com', temp).mustChange, true);
+  answer = 'stranger@suraasa.com'; b.ctx.tempPasswordMenu();
+  assert.ok(/not an active person/.test(shown[1])); assert.ok(!b.props.has('pw:stranger@suraasa.com'));
+});
+test('the emergency switch cannot be used to take over an account', () => {
+  const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
+  b.props.set('AUTH_REQUIRED', 'false'); b.props.set('AUTH_OFF_UNTIL', String(Date.now() + 60000));
+  assert.ok(!b.post({ action: 'password_reset', email: 'staff@suraasa.com' }).ok);
+});
+test('passwords are never saved as text, and the same password hashes differently for two people', () => {
+  const b = pwBackend(); const pw = 'correct horse battery';
+  b.ctx.pwStore_('staff@suraasa.com', pw, true); b.ctx.pwStore_('boss@suraasa.com', pw, false);
+  const s = signIn(b, 'staff@suraasa.com', pw).session;
+  b.post({ action: 'password_change', session: s, newPassword: 'my own good password' });
+  const everything = JSON.stringify([...b.props.entries()]) + JSON.stringify(Object.values(b.ss.sheets).map(x => x.cells)) + JSON.stringify([...b.cache.entries()]);
+  assert.ok(!everything.includes(pw) && !everything.includes('my own good password'));
+  assert.notStrictEqual(JSON.parse(b.props.get('pw:staff@suraasa.com')).h, JSON.parse(b.props.get('pw:boss@suraasa.com')).h);
+  assert.ok(!JSON.stringify(b.ss.getSheetByName('Users').cells).includes(JSON.parse(b.props.get('pw:boss@suraasa.com')).h), 'no hash in the Sheet');
+  assert.ok(JSON.stringify(b.ss.getSheetByName('AuditLog').cells).includes('password_changed'));
+});
+test('bad sign-in input is refused without an error', () => {
+  const b = pwBackend();
+  for (const [e, p] of [['', ''], ['no-at-sign', 'x'], ['a@b.c', ''], ['a b@suraasa.com', 'x'], ['x'.repeat(300) + '@suraasa.com', 'x'], ['staff@suraasa.com', 'x'.repeat(201)], [{ a: 1 }, ['x']]]) {
+    const r = signIn(b, e, p); assert.ok(r.ok === false && r.auth === true, JSON.stringify(r));
+  }
+  assert.ok(b.post({ action: 'password_change', session: 'junk', newPassword: 'long enough password' }).auth === true);
+});
 const failed = results.filter(r => r[0] === 'FAIL');
 results.forEach(r => console.log(r[0], r[1]));
 console.log(results.length - failed.length + ' of ' + results.length + ' passed');

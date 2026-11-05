@@ -14,7 +14,9 @@ Merge the pull request from `feature/automated-task-assignment`, or open its Ver
 
 In the Sheet: **File > Make a copy**. This is your recovery point.
 
-## 3. Create the Google client ID
+## 3. Google client ID (optional)
+
+Not needed. People sign in with passwords: see [SETUP_SIGN_IN.md](../SETUP_SIGN_IN.md). The rest of this step only adds a Sign in with Google button.
 
 Follow [SETUP_SIGN_IN.md](../SETUP_SIGN_IN.md), steps 1 and 2.
 
@@ -33,7 +35,7 @@ In the **Users** tab, click A1, then **File > Import > Upload**, choose your tea
 
 Refresh the Sheet, then click:
 
-1. **Control Tower > Set Google sign-in client ID**, and paste the client ID.
+1. **Control Tower > Give someone a temporary password**, for yourself.
 2. **Control Tower > Match task owners to registered emails**. This sends nothing.
 3. **Control Tower > Replace AK with Ankit Khanna**, if you have not already.
 
@@ -49,12 +51,12 @@ Check in a private window:
 
 | Open | You should see |
 |---|---|
-| `.../exec?action=ping` | `"api":4` and no Sheet address |
+| `.../exec?action=ping` | `"api":5` and no Sheet address |
 | `.../exec?action=pull` | `"auth":true`, and no data |
 
 ## 7. Turn on the new site
 
-Vercel publishes the site when the pull request is merged. Open it in a private window and sign in with Google.
+Vercel publishes the site when the pull request is merged. Open it in a private window and sign in with your email and password.
 
 ## 8. Test before anyone receives email
 
@@ -64,7 +66,7 @@ Emails start in **test mode**: every email goes to the script owner, with the in
 2. Check the task in the Sheet, the email in the script owner's inbox, and the row in `NotificationLog`.
 3. Sign in as that colleague, or ask them to. Move the task to Completed, and check that the Sheet changes.
 
-To try the site on a preview first: add the preview address to the client ID's authorised origins, and in Vercel set `CT_API_URL` for Preview to a test copy of the script. Without `CT_API_URL`, a preview uses the real Sheet.
+To try the site on a preview first: in Vercel, set `CT_API_URL` for Preview to a test copy of the script. Without `CT_API_URL`, a preview uses the real Sheet.
 
 ## 9. Go live
 
@@ -84,7 +86,7 @@ To try the site on a preview first: add the preview address to the client ID's a
 | The site misbehaves | Vercel: **Deployments**, choose the previous one, **Promote to Production** |
 | The script misbehaves | Apps Script: **Deploy > Manage deployments >** pencil icon, choose the previous version, **Deploy**. Older versions have no sign-in, so the data is public again until you redeploy this one |
 | Someone is locked out | Add or correct them in the **Users** tab. It applies at their next sign-in |
-| Nobody can sign in | Check the client ID (**Control Tower > Set Google sign-in client ID**) and the authorised origins |
+| Nobody can sign in | **Control Tower > Give someone a temporary password**, for a Super Admin |
 | Last resort | **Control Tower > Emergency: open access for one hour**. Anyone with the link can read and change data until it ends by itself |
 | Data looks wrong | Sheet: **File > Version history**, or your copy from step 2 |
 
@@ -92,11 +94,13 @@ The new columns can stay if you roll back: the older script reads the Sheet by p
 
 ## Settings
 
-Script Properties are in Apps Script under **Project Settings**. None of them are secrets, and none are in the code.
+Script Properties are in Apps Script under **Project Settings**. None of them are in the code. `AUTH_PEPPER` and the `pw:` entries are sensitive, so keep the script's owner account secure.
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `AUTH_CLIENT_ID` | Script Properties, set from the menu | Google sign-in client ID |
+| `AUTH_CLIENT_ID` | Script Properties, optional, set from the menu | Adds a Sign in with Google button |
+| `AUTH_PEPPER` | Script Properties, created by the script | Mixed into every password hash. Do not change or delete it: all passwords would stop working |
+| `pw:` entries | Script Properties, written by the script | One password hash per person. Never edit these |
 | `AUTH_DOMAIN` | Script Properties | Allowed email domain. Default `suraasa.com` |
 | `EMAIL_MODE` | Set from the menu | `live` sends to employees. Anything else is test mode |
 | `EMAIL_TEST_TO` | Script Properties, optional | Where test mode sends. Default: the script owner |

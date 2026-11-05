@@ -20,11 +20,11 @@ You now have these tabs: `Projects`, `Workstreams`, `Milestones`, `RACI`, `Comme
 3. Set **Who has access** to **Anyone**. Do not choose "Anyone within Suraasa" or "Anyone with Google account": the website cannot sign in to Google, so it will not load or save.
 4. Click **Deploy** and copy the link ending in `/exec`.
 
-**Anyone** only means the website can reach the script. The script itself refuses everything without a Google sign-in.
+**Anyone** only means the website can reach the script. The script itself refuses everything without a sign-in.
 
 The link must start with `https://script.google.com/macros/s/`. A link containing `/a/macros/suraasa.com/` means access is limited to your organisation.
 
-To check it, open the link in an Incognito window with `?action=ping` on the end. You should see text containing `"api":4`, not a sign-in page.
+To check it, open the link in an Incognito window with `?action=ping` on the end. You should see text containing `"api":5`, not a sign-in page.
 
 ## 3. Add your team
 
@@ -47,6 +47,6 @@ After editing the code, click **Deploy > Manage deployments**, click the pencil 
 | The site says it cannot reach the Sheet | **Who has access** is not **Anyone**, or the link is wrong |
 | The link opens a Google sign-in page in an Incognito window | **Who has access** is limited to your organisation. Change it to **Anyone** under **Deploy > Manage deployments** |
 | **Anyone** is not offered | Your Workspace admin has turned off sharing outside the organisation. They need to allow it for this account |
-| The ping link shows no `"api":4` | The new code is not deployed. Make a **New version** |
+| The ping link shows no `"api":5` | The new code is not deployed. Make a **New version** |
 | `getSheetByName` error in Apps Script | The script is not attached to the Sheet. Open it from **Extensions > Apps Script** |
 | The run never finishes | A message is waiting in the Sheet tab. Click **OK** |

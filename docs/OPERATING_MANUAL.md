@@ -62,7 +62,7 @@ If a save fails, the change stays in the browser and retries every 15 seconds.
 
 ## 6. How employees update tasks
 
-They sign in with Google and see their tasks on their dashboard, or use the link in any email.
+They sign in with their work email and password, and see their tasks on their dashboard, or use the link in any email.
 
 - **Start** and **Complete** on the dashboard do the usual moves.
 - **Update** opens the task, to add a note, change the stage, status or progress, add a checklist or a link, or ask for more time.
@@ -76,7 +76,7 @@ They sign in with Google and see their tasks on their dashboard, or use the link
 
 ## 8. Add new employees
 
-**Administration > Employees > Add employee.** Enter their name, official email, role, department, designation, manager and joining date. They get an employee ID, and can sign in straight away. You can also add a row to the `Users` tab.
+**Administration > Employees > Add employee.** Enter their name, official email, role, department, designation, manager and joining date. They get an employee ID. Then open them and click **Reset password** to get a temporary password to give them. You can also add a row to the `Users` tab.
 
 To remove someone, edit them and set **Access** to **Inactive**. Their access ends at their next request, and their history stays.
 
@@ -91,7 +91,8 @@ Change **Role** on the employee's record. It applies at their next request. Give
 | What you see | What to do |
 |---|---|
 | "Your account has no access yet" | Add the email under Employees or in the Users tab |
-| "Google sign-in has not been set up yet" | Follow SETUP_SIGN_IN.md, step 3 |
+| "That email or password is not right" | Check the spelling, or reset the password under **Administration > Employees** |
+| "Too many wrong tries" | Wait 15 minutes, or reset the password |
 | "The server needs updating" | Follow DEPLOYMENT.md, steps 4 and 6 |
 | "X is not a registered employee" | Check the spelling, or add them first |
 | "You can assign tasks only on projects you manage" | Ask a Super Admin to add you to the project |

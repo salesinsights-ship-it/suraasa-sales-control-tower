@@ -18,14 +18,14 @@ A project and task platform for the Head of Sales and the sales team. It answers
 
 The page holds no business data. It loads from a Google Sheet through an Apps Script web app, which handles validation and the audit log.
 
-People sign in with their Suraasa Google account. The script checks every sign-in with Google and against the Users tab, and applies each person's role to everything it sends and accepts. Nothing is readable without it. The page holds no people, passwords or keys.
+People sign in with their work email and a password. The script checks every sign-in on the server, against the Users tab, and applies each person's role to everything they read or change.
 
 | Read this | For |
 |---|---|
 | [docs/OPERATING_MANUAL.md](docs/OPERATING_MANUAL.md) | How to use it day to day |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing an update, settings, and rollback |
 | [docs/CREDENTIALS.md](docs/CREDENTIALS.md) | What access is needed, and why |
-| [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Setting up Google sign-in |
+| [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Setting up sign-in and passwords |
 | [SETUP_GOOGLE_SHEET.md](SETUP_GOOGLE_SHEET.md) | Connecting a brand-new Sheet |
 | [docs/AUDIT.md](docs/AUDIT.md) | What was found, and before and after |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, and the data model |

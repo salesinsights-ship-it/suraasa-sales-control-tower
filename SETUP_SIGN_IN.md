@@ -1,6 +1,6 @@
-# Set up Google sign-in
+# Set up sign-in
 
-Google sign-in is the only way in. The script checks every sign-in with Google and against the Users tab, so nothing is readable without it. It takes about 15 minutes and costs nothing.
+People sign in with their work email and a password. The script checks every sign-in on the server, against the `Users` tab, so nothing is readable without one. It needs no Google Cloud project, and it costs nothing.
 
 ## 1. Add your team
 
@@ -16,28 +16,41 @@ In the Sheet, open the **Users** tab and add one row per person.
 
 Later, add people under **Administration > Employees** on the site. At least one active Super Admin is required.
 
-## 2. Create a Google client ID
+## 2. Give the first person a password
 
-1. Open [console.cloud.google.com](https://console.cloud.google.com) with your Suraasa account. Create a project, for example `Control Tower`.
-2. **APIs & Services > OAuth consent screen.** Choose **Internal**, so only your Workspace can sign in. Fill in the app name and your email.
-3. **APIs & Services > Credentials > Create credentials > OAuth client ID.**
-4. Application type: **Web application**.
-5. **Authorised JavaScript origins:** add `https://suraasa-sales-control-tower-rouge.vercel.app`. Add any preview address you want to test on.
-6. Leave redirect URIs empty. Click **Create** and copy the client ID. It ends in `.apps.googleusercontent.com`. It is not a secret.
+1. In the Sheet: **Control Tower > Give someone a temporary password**.
+2. Enter your email, exactly as it is in the `Users` tab.
+3. Copy the temporary password it shows. It is shown once.
+4. Open the site, sign in with your email and that password, then choose your own.
 
-## 3. Turn it on
+## 3. Give everyone else a password
 
-In the Sheet: **Control Tower > Set Google sign-in client ID**, and paste it.
+1. Sign in as a Super Admin and open **Administration > Employees**.
+2. Open the person, then click **Reset password**.
+3. Give them the temporary password privately. They choose their own when they sign in.
 
-Open the site in a private window and sign in. Your role shows in the person menu at the top right.
+The Sheet menu in step 2 does the same job, for anyone who can open the Sheet.
+
+## Passwords
+
+- A password needs at least 10 characters. Do not reuse one from another site.
+- To change yours: click your picture at the top right, then **My profile > Change password**.
+- If you forget yours, ask a Super Admin to reset it. Nobody can look up a password.
+- Five wrong tries lock that person for 15 minutes. A reset ends the lock straight away.
+- Changing or resetting a password signs that person out everywhere else.
+
+Passwords are stored only as salted hashes in Script Properties, away from the Sheet. They are never written to the Sheet, the logs or the browser.
 
 ## How long a session lasts
 
-A session ends after 6 hours without use, 12 hours after sign-in at the latest, on **Sign out**, or at the person's next request after they are deactivated.
+A session ends after 6 hours without use, 12 hours after sign-in at the latest, on **Sign out**, when the person's password changes, or at their next request after they are deactivated.
 
 ## If something goes wrong
 
-- **"Your account has no access yet":** add the email to the Users tab.
-- **"Google sign-in has not been set up yet":** the client ID is missing. Do step 3.
-- **"The server needs updating":** the script is an older version. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), steps 4 and 6.
-- **Google shows an origin error:** check the address in step 2.5 exactly, with no trailing slash. Changes can take a few minutes.
+- **"That email or password is not right":** check the spelling, or ask a Super Admin for a reset. The same message covers an email that is not in the `Users` tab.
+- **"Too many wrong tries":** wait 15 minutes, or ask a Super Admin for a reset.
+- **"The server needs updating":** the script is an older version. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Optional: Sign in with Google
+
+If you ever want a **Sign in with Google** button as well, create a Web client ID in Google Cloud and add it with **Control Tower > Set Google sign-in client ID**. Passwords keep working alongside it. Nothing needs this.

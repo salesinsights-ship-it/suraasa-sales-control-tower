@@ -2,6 +2,10 @@
 
 ## 3.0.0, 5 November 2026
 
+**Sign-in**
+- People sign in with their work email and a password, checked on the server. Google Cloud is not needed. Sign in with Google stays available as an option.
+- A Super Admin gives each person a temporary password, and they choose their own at first sign-in.
+
 **Assigning work**
 - **New > Assign a task by email**: enter the employee's official email, see who it is, check the preview and confirm. The task is saved to the Sheet with a new ID, the employee is emailed, and it appears on their dashboard.
 - **Assign in one line** on Home reads a sentence into the same preview. It never guesses a person or project.

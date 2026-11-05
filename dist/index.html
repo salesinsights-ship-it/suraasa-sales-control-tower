@@ -1314,6 +1314,8 @@ img.emp-av { object-fit: cover; }
   .stats.s10 .stat:nth-child(-n+2) { border-top: 0; }
   .stats.s10 .stat:nth-child(even) { border-left: 1px solid var(--line); }
 }
+.temp-pw { margin: 12px 0; padding: 12px; border: 1px solid var(--line, #e2e8f0); border-radius: 8px; font: 600 18px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; user-select: all; word-break: break-all; }
+.signin-card .auth-sub:last-of-type { text-align: center; }
 
 </style>
 </head>
@@ -1775,6 +1777,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
   const ME = { role: 'Viewer', email: '', name: '', aliases: [], open: false }; // always from the server
   // Set when the site is built. See build.js.
   const CONFIG = {"apiUrl":"https://script.google.com/macros/s/AKfycbz-GSRRuM6l-RF82UnBsntv4rwpn38DrDCGOpbWpSybB37ySlD_WhdA2rPps3ggXkg4ag/exec"};
+  const API_NEEDED = 5; // the oldest script this site can work with
   const ROLE_LABEL = { 'Administrator': 'Super Admin', 'Project Owner': 'Manager', 'Task Owner': 'Employee', 'Viewer': 'Viewer' };
   const sheetLink = () => (window.SYNC && SYNC.sheetUrl) || '';
   const UI = {
@@ -3822,7 +3825,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       (s.sheet.problems.length ? '<p class="flag red"><span>' + esc(s.sheet.problems.join(' ')) + '</span></p>' : '') +
       '<section class="sec"><div class="s-h"><h2>Google Sheet</h2>' + yes(!s.sheet.problems.length && sync.status !== 'error', 'Connected', sync.status === 'error' ? 'Last save failed' : 'Needs repair') + '</div><dl class="kv-g">' + row('Spreadsheet', s.sheet.name || 'Unknown') + row('Last change', s.sheet.updatedAt ? shortTime(s.sheet.updatedAt) : 'None yet') + row('Changed by', s.sheet.updatedBy || 'Unknown') + row('Version', String(s.sheet.version)) + row('Last sync here', sync.lastSync ? shortTime(sync.lastSync) : 'Not yet') + row('Saves waiting here', String(SYNC.pending() ? diffOps(SYNC.base, S).length : 0)) + row('Server version', 'API ' + s.api) + '</dl><div class="btnrow">' + (sheetLink() ? '<a class="btn" href="' + esc(sheetLink()) + '" target="_blank" rel="noopener">Open Google Sheet</a>' : '') + '<button class="btn" data-act="sync-pull">Get latest from Sheet</button><button class="btn" data-act="sync-push">Retry saving now</button><button class="btn" data-act="sync-test">Test connection</button></div></section>' +
       '<section class="sec"><div class="s-h"><h2>Email</h2>' + yes(e.mode === 'live', 'Live', e.mode === 'test' ? 'Test mode' : 'Off') + '</div><dl class="kv-g">' + row('Mode', modeWord) + row('Sent from', e.sender || 'Unknown') + row('Left today', String(e.quota)) + row('Accepted', String(e.accepted)) + row('Queued', String(e.queued)) + row('Failed, retrying', String(e.failed)) + row('Stopped', String(e.abandoned)) + row('Last accepted', e.lastAcceptedAt ? shortTime(e.lastAcceptedAt) : 'None yet') + '</dl><div class="btnrow"><button class="btn" data-act="log-retry">Retry failed emails</button><button class="btn" data-act="integ-test-email">Send a test email to me</button><button class="btn" data-act="admintab" data-tab="log">Open notification log</button></div></section>' +
-      '<section class="sec"><div class="s-h"><h2>Sign-in</h2>' + yes(s.auth.required && s.auth.clientIdSet, 'Protected', s.auth.required ? 'Client ID missing' : 'Emergency access is open') + '</div><dl class="kv-g">' + row('Google sign-in', s.auth.clientIdSet ? 'Set up' : 'Not set up') + row('Allowed domain', '@' + s.auth.domain) + row('Active employees', s.directory.active + ' of ' + s.directory.total) + row('Super Admins', String(s.directory.admins)) + '</dl></section>' +
+      '<section class="sec"><div class="s-h"><h2>Sign-in</h2>' + yes(s.auth.required, 'Protected', 'Emergency access is open') + '</div><dl class="kv-g">' + row('Passwords', 'On') + row('Google sign-in', s.auth.clientIdSet ? 'Set up' : 'Not used') + row('Allowed domain', '@' + s.auth.domain) + row('Active employees', s.directory.active + ' of ' + s.directory.total) + row('Super Admins', String(s.directory.admins)) + '</dl></section>' +
       '<section class="sec"><div class="s-h"><h2>Automation</h2>' + yes(s.automation.retry && s.automation.daily && s.automation.backup, 'Running', 'Not all on') + '</div><dl class="kv-g">' + row('Email retries', s.automation.retry ? 'Every 5 minutes' : 'Off') + row('Reminders', s.automation.daily ? 'Every morning' : 'Off') + row('Backup', s.automation.backup ? 'Every night' : 'Off') + '</dl></section>';
   }
 
@@ -4000,37 +4003,91 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         S.users = (S.users || []).concat([Object.assign({ email }, rec)]);
       } else Object.assign(u, rec);
       commit('Employee ' + (isNew ? o.email : u.email) + ' saved');
-    });
+    }, isNew || u.active === false ? '' : '<button class="btn" type="button" data-act="reset-password" data-id="' + esc(u.email) + '">Reset password</button>');
   }
 
   // ---------- authentication system ----------
-  function showSignIn(msg) {
+  function signInCard(sub, body) {
     const box = $('#signin');
     if (!box) return;
     box.hidden = false;
     const logo = c => $('.brand .' + c) ? $('.brand .' + c).src : '';
-    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">Sign in with your Suraasa Google account.</p></div>' +
-      (msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : '') + '<div id="gsi"></div></div>';
-    if (!SYNC.auth || !SYNC.auth.clientId) return showSignInError(SYNC.serverOld ? 'The server needs updating before anyone can sign in. Follow docs/DEPLOYMENT.md.' : SYNC.unreachable ? 'The server could not be reached. Check your connection and refresh the page.' : 'Google sign-in has not been set up yet. Ask your administrator.');
+    box.innerHTML = '<div class="signin-card"><div class="brand-header"><img class="logo-l" src="' + logo('logo-l') + '" alt="Suraasa"><img class="logo-d" src="' + logo('logo-d') + '" alt="Suraasa"><h1>Control Tower</h1><p class="auth-sub">' + esc(sub) + '</p></div>' + body + '</div>';
+  }
+  function signInErr(msg) { return msg ? '<div class="auth-err" role="alert">' + esc(msg) + '</div>' : ''; }
+  function busy(form, label) { const b = form.querySelector('button'); b.disabled = true; b.textContent = label; }
+  function showSignIn(msg) {
+    if (SYNC.serverOld || SYNC.unreachable) return signInCard('Sign in with your work email and password.', signInErr(msg) + signInErr(SYNC.serverOld ? 'The server needs updating before anyone can sign in. Follow docs/DEPLOYMENT.md.' : 'The server could not be reached. Check your connection and refresh the page.'));
+    signInCard('Sign in with your work email and password.', signInErr(msg) +
+      '<form class="auth-form" id="pw-form"><div class="auth-field"><label for="pw-email">Work email</label><input id="pw-email" type="email" autocomplete="username" required maxlength="200" value="' + esc(SYNC.lastEmail || '') + '"></div><div class="auth-field"><label for="pw-pass">Password</label><input id="pw-pass" type="password" autocomplete="current-password" required maxlength="200"></div><button class="auth-btn" type="submit">Sign in</button></form>' +
+      '<p class="auth-sub">Forgot your password? Ask a Super Admin to reset it.</p><div id="gsi"></div>');
+    const form = $('#pw-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const email = $('#pw-email').value.trim(), password = $('#pw-pass').value;
+      SYNC.lastEmail = email;
+      busy(form, 'Signing in...');
+      SYNC.passwordLogin(email, password);
+    });
+    $(SYNC.lastEmail ? '#pw-pass' : '#pw-email').focus();
+    if (!SYNC.auth || !SYNC.auth.clientId) return;
+    // Optional: Sign in with Google also works once a client ID is set.
     const start = () => {
       try {
         google.accounts.id.initialize({ client_id: SYNC.auth.clientId, callback: r => SYNC.login(r.credential) });
         google.accounts.id.renderButton($('#gsi'), { theme: 'outline', size: 'large', text: 'signin_with' });
-      } catch (e) { /* the message above still shows */ }
+      } catch (e) { /* the password form still works */ }
     };
     if (window.google && window.google.accounts) { start(); return; }
     const s = document.createElement('script');
     s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.onload = start;
-    s.onerror = () => showSignInError('Google sign-in could not load. Check your connection and refresh the page.');
     document.head.appendChild(s);
   }
-  function showSignInError(msg) { const g = $('#gsi'); if (g) g.innerHTML = '<div class="auth-err" role="alert">' + esc(msg) + '</div>'; }
+  function showNewPassword(msg) {
+    signInCard('Choose your own password to finish signing in.', signInErr(msg) +
+      '<form class="auth-form" id="pw-new"><div class="auth-field"><label for="pw-next">New password</label><input id="pw-next" type="password" autocomplete="new-password" required minlength="10" maxlength="200"><div class="hint">At least 10 characters. Do not reuse a password from another site.</div></div><div class="auth-field"><label for="pw-again">New password again</label><input id="pw-again" type="password" autocomplete="new-password" required maxlength="200"></div><button class="auth-btn" type="submit">Save password</button></form>');
+    const form = $('#pw-new');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const next = $('#pw-next').value;
+      if (next !== $('#pw-again').value) return showNewPassword('Those two passwords are not the same.');
+      busy(form, 'Saving...');
+      SYNC.finishPassword(next);
+    });
+    $('#pw-next').focus();
+  }
+  function changePasswordForm() {
+    openForm('Change password', [
+      { k: 'currentPassword', label: 'Current password', type: 'password', req: true, full: true },
+      { k: 'newPassword', label: 'New password', type: 'password', req: true, full: true, hint: 'At least 10 characters.' },
+      { k: 'again', label: 'New password again', type: 'password', req: true, full: true }
+    ], {}, o => {
+      if (o.newPassword !== o.again) { $('#ferr').textContent = 'Those two passwords are not the same.'; return false; }
+      SYNC.request({ action: 'password_change', currentPassword: o.currentPassword, newPassword: o.newPassword }).then(r => {
+        if (r.auth === true) { closeModal(); return SYNC.needSignIn(r.error); }
+        if (!r.ok) { $('#ferr').textContent = r.error; return; }
+        $('#modal-root')._dirty = false; closeModal(); toast('Password changed');
+      }).catch(() => { $('#ferr').textContent = 'Could not reach the Sheet. Try again.'; });
+      return false;
+    }, '', 'Change password', true);
+  }
+  async function resetPassword(email) {
+    const u = (S.users || []).find(x => x.email === email);
+    if (!u || !confirm('Reset the password for ' + (u.name || email) + '? Their old password stops working, and they are signed out.')) return;
+    try {
+      const r = await SYNC.request({ action: 'password_reset', email });
+      if (r.auth === true) { closeModal(); return SYNC.needSignIn(r.error); }
+      if (!r.ok) return toast(r.error, true);
+      closeModal();
+      $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">Temporary password</h2></div><div class="mb"><p>For ' + esc(u.name || email) + ':</p><p class="temp-pw" id="temp-pw">' + esc(r.tempPassword) + '</p><p class="quiet">Give this to them privately. It works once: they choose their own password when they sign in. It will not be shown again.</p></div><div class="mf"><button class="btn primary" data-act="close-modal">Done</button></div></div></div>';
+    } catch (e) { toast('Could not reach the Sheet. Try again.', true); }
+  }
 
   // ---------- profile ----------
   function openProfileModal() {
     closeModal();
     const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + esc(v || '') + '</dd></div>';
-    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb">' + (safePhoto(ME) ? '<p>' + face(ME) + '</p>' : '') + '<dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + row('Manager', ME.managerEmail) + row('Joining date', ME.joiningDate ? fmtLong(ME.joiningDate) : '') + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="close-modal">Close</button></div></div></div>';
+    $('#modal-root').innerHTML = '<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title"><div class="mh"><h2 id="m-title">My profile</h2></div><div class="mb">' + (safePhoto(ME) ? '<p>' + face(ME) + '</p>' : '') + '<dl class="kv-g">' + row('Name', ME.name || UI.me) + row('Email', ME.email) + row('Role', roleName()) + row('Employee ID', ME.employeeId) + row('Department', ME.department) + row('Designation', ME.designation) + row('Manager', ME.managerEmail) + row('Joining date', ME.joiningDate ? fmtLong(ME.joiningDate) : '') + '</dl><p class="quiet">These are set by a Super Admin, because your email links you to your tasks.</p></div><div class="mf"><button class="btn" data-act="change-password">Change password</button><button class="btn" data-act="close-modal">Close</button></div></div></div>';
   }
 
   // ---------- forms ----------
@@ -4865,12 +4922,32 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       try {
         const r = await this.request({ action: 'login', idToken });
         if (!r.ok) return showSignIn(r.error);
-        if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
-        this.session = r.session;
-        try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
-        $('#signin').hidden = true;
-        await this.pull(true);
+        await this.enter(r);
       } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    async passwordLogin(email, password) {
+      try {
+        const r = await this.request({ action: 'password_login', email, password });
+        if (!r.ok) return showSignIn(r.error);
+        if (r.mustChange) { this.tempSession = r.session; return showNewPassword(''); } // kept aside: it opens nothing until they have chosen
+        await this.enter(r);
+      } catch (e) { showSignIn('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    async finishPassword(newPassword) {
+      try {
+        const r = await this.request({ action: 'password_change', session: this.tempSession, newPassword });
+        if (r.auth === true) { this.tempSession = ''; return showSignIn(r.error); }
+        if (!r.ok) return showNewPassword(r.error);
+        const session = this.tempSession; this.tempSession = '';
+        await this.enter({ session });
+      } catch (e) { showNewPassword('Could not reach the Sheet. Check your connection and try again.'); }
+    },
+    async enter(r) {
+      if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
+      this.session = r.session;
+      try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
+      $('#signin').hidden = true;
+      await this.pull(true);
     },
     async signOut() {
       if (diffOps(this.base || S, S).length && !confirm('Some changes have not reached the Sheet yet. Sign out and lose them?')) return;
@@ -4897,7 +4974,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       this.api = p.api || 1;
       this.auth = p.auth || { required: true };
       // An older script has no sign-in. Nothing is read from it or sent to it.
-      if (this.api < 4) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
+      if (this.api < API_NEEDED) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
       if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; }
       else if (!this.session) { this.checking = false; return this.needSignIn(''); }
       await this.pull(true);
@@ -5025,7 +5102,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       if (!this.apiUrl) { toast('The Google Sheet is not connected.', true); return; }
       if (!ME.open && (!this.session || !ME.email)) return; // nothing is sent before we know who is signed in
       if (this.busy) { this.again = true; return; }
-      if (this.api < 4) return;
+      if (this.api < API_NEEDED) return;
       if (!this.base) { this.setStatus('connected'); return; }
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
@@ -5092,7 +5169,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
     },
     async dailySnapshot() {
-      if (this.api < 4 || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
+      if (this.api < API_NEEDED || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
       const date = todayStr(), have = new Set((S.snapshots || []).filter(r => r.date === date).map(r => r.projectId));
       const rows = portfolioRows().filter(r => !have.has(r.p.id) && canManageP(r.p)).map(r => ({ date, projectId: r.p.id, progress: r.pct, done: r.c.done, active: r.c.open + r.c.done, overdue: r.c.overdue, blocked: r.c.blocked, health: r.h.level }));
       if (!rows.length) return;
@@ -5445,7 +5522,7 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
         toast('Testing the connection');
         try {
           const d = await SYNC.get('ping');
-          if (d.api < 4) throw new Error('the server needs updating');
+          if (d.api < API_NEEDED) throw new Error('the server needs updating');
           toast('Connected. Sheet version ' + d.version + '.');
         } catch (err) {
           toast('Connection failed: ' + err.message, true);
@@ -5525,6 +5602,8 @@ function buildSeed() { const s = {"meta":{"app":"Suraasa Sales Control Tower","s
       },
       'sign-out': () => SYNC.signOut(),
       'open-profile': () => openProfileModal(),
+      'change-password': () => changePasswordForm(),
+      'reset-password': () => resetPassword(id),
       'filter-emp-quick': () => { UI.mgmtEmpFilter = el.dataset.emp || ''; render(); },
       'quick-status': () => {
         const t = S.tasks.find(x => x.id === id);

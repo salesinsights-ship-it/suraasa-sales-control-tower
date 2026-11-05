@@ -34,7 +34,7 @@ Pending work is stored in the browser, so it survives a refresh or a dropped con
 
 ## Sign-in
 
-Google sign-in is the only way in. The page holds no people, no passwords and no keys.
+Every sign-in is checked on the server. People use their work email and a password, stored as a salted hash in Script Properties and never in the Sheet. A temporary password opens nothing until the person chooses their own. Sign in with Google is optional, and works alongside it once a client ID is set. The page holds no people, no passwords and no keys.
 
 Google Identity Services gives the page an ID token. Apps Script checks it with Google (`oauth2.googleapis.com/tokeninfo`): audience, issuer, verified email, domain, expiry, then the Users tab. It then issues a random session ID, stored in Apps Script's cache. Every read and write after that carries the session, and the person's role is read fresh from the Users tab each time.
 

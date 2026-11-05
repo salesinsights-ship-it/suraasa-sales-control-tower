@@ -24,6 +24,11 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **Google warns its token check can be throttled.** It is fine for a team this size. The cost of replacing it is hand-written signature checks that cannot be tested off real Apps Script.
 - **Sign-in is limited to 10 attempts a minute per person.** Someone who knows an employee's email could hold up that one person's sign-in, not anyone else's, and could not reach any data. Existing sessions are unaffected.
 - **A former owner of a task sees only that it moved on.** Someone who shares a name with another employee is not told, because names cannot be matched safely.
+- **Passwords are weaker than Sign in with Google.** You chose them to avoid Google Cloud. They can be shared, guessed or reused, and there is no second step. Use long, unique ones.
+- **Anyone who knows an email can lock that person out for 15 minutes,** by getting the password wrong five times. A Super Admin reset ends the lock.
+- **Whoever controls the Google account that owns the script can reset anyone's password,** and can read the password hashes. The team shares that account, so keep it secure.
+- **Password hashing is limited by Apps Script.** It has no purpose-built password function, so the hash is 500 rounds of HMAC-SHA256 with a secret kept in Script Properties.
+- **Password sign-in has not run on real Apps Script.** Check that a sign-in takes only a few seconds.
 - **Rate limiting covers sign-in only.** Everything else needs a session, and Google applies its own quotas.
 - **AuditLog is protected with a warning, not a lock.** The site cannot edit it, and direct edits to it are logged. Anyone with edit access to the Sheet could still ignore the warning, so limit that access.
 - **Profiles are read-only for employees.** A Super Admin or their Manager keeps them up to date. Pictures come from their Google account at sign-in.

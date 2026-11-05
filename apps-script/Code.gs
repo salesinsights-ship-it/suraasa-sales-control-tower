@@ -32,7 +32,7 @@ var META_SHEET = '_Meta';
 var ACTIVITY_SHEET = 'Activity';
 var EXTRA = '_extra';
 var NL = '\n';
-var API = 4;
+var API = 5;
 var DEFAULT_SITE_URL = 'https://suraasa-sales-control-tower-rouge.vercel.app/';
 
 var STATUS_P = ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'];
@@ -109,7 +109,8 @@ function onOpen() {
     .addItem('Bump version (force website refresh)', 'bumpVersionMenu')
     .addItem('Show sync status', 'showStatus')
     .addSeparator()
-    .addItem('Set Google sign-in client ID', 'enableSignIn')
+    .addItem('Give someone a temporary password', 'tempPasswordMenu')
+    .addItem('Set Google sign-in client ID (optional)', 'enableSignIn')
     .addItem('Emergency: open access for one hour', 'disableSignIn')
     .addItem('Back up this Sheet now', 'backupNow')
     .addItem('Turn on daily backup, reminders and email retries', 'turnOnDailyBackup')
@@ -283,7 +284,7 @@ function doGet(e) {
   try {
     var cfg = authCfg_();
     var pub = { required: cfg.required, clientId: cfg.required ? cfg.clientId : '', domain: cfg.domain };
-    if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub, signInReady: !!cfg.clientId });
+    if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub, signInReady: true });
     if (action === 'version') return json_({ ok: true, version: getVersion_() });
     if (action === 'pull') {
       if (cfg.required) return json_(authError_());
@@ -325,11 +326,14 @@ function doPost(e) {
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
+    if (action === 'password_login') return json_(passwordLogin_(body));
+    if (action === 'password_change') return json_(passwordChange_(body));
     if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
     if (!a) return json_(authError_());
     lock.waitLock(25000); locked = true;
     if (action === 'pull') return json_(fullPull_(a));
+    if (action === 'password_reset') return json_(passwordReset_(body, a));
     if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
     if (action === 'assign') { var given = assign_(body, a); SpreadsheetApp.flush(); return json_(given); }
     if (action === 'upload') return json_(upload_(body, a));
@@ -544,6 +548,7 @@ var SESSION_IDLE_SECONDS = 21600; // Apps Script's cache keeps a value for six h
 var SESSION_MAX_MS = 12 * 3600 * 1000;
 var MAX_OWNERS = 10;
 var LOGIN_LIMIT_PER_PERSON = 10, LOGIN_LIMIT_UNREADABLE = 30;
+var PW_MIN = 10, PW_ROUNDS = 500, PW_FAILS = 5, PW_LOCK_SECONDS = 900;
 var AUDIT_COLS = ['activityId', 'ts', 'actorEmail', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId'];
 var TRASH_COLS = ['trashId', 'ts', 'actorName', 'collection', 'recordId', 'record', 'restoredAt', 'record2', 'record3', 'record4'];
 var CELL_MAX = 49000; // Sheets refuses a cell over 50,000 characters
@@ -749,6 +754,8 @@ function actor_(body) {
   var s;
   try { s = JSON.parse(raw); } catch (x) { return null; }
   if (!s || !s.e || Date.now() > s.x) { cache.remove(key); return null; }
+  if (s.m) return null; // a temporary password opens nothing until the person has chosen their own
+  if (s.p) { var pw = pwRecord_(s.e); if (!pw || pw.t > s.b) { cache.remove(key); return null; } } // a new password ends older sessions
   var all = users_(), u = all.filter(function (x) { return x.email === s.e; })[0];
   if (!u || !u.active) { cache.remove(key); return null; }
   if (Date.now() - s.t > 600000) { s.t = Date.now(); cache.put(key, JSON.stringify(s), SESSION_IDLE_SECONDS); } // still in use, so the idle limit moves on
@@ -757,6 +764,99 @@ function actor_(body) {
   me.nameShared = peopleNamed_(u.name, all).length > 1;
   me.aliases = me.aliases.filter(function (n) { return peopleNamed_(n, all).length === 1; });
   return me;
+}
+// ---------- passwords ----------
+// Stored only as salted hashes in Script Properties, away from the Sheet, with a site-wide secret mixed in.
+function pwRecord_(email) { try { return JSON.parse(props_().getProperty('pw:' + email) || 'null'); } catch (x) { return null; } }
+function pwSecret_() {
+  var p = props_(), v = p.getProperty('AUTH_PEPPER');
+  if (!v) { v = Utilities.getUuid() + Utilities.getUuid(); p.setProperty('AUTH_PEPPER', v); }
+  return v;
+}
+function pwHash_(password, salt) {
+  var secret = pwSecret_(), h = salt + ':' + password;
+  for (var i = 0; i < PW_ROUNDS; i++) h = Utilities.base64Encode(Utilities.computeHmacSha256Signature(h, secret, Utilities.Charset.UTF_8));
+  return h;
+}
+function pwSame_(a, b) {
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function pwStore_(email, password, temporary) {
+  var salt = Utilities.getUuid();
+  props_().setProperty('pw:' + email, JSON.stringify({ s: salt, h: pwHash_(password, salt), c: temporary ? 1 : 0, t: Date.now() }));
+  CacheService.getScriptCache().remove('pwfail:' + email); // a reset gets someone back in straight away
+}
+function pwProblem_(pw) {
+  if (pw.length < PW_MIN) return 'Use at least ' + PW_MIN + ' characters.';
+  if (pw.length > 200) return 'Use 200 characters or fewer.';
+  return '';
+}
+/** 12 random characters, without ones that are easy to misread. Shown once, and never saved as text. */
+function tempPassword_() {
+  var letters = 'abcdefghjkmnpqrstuvwxyz23456789', hex = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''), out = '';
+  for (var i = 0; out.length < 12; i += 2) {
+    var n = parseInt(hex.substr(i, 2), 16);
+    if (n < 248) out += letters.charAt(n % letters.length); // anything higher would favour some letters
+  }
+  return out.slice(0, 4) + '-' + out.slice(4, 8) + '-' + out.slice(8);
+}
+function pwAudit_(action, who, target, text) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return; // the password is already saved, and the log must not undo that
+  try { appendRows_(AUDIT_SHEET, [[Utilities.getUuid(), new Date().toISOString(), who.email || '', who.name || '', 'users', target, '', '', action, '', '', '', text, '']]); }
+  finally { lock.releaseLock(); }
+}
+function passwordLogin_(body) {
+  if (!authCfg_().required) return { ok: true, open: true };
+  var email = String(body.email || '').trim().toLowerCase(), password = String(body.password || '');
+  var wrong = { ok: false, auth: true, error: 'That email or password is not right.' };
+  if (!/^[^\s@]{1,100}@[^\s@]{1,100}$/.test(email) || !password || password.length > 200) return wrong;
+  var cache = CacheService.getScriptCache(), key = 'pwfail:' + email, fails = Number(cache.get(key) || 0);
+  if (fails >= PW_FAILS) return { ok: false, auth: true, error: 'Too many wrong tries. Wait 15 minutes, or ask a Super Admin to reset your password.' };
+  var u = userByEmail_(email), rec = u && u.active ? pwRecord_(email) : null;
+  // The hash runs either way, so a reply takes as long for an unknown email as for a known one.
+  var hash = pwHash_(password, rec ? rec.s : 'unknown');
+  if (!rec || !pwSame_(hash, rec.h)) { cache.put(key, String(fails + 1), PW_LOCK_SECONDS); return wrong; }
+  cache.remove(key);
+  var token = Utilities.getUuid() + Utilities.getUuid(), now = Date.now();
+  cache.put('sess:' + token, JSON.stringify({ e: email, t: now, x: now + SESSION_MAX_MS, p: 1, b: rec.t, m: rec.c ? 1 : 0 }), SESSION_IDLE_SECONDS);
+  return { ok: true, session: token, user: publicUser_(u), mustChange: !!rec.c };
+}
+/** Needs the current password, except straight after signing in with a temporary one. */
+function passwordChange_(body) {
+  if (!validSession_(body.session)) return authError_();
+  var cache = CacheService.getScriptCache(), key = 'sess:' + String(body.session), raw = cache.get(key), s = null;
+  try { s = JSON.parse(raw); } catch (x) { s = null; }
+  if (!s || !s.e || Date.now() > s.x) return authError_();
+  var u = userByEmail_(s.e), rec = pwRecord_(s.e), next = String(body.newPassword || ''), fails = 'pwfail:' + s.e;
+  if (!u || !u.active) return authError_();
+  if (s.p && (!rec || rec.t > s.b)) { cache.remove(key); return authError_(); }
+  if (rec && !s.m) {
+    var tries = Number(cache.get(fails) || 0);
+    if (tries >= PW_FAILS) return { ok: false, error: 'Too many wrong tries. Wait 15 minutes and try again.' };
+    if (!pwSame_(pwHash_(String(body.currentPassword || ''), rec.s), rec.h)) { cache.put(fails, String(tries + 1), PW_LOCK_SECONDS); return { ok: false, error: 'Your current password is not right.' }; }
+    cache.remove(fails);
+  }
+  var problem = pwProblem_(next);
+  if (problem) return { ok: false, error: problem };
+  if (rec && pwSame_(pwHash_(next, rec.s), rec.h)) return { ok: false, error: 'Choose a different password.' };
+  pwStore_(s.e, next, false);
+  s.m = 0; s.p = 1; s.b = pwRecord_(s.e).t;
+  cache.put(key, JSON.stringify(s), SESSION_IDLE_SECONDS);
+  pwAudit_('password_changed', u, s.e, u.name + ' changed their password');
+  return { ok: true, user: publicUser_(u) };
+}
+function passwordReset_(body, a) {
+  if (a.open || a.role !== 'Administrator') return { ok: false, code: 'denied', error: 'Only a Super Admin can reset a password.' };
+  var email = String(body.email || '').trim().toLowerCase(), u = userByEmail_(email);
+  if (!u || !u.active) return { ok: false, error: 'That person is not an active employee.' };
+  var temp = tempPassword_();
+  pwStore_(email, temp, true);
+  appendRows_(AUDIT_SHEET, [[Utilities.getUuid(), new Date().toISOString(), a.email || '', a.name || '', 'users', email, '', '', 'password_reset', '', '', '', 'Reset the password for ' + u.name, '']]);
+  return { ok: true, email: email, tempPassword: temp };
 }
 function authError_() { return { ok: false, auth: true, error: 'Your session has ended. Sign in again.' }; }
 
@@ -1980,6 +2080,18 @@ function snapshot_(body, a) {
 }
 
 // ---------- administrator tools in the Sheet menu ----------
+/** How the first Super Admin gets in, and how anyone is rescued. Only people who can open the Sheet can reach this. */
+function tempPasswordMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var c = ui.prompt('Temporary password', 'Enter the person\'s email, exactly as it is in the Users tab.', ui.ButtonSet.OK_CANCEL);
+  if (c.getSelectedButton() !== ui.Button.OK) return;
+  var email = c.getResponseText().trim().toLowerCase(), u = userByEmail_(email);
+  if (!u || !u.active) { ui.alert(email + ' is not an active person in the Users tab.'); return; }
+  var temp = tempPassword_();
+  pwStore_(email, temp, true);
+  pwAudit_('password_reset', { email: Session.getEffectiveUser().getEmail(), name: 'Google Sheet' }, email, 'Reset the password for ' + u.name);
+  ui.alert('Temporary password for ' + u.name, temp + '\n\nGive this to them privately. It works once: they choose their own password when they sign in. It will not be shown again.', ui.ButtonSet.OK);
+}
 function enableSignIn() {
   var ui = SpreadsheetApp.getUi();
   var c = ui.prompt('Google OAuth client ID', 'Paste the Web client ID from Google Cloud (it ends in .apps.googleusercontent.com).', ui.ButtonSet.OK_CANCEL);

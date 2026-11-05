@@ -2,16 +2,16 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**460 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**491 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 93 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 107 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
-| `tests/e2e/signin.js` | 13 | Sign-in, in Chromium, with Google simulated |
+| `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
 | `tests/e2e/assignment.js` | 61 | Assigning by email end to end, lost replies, shared computers, phone |
 | `tests/e2e/roles.js` | 24 | What each role sees and can do, and the home page numbers |
 | `tests/e2e/stage.js` | 28 | The Stage dropdown |
@@ -42,7 +42,7 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 
 | Feature | Implementation | Test result | Status |
 |---|---|---|---|
-| Authentication | Google sign-in checked on the server, including the Workspace `hd` claim. Sessions end after 6 hours idle or 12 hours in total, and on sign-out | Passed, simulated Google | Needs client ID |
+| Authentication | Email and password checked on the server, with salted hashes, a lock after five wrong tries and temporary passwords. Sign in with Google is optional. Sessions end after 6 hours idle or 12 hours in total, and on sign-out | Passed on a simulated script | Needs the new script version |
 | RBAC | Super Admin, Manager, Employee and Viewer, enforced on the server for every read and write | Passed, including direct-request attacks | Ready |
 | Task creation | Form, preview, one-line command and Duplicate. Task IDs never repeat | Passed. A double click or lost reply makes one task | Ready |
 | Employee assignment | One or several registered emails, matched exactly | Passed | Needs Users tab |
@@ -62,7 +62,8 @@ This has not been run through Google's own import.
 
 ## What these tests do not show
 
-- **Nothing ran on real Apps Script, real Google sign-in, real email or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. In particular, these need checking in step 8 of [DEPLOYMENT.md](DEPLOYMENT.md): that Google sign-in works, that an email arrives and looks right, and that `setupSheet` upgrades the real Sheet.
+- **On real Google, only the script's setup, its public link and the data import have been proven.** Password sign-in, real email and saving from the site have not.
+- **The tests themselves ran on stand-ins, not real Apps Script, email or your real Sheet.** `tests/mock-gas.js` stands in for them. It catches logic errors, but cannot prove how Google's services behave. In particular, these need checking in step 8 of [DEPLOYMENT.md](DEPLOYMENT.md): that Google sign-in works, that an email arrives and looks right, and that `setupSheet` upgrades the real Sheet.
 - **The Vercel security headers were tested on a local server** with the same headers, not on Vercel.
 - The copy of live data was read-only. **No test wrote to your Sheet, and no test sent a real email.**
 - The layout sweep finds overflow and errors. It does not judge appearance. Key screens were also reviewed by eye.
