@@ -64,7 +64,7 @@ A project owner can add a **risk assessment** with a level and a reason. It sits
 
 `AuditLog` is written by the server in the same step as the change. Rows are only ever appended. Deleting a task or project leaves its rows in place. Each row has: activity ID, entity type and ID, parent project and task IDs, action, field, old value, new value, description, user email, user name at the time, UTC timestamp and request ID.
 
-**Actions:** `created`, `updated`, `deleted`, `restored`, `status_changed`, `owner_changed`, `deadline_changed`, `progress_changed`, `priority_changed`, `blocker_changed`, `dependency_changed`, `archive_changed`, `milestone_added`, `milestone_changed`, `milestone_removed`, `update_added`, `comment_added`, `question_added`, `decision_added`, `blocker_added`, `extension_added` and their `_edited` and `_removed` forms (which keep the old text), `task_overdue`, `milestone_overdue`, `settings_changed`, `user_changed`, `user_removed`, `sheet_edit` (someone typed directly in the Sheet).
+**Actions:** `created`, `updated`, `deleted`, `restored`, `status_changed`, `owner_changed`, `deadline_changed`, `progress_changed`, `priority_changed`, `blocker_changed`, `dependency_changed`, `archive_changed`, `milestone_added`, `milestone_changed`, `milestone_removed`, `update_added`, `comment_added`, `question_added`, `decision_added`, `blocker_added`, `extension_added` and their `_edited` and `_removed` forms (which keep the old text), `task_assigned`, `task_overdue`, `milestone_overdue`, `email_sent` (accepted by the mail service), `email_failed`, `email_skipped`, `notification_error`, `owner_email_matched`, `settings_changed`, `user_changed`, `user_removed`, `sheet_edit` (someone typed directly in the Sheet).
 
 Notes are typed, and each keeps its author and time. Edited comments show "edited".
 
@@ -74,14 +74,14 @@ Timelines on project and task pages filter by All, Status, Progress, Ownership, 
 
 ## Notifications
 
-In-app only. A notification has a stable ID, so reloading never repeats it. Read state and preferences are kept per browser.
+**In-app** notifications are worked out from the data and the audit log. Each has a stable ID, so reloading never repeats it. Read state and preferences are kept per browser. Every assignment also leaves an `in-app` row in `NotificationLog`.
 
 | Kind | Sent to | When |
 |---|---|---|
 | Due soon, tomorrow, today | Task owner | 3 days, 1 day, due date |
 | Overdue | Task owner | Daily while late. More than 5 become one line |
 | Waiting on a late task | Task owner | A task it depends on is late |
-| Assigned, Reassigned | Old and new owner | Owner changes |
+| Assigned, Reassigned | Old and new owner | Owner changes, or a new task is assigned |
 | Deadline changed | Task owner | Date moved by someone else |
 | New comment, Mentioned | Task owner, person mentioned | Comment added, `@name` |
 | Changes requested | Task owner | Review sent back |
@@ -93,6 +93,21 @@ In-app only. A notification has a stable ID, so reloading never repeats it. Read
 
 You never receive a notification for your own action.
 
+**Emails** go only to registered, active people, and never to the person who took the action.
+
+| Event | Sent to | When |
+|---|---|---|
+| New task assigned | New owner | A Super Admin or Manager gives them a task |
+| Task reassigned | New owner | The owner changes. The old owner is told in the app |
+| Project assigned | New project owner | The project's owner changes |
+| Deadline reminder | Task owner | 3 days, 1 day and the day itself |
+| Task overdue | Task owner | The first day late, then weekly |
+| Task completed | Whoever assigned it, the project's owner, answerable and managers | Status becomes Completed |
+| Manager comment | Task owner | A Super Admin or Manager comments on the task |
+| Review requested | Whoever assigned it, the project's owner, answerable and managers, and the task owner | Status becomes In Review or Awaiting Approval |
+
+Every email has the task name, ID, project, priority, deadline and a direct link. One save sends one email per person per kind of event, listing every item. Reminders and overdue notices are one summary per person per day.
+
 ## Automation
 
 | Job | How | Safe to repeat |
@@ -103,6 +118,8 @@ You never receive a notification for your own action.
 | Daily progress snapshot | First signed-in visit each day | Yes, one per project per day |
 | Nightly backup | `backupNow` at 02:00 | Each run makes a new copy |
 | Save retries | Browser, every 15 seconds until it succeeds | Yes, by request ID |
-| Assignment emails | Server, on a save that gives someone a task or project | Yes, a retried save sends nothing |
+| Emails from a save | Server, straight after the save. The rest wait for the next retry run | Yes, by `dedupeKey` |
+| Email retries | `processNotifications` every 5 minutes | Yes |
+| Reminders and overdue emails | `dailyChecks` at 06:00 | Yes, one notice per task, person and date |
 
-The two timed jobs start after you click **Turn on daily backup** in the Control Tower menu. Dates use the viewer's time zone on the site and the Sheet's in `dailyChecks`.
+The three timed jobs start after you click **Turn on daily backup, reminders and email retries** in the Control Tower menu. Dates use the viewer's time zone on the site and the Sheet's in `dailyChecks`.

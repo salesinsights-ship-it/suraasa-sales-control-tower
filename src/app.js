@@ -2507,7 +2507,7 @@
     p = p || {
       id: nextId('PRJ'), status: 'Not Started', priority: 'P2', priorityProposed: true,
       category: opt('categories')[0] || 'Revenue Generation', type: 'Project',
-      owner: 'TBD', accountable: 'TBD', sponsor: '',
+      owner: ME.role === 'Project Owner' ? ME.name : 'TBD', accountable: 'TBD', sponsor: '', // a Manager starts as owner of what they create, or they could not assign work on it
       metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [],
       milestones: [], raci: [], comments: [], flags: [], datesProposed: true
     };
@@ -2549,6 +2549,7 @@
       { k: 'id', label: 'Project ID', req: true, more: true, readonly: true }
     ];
     const vals = Object.assign({}, p, {
+      managerEmails: listToStr(p.managerEmails),
       metrics: (p.metrics || []).join('\n'),
       dependencies: (p.dependencies || []).join('\n'),
       risks: (p.risks || []).join('\n'),
@@ -2562,6 +2563,7 @@
     openForm(isNew ? 'New project' : 'Edit project', f, vals, o => {
       if (isNew && P(o.id)) { $('#ferr').textContent = 'Project ID already exists.'; return false; }
       const np = Object.assign({}, p, o, {
+        managerEmails: strToList(o.managerEmails).map(x => x.toLowerCase()),
         metrics: lineList(o.metrics),
         dependencies: lineList(o.dependencies),
         risks: lineList(o.risks),

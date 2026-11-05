@@ -1,8 +1,15 @@
 # Roles and permissions
 
-Deliverable 5. These rules run on the server (`deny_` and `canSeeProject_` in `Code.gs`). Hiding a button is only a convenience. With the sign-in on the page, management and employee views are applied by the page only. **They apply once sign-in is on. Until then the site is open and everyone is treated as Administrator.**
+Deliverable 5. These rules run on the server (`deny_` and `canSeeProject_` in `Code.gs`). Hiding a button is only a convenience. Nothing is readable without a Google sign-in.
 
-A person's role is in the Users tab. "Project owner of X" means their name is the Owner or Answerable on project X. "Task owner of Y" means their name is the Owner of task Y. Proposed names (`TBD — proposed: …`) give no rights.
+| On the site and in the Users tab | Stored as, and shown in the table below as |
+|---|---|
+| Super Admin | Administrator |
+| Manager | Project Owner |
+| Employee | Task Owner |
+| Viewer | Viewer |
+
+A person's role is in the Users tab. "Project owner of X" means their registered email, or failing that their exact name, is the Owner or Answerable on project X, or their email is in that project's Managers list. "Task owner of Y" means the same for the Owner of task Y. When a record has an owner email, only the email counts. Proposed names (`TBD — proposed: …`) give no rights.
 
 | Action | Administrator | Project Owner, own project | Project Owner, other project | Task Owner, own task | Task Owner, other task | Viewer |
 |---|---|---|---|---|---|---|
@@ -14,6 +21,7 @@ A person's role is in the Users tab. "Project owner of X" means their name is th
 | Edit project details | Yes | Yes | No | No | No | No |
 | Close, archive, restore | Yes | Yes | No | No | No | No |
 | Delete a project | Yes | No | No | No | No | No |
+| Assign a task by email | Yes | Yes | No | No | No | No |
 | Add or remove tasks and milestones | Yes | Yes | No | No | No | No |
 | Change task owner, due date, priority, scope | Yes | Yes | No | No | No | No |
 | Update status, progress, checklist, notes, blockers, links | Yes | Yes | No | Yes | No | No |
@@ -27,13 +35,17 @@ A person's role is in the Users tab. "Project owner of X" means their name is th
 | Submit for review | Yes | Yes | No | Yes | No | No |
 | Approve, request changes | Yes | Yes | No | No | No | No |
 | Bulk edit | Yes | Yes | No | No | No | No |
-| Manage users, health rules, settings | Yes | No | No | No | No | No |
+| See the employee directory (names, emails, departments) | Yes | Yes | Yes | No | No | No |
+| See the notification log | Yes | Own projects | Own projects | No | No | No |
+| Retry or resend emails, send a test email, see Integrations | Yes | No | No | No | No | No |
+| Manage employees, health rules, settings | Yes | No | No | No | No | No |
 | View the audit log and deleted items | Yes | No | No | No | No | No |
 
 Notes:
 - A task owner's editable fields are listed in `TASK_OWNER_FIELDS`. Anything else is refused, including `due` and `owner`.
 - Notes are added only in your own name. Server stamps (`createdBy`, `updatedAt`, `originalDue` and so on) and record IDs cannot be set from outside.
-- In the Users tab, `management` means Administrator and `employee` means Task Owner.
+- In the Users tab, `management` means Super Admin and `employee` means Employee.
+- Only a Super Admin can change a person's role, so a Manager cannot raise their own access.
 - Employees (Task Owners) receive only their own tasks and subtasks from the server, plus risks, dependencies, decisions, updates and actions on the projects those tasks are in.
 - There must always be one active Administrator.
 - A role change or deactivation takes effect on that person's next request.

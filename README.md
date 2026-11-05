@@ -1,6 +1,6 @@
 # Suraasa Sales Control Tower
 
-A single-page project tracker for the Head of Sales and the sales team. It answers one question first: what needs me today? It saves to a Google Sheet, and edits in the Sheet show up here.
+A project and task platform for the Head of Sales and the sales team. It answers one question first: what needs me today? A manager assigns a task by entering an employee's email, and the rest happens by itself: it saves to the Google Sheet, emails the employee, appears on their dashboard, and tells the manager when it is done.
 
 ---
 
@@ -10,19 +10,22 @@ A single-page project tracker for the Head of Sales and the sales team. It answe
 - **My Tasks**: list, board or calendar, with saved views and bulk edit.
 - **Projects** and **My Projects**: list or timeline. Each project has Summary, Plan, Risks, Updates, People, Files and Activity.
 - **Decisions & risks**, **Weekly review**, **Notifications**, **Reports**.
-- **Action plan**, **Who does what**, **How we work**, **Administration**.
-- Everywhere: `/` to find anything, and **New** to add anything.
+- **Action plan**, **Who does what**, **How we work**.
+- **Administration**: Employees, Integrations, Notification log, Audit log, Deleted items, Health rules, Sheet and data.
+- Everywhere: `/` to find anything, and **New** to add anything, including **Assign a task by email**.
 
 ## How it works
 
 The page holds no business data. It loads from a Google Sheet through an Apps Script web app, which handles validation and the audit log.
 
-People sign in on the page with their Suraasa email and password. The page holds one-way keys, not readable passwords. This decides what each person sees, but it does not protect the data. Google sign-in, which is checked on the server, does that: see [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md).
+People sign in with their Suraasa Google account. The script checks every sign-in with Google and against the Users tab, and applies each person's role to everything it sends and accepts. Nothing is readable without it. The page holds no people, passwords or keys.
 
 | Read this | For |
 |---|---|
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing an update, and rollback |
-| [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Turning on Google sign-in |
+| [docs/OPERATING_MANUAL.md](docs/OPERATING_MANUAL.md) | How to use it day to day |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Installing an update, settings, and rollback |
+| [docs/CREDENTIALS.md](docs/CREDENTIALS.md) | What access is needed, and why |
+| [SETUP_SIGN_IN.md](SETUP_SIGN_IN.md) | Setting up Google sign-in |
 | [SETUP_GOOGLE_SHEET.md](SETUP_GOOGLE_SHEET.md) | Connecting a brand-new Sheet |
 | [docs/AUDIT.md](docs/AUDIT.md) | What was found, and before and after |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, and the data model |
@@ -51,7 +54,7 @@ npm run test:e2e    # browser tests (needs: npm i --no-save playwright)
 │   ├── seed.js          # Data used by the tests. Not published
 │   ├── styles.css       # Light and dark themes
 │   └── shell_*.html     # Page frame
-├── apps-script/Code.gs  # Server: validation, audit log, assignment emails, Google sign-in
+├── apps-script/Code.gs  # Server: sign-in, permissions, validation, audit log, notifications
 ├── assets/              # Official logos, favicons, app icons
 ├── tests/               # Rules, server and browser tests
 ├── docs/                # Audit, architecture, permissions, workflow, tests
@@ -89,6 +92,6 @@ This compiles `src/*` into `dist/Suraasa_Sales_Control_Tower.html`, `dist/index.
 
 ## Data Storage & Reset
 
-- The Google Sheet holds the real data. Each browser keeps a working copy under `suraasa_sales_control_tower_v1`, and signing out clears it.
+- The Google Sheet is the system of record. Each browser keeps a working copy under `suraasa_sales_control_tower_v1`, and signing out clears it.
 - Changes save to the Sheet automatically. The status at the top of the page shows Saved, Saving or Not saved.
 - **Administration > Sheet and data** shows the connected link and exports a backup.

@@ -1,5 +1,45 @@
 # Changelog
 
+## 3.0.0, 5 November 2026
+
+**Assigning work**
+- **New > Assign a task by email**: enter the employee's official email, see who it is, check the preview and confirm. The task is saved to the Sheet with a new ID, the employee is emailed, and it appears on their dashboard.
+- **Assign in one line** on Home reads a sentence into the same preview. It never guesses a person or project.
+- **Reassign** on a task, by email.
+- Tasks and projects now store the owner's registered email. Only the exact email counts. Older tasks keep working by name, and **Match task owners to registered emails** fills in the rest.
+- Project **Managers** list: name extra managers by email.
+
+**Notifications**
+- Emails for assignment, reassignment, project assignment, deadline reminders, overdue work, completion, manager comments and review requests.
+- New `NotificationLog` tab, with status, attempts and errors. **Accepted** means Google took the email, not that it arrived.
+- Failed emails retry by themselves. Duplicates are prevented. Super Admins can retry and resend.
+- **Emails start in test mode**: nobody but the script owner receives them until you go live.
+
+**Security**
+- **The script no longer serves anything without a Google sign-in.** It closes by default, and the emergency switch ends by itself after an hour.
+- Removed the password check in the page, the team list and the password keys. A frontend check is not authentication.
+- Sign out now ends the session on the server. Sessions end after 6 hours idle or 12 hours in total.
+- Roles are named Super Admin, Manager, Employee and Viewer. Existing words in the Users tab still work.
+- One person's request ID can no longer fetch another person's reply.
+- A person's name no longer gives rights to a task owned by someone else's email.
+- The site adds security headers, and no longer lets the server link be changed in the browser.
+- The site will not talk to an older script.
+
+**Screens**
+- **Administration > Employees**: IDs, departments, designations, managers, status and search.
+- **Administration > Integrations**: the state of the Sheet, email, sign-in and automation, with no secrets shown.
+- **Administration > Notification log**, also under **Notifications > Email log** for Managers.
+- Home: assigned, overdue and completion rate, tasks by stage and priority, project progress, completions per week, employee workload, upcoming deadlines, and a project filter.
+- Employee dashboard: overdue count and upcoming deadlines.
+- Links in emails open the task directly, after sign-in.
+
+**Reconnected**
+- The site saves to the Sheet again. It had been disconnected on 4 November, because the script running was too old for it.
+
+**Removed**
+- Page password sign-in, the connection settings box, and the whole-Sheet save used by older scripts.
+- `tests/e2e/login.js`, which tested the removed sign-in.
+
 ## 2.5.1, 4 November 2026
 
 - Management can open the Google Sheet from the sidebar, the profile menu, the phone More menu and **Administration > Sheet and data**. It opens in a new tab.
