@@ -408,7 +408,7 @@ function readTab_(ss, s, idsNeeded) {
       if (typeof v === 'string' && /^'=/.test(v)) v = v.slice(1);
       if (h === EXTRA) { if (v) { try { var ex = JSON.parse(v); Object.keys(ex).forEach(function (k) { o[k] = ex[k]; }); } catch (x) {} } return; }
       if (s.tail && s.tail.indexOf(h) >= 0 && (v === '' || v == null) && o[h] !== undefined) return;
-      if (s.lists && s.lists[h] !== undefined) { o[h] = splitList_(v); return; }
+      if (s.lists && s.lists[h] !== undefined) { o[h] = splitList_(v, s.lists[h]); return; }
       if (s.bools && s.bools.indexOf(h) >= 0) { o[h] = toBool_(v); return; }
       if (s.nums && s.nums.indexOf(h) >= 0) { var n = parseFloat(v); o[h] = isNaN(n) ? 0 : n; return; }
       o[h] = cell_(v);
@@ -519,11 +519,12 @@ function cell_(v) {
 /** Text from people is never allowed to run as a formula in the Sheet. */
 function safeCell_(v) { return typeof v === 'string' && v.charAt(0) === '=' ? "'" + v : v; }
 function toBool_(v) { if (typeof v === 'boolean') return v; var s = String(v == null ? '' : v).trim().toLowerCase(); return s === 'true' || s === 'yes' || s === '1'; }
-function splitList_(v) {
+function splitList_(v, sep) {
   if (v == null || v === '') return [];
   if (v instanceof Date) return [cell_(v)];
   var s = String(v);
-  var parts = s.indexOf('\n') >= 0 ? s.split(/\r?\n/) : s.split(/\s*,\s*/);
+  // One sentence with a comma in a line-by-line list is still one item.
+  var parts = sep === NL || s.indexOf('\n') >= 0 ? s.split(/\r?\n/) : s.split(/\s*,\s*/);
   return parts.map(function (x) { return x.trim(); }).filter(Boolean);
 }
 

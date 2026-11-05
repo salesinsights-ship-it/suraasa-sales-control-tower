@@ -606,5 +606,16 @@ test('AK becomes Ankit Khanna everywhere, once, with no emails', () => {
   assert.ok(s.audit.some(a => a.action === 'name_merged' && a.oldValue === 'AK, Ankit Khanna'));
   assert.strictEqual(b.ctx.replaceAkWithAnkitKhanna(), 0);
 });
+test('a sentence with a comma stays one item in a line-by-line list, and comma lists still split', () => {
+  const b = open(), st = b.post({ action: 'pull' }).state, p = st.projects[0];
+  p.assumptions = ['Managed here, not as a separate project'];
+  p.metrics = ['Rate of 4%, then 7%', 'Second line'];
+  p.flags = ['one', 'two'];
+  b.load(st);
+  const q = b.post({ action: 'pull' }).state.projects[0];
+  assert.deepStrictEqual(q.assumptions, ['Managed here, not as a separate project']);
+  assert.deepStrictEqual(q.metrics, ['Rate of 4%, then 7%', 'Second line']);
+  assert.deepStrictEqual(q.flags, ['one', 'two']);
+});
 for (const r of results) console.log(r[0], r[1]);
 console.log(results.filter(r => r[0] === 'PASS').length + ' of ' + results.length + ' passed');

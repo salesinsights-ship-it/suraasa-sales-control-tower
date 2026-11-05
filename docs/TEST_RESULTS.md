@@ -2,12 +2,12 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**459 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**460 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
-| `tests/backend.test.js` | 71 | The real `Code.gs` on a simulated Sheet |
+| `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
 | `tests/automation.test.js` | 93 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
@@ -53,6 +53,12 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 | Admin dashboard | 10 real figures, 6 charts, workload table, deadlines and filters | Passed, numbers checked against the data | Ready |
 | Deployment | Security headers added. The site refuses older scripts | Passed on a local server, not on Vercel | Needs GitHub and script access |
 | Security | Public access closed by default. The published page holds no people, keys or Sheet address | Passed, then reviewed independently | Needs deployment |
+
+## Loading your data into a new Sheet
+
+The new Sheet was built by running the real `Code.gs` on a copy of the live data, writing every tab to a workbook, reading that workbook back onto a fresh simulated Sheet, and running `setupSheet` and a Google sign-in as the Sheet's owner. Every project, task, risk, dependency, decision, action, programme, role and activity record matched the live copy, field by field. That check found one real bug, now fixed: a single sentence with a comma in a line-by-line list, such as an assumption, was being split into two items.
+
+This has not been run through Google's own import.
 
 ## What these tests do not show
 
