@@ -28,10 +28,19 @@ class Sheet {
         if (vals.length !== nr || vals[0].length !== nc) throw new Error(`Size mismatch ${vals.length}x${vals[0].length} vs ${nr}x${nc}`);
         vals.forEach(line => line.forEach(v => { if (String(v).length > 50000) throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.'); }));
         vals.forEach((line, r) => { sh.cells[row - 1 + r] = sh.cells[row - 1 + r] || []; line.forEach((v, c) => { sh.cells[row - 1 + r][col - 1 + c] = v; }); });
+        if (sh.ss && sh.ss.onChange) sh.ss.onChange(sh.name);
         return self;
       },
-      setValue(v) { sh.cells[row - 1] = sh.cells[row - 1] || []; sh.cells[row - 1][col - 1] = v; return api; },
-      clearContent() { for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) if (sh.cells[row - 1 + r]) sh.cells[row - 1 + r][col - 1 + c] = ''; return api; },
+      setValue(v) {
+        sh.cells[row - 1] = sh.cells[row - 1] || []; sh.cells[row - 1][col - 1] = v;
+        if (sh.ss && sh.ss.onChange) sh.ss.onChange(sh.name);
+        return api;
+      },
+      clearContent() {
+        for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) if (sh.cells[row - 1 + r]) sh.cells[row - 1 + r][col - 1 + c] = '';
+        if (sh.ss && sh.ss.onChange) sh.ss.onChange(sh.name);
+        return api;
+      },
       getSheet() { return sh; },
       getA1Notation() { return 'R' + row + 'C' + col; }
     };
@@ -47,7 +56,7 @@ class Sheet {
 class Spreadsheet {
   constructor() { this.sheets = {}; }
   getSheetByName(n) { return this.sheets[n] || null; }
-  insertSheet(n) { return (this.sheets[n] = new Sheet(n)); }
+  insertSheet(n) { const s = new Sheet(n); s.ss = this; return (this.sheets[n] = s); }
   getSheets() { return Object.values(this.sheets); }
   deleteSheet(s) { delete this.sheets[s.getName()]; }
   setActiveSheet() {} moveActiveSheet() {}
@@ -59,13 +68,29 @@ function createBackend(opts = {}) {
   // AUTH_OFF_UNTIL lets the older tests run without a session. opts.strict tests the real default: sign-in always on.
   const props = new Map(Object.entries(Object.assign(opts.strict ? {} : { AUTH_REQUIRED: 'false', AUTH_OFF_UNTIL: String(Date.now() + 1e10), EMAIL_MODE: 'live' }, opts.props || {})));
   const cache = new Map();
+  ss.onChange = name => {
+    if (name !== '_Meta' && name !== 'Activity' && name !== 'AuditLog') {
+      for (const k of cache.keys()) {
+        if (k.startsWith('raw_v') || k === 'rowmap_' + name) cache.delete(k);
+      }
+    }
+    if (name === 'Users') {
+      cache.delete('users_list');
+    }
+  };
   const tokens = opts.tokens || {}; // id token -> Google tokeninfo reply
   const mails = [];
   const ctx = {
     console, JSON, Date, Math, Object, Array, String, Number, parseInt, parseFloat, isNaN, encodeURIComponent, RegExp,
     SpreadsheetApp: { flush() {}, getActive: () => ss, getUi: () => { throw new Error('no UI'); }, newDataValidation: () => chain() },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (props.has(k) ? props.get(k) : null), deleteProperty: k => props.delete(k), setProperty: (k, v) => props.set(k, v), setProperties: o => Object.entries(o).forEach(([k, v]) => props.set(k, v)) }) },
-    CacheService: { getScriptCache: () => ({ get: k => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
+    CacheService: { getScriptCache: () => ({
+      get: k => (cache.has(k) ? cache.get(k) : null),
+      put: (k, v) => cache.set(k, String(v)),
+      remove: k => cache.delete(k),
+      getAll: keys => { const o = {}; (keys || []).forEach(k => { if (cache.has(k)) o[k] = cache.get(k); }); return o; },
+      putAll: (map, sec) => { Object.entries(map || {}).forEach(([k, v]) => cache.set(k, String(v))); }
+    }) },
     MailApp: { sendEmail(o) { if (typeof opts.mailFails === 'function' ? opts.mailFails(o) : opts.mailFails) throw new Error('mail is down'); mails.push(o); }, getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => opts.owner || 'owner@suraasa.com' }) },

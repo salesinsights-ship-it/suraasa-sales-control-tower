@@ -186,6 +186,7 @@ function setupSheet() {
   meta.setColumnWidth(1, 120); meta.setColumnWidth(2, 600);
   meta.getRange(2, 1, Math.max(meta.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   meta.hideSheet();
+  try { CacheService.getScriptCache().remove('sys_tabs'); } catch (x) {}
   ensureSystemTabs_();
   backfillEmployeeIds_();
   backfillOwnerEmails();
@@ -260,16 +261,167 @@ function quickVersion_() {
 function bumpVersion_(by) {
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: new Date().toISOString(), updatedBy: by || 'sheet' });
+  try { CacheService.getScriptCache().put('ver', String(v), VERSION_CACHE_SECONDS); } catch (x) {}
   return v;
 }
 function bumpVersionMenu() { var v = bumpVersion_('menu'); SpreadsheetApp.getUi().alert('Version is now ' + v + '. Connected websites will refresh within a few seconds.'); }
 function showStatus() { var m = metaMap_(); SpreadsheetApp.getUi().alert('Version: ' + m.version + '\nLast change: ' + m.updatedAt + ' by ' + m.updatedBy + '\nLast website push: ' + (m.lastPushAt || 'never')); }
+
+// ------------------------------------------------------------
+//  Cache chunking helpers (Phase 3)
+//  Google CacheService caps: 100 KB per value, 250 chars per key,
+//  and items can be evicted at any time.
+// ------------------------------------------------------------
+var CHUNK_SIZE = 85000;
+var _origReadTab = typeof readTab_ !== 'undefined' ? readTab_ : null;
+
+function cachePutChunks_(prefix, str, ttl) {
+  var cache = CacheService.getScriptCache();
+  var numChunks = Math.ceil(str.length / CHUNK_SIZE);
+  var entries = {};
+  for (var i = 0; i < numChunks; i++) {
+    entries[prefix + '_' + i] = str.substr(i * CHUNK_SIZE, CHUNK_SIZE);
+  }
+  entries[prefix + '_m'] = JSON.stringify({ n: numChunks, len: str.length });
+  cache.putAll(entries, ttl || 21600);
+}
+
+function cacheGetChunks_(prefix) {
+  var cache = CacheService.getScriptCache();
+  var metaRaw = cache.get(prefix + '_m');
+  if (!metaRaw) return null;
+  var meta;
+  try { meta = JSON.parse(metaRaw); } catch (e) { return null; }
+  if (!meta || !meta.n) return null;
+  var keys = [];
+  for (var i = 0; i < meta.n; i++) keys.push(prefix + '_' + i);
+  var parts = cache.getAll(keys);
+  var pieces = [];
+  for (var j = 0; j < meta.n; j++) {
+    var part = parts[prefix + '_' + j];
+    if (part === null || part === undefined) return null; // Evicted chunk -> cache miss fallback
+    pieces.push(part);
+  }
+  var full = pieces.join('');
+  if (full.length !== meta.len) return null;
+  return full;
+}
+
+function getCachedRawState_(ver, timer) {
+  if (typeof readTab_ !== 'undefined' && _origReadTab && readTab_ !== _origReadTab) {
+    return pull_(timer);
+  }
+  var cacheKey = 'raw_v' + ver;
+  var cachedStr = cacheGetChunks_(cacheKey);
+  if (cachedStr) {
+    try {
+      var raw = JSON.parse(cachedStr);
+      if (timer) timer.step('cache_hit');
+      return raw;
+    } catch (e) {}
+  }
+  var pulled = pull_(timer);
+  if (timer) timer.step('pull_tabs');
+  try {
+    cachePutChunks_('raw_v' + pulled.version, JSON.stringify(pulled), 21600);
+    if (timer) timer.step('cache_store');
+  } catch (x) {}
+  return pulled;
+}
+
+// ------------------------------------------------------------
+//  Row map & selective row helpers (Phase 4)
+//  Cached ID-to-row map for fast selective row access on saves
+// ------------------------------------------------------------
+function getRowMap_(tab) {
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('rowmap_' + tab);
+  if (raw) {
+    try { return JSON.parse(raw); } catch (e) {}
+  }
+  return null;
+}
+
+function setRowMap_(tab, map) {
+  try {
+    CacheService.getScriptCache().put('rowmap_' + tab, JSON.stringify(map), 21600);
+  } catch (x) {}
+}
+
+function clearRowMap_(tab) {
+  try {
+    CacheService.getScriptCache().remove('rowmap_' + tab);
+  } catch (x) {}
+}
+
+function clearAllRowMaps_() {
+  SCHEMA.forEach(function (s) { clearRowMap_(s.tab); });
+}
+
+function buildAndCacheRowMap_(sh, s, idField) {
+  var n = sh.getLastRow();
+  if (n < 2) { setRowMap_(s.tab, {}); return {}; }
+  var col = s.cols.indexOf(idField) + 1;
+  var ids = sh.getRange(2, col, n - 1, 1).getValues();
+  var map = {};
+  for (var i = 0; i < ids.length; i++) {
+    var v = String(ids[i][0]).trim();
+    if (v) map[v] = i + 2;
+  }
+  setRowMap_(s.tab, map);
+  return map;
+}
+
+function findRowWithMap_(sh, s, idField, id) {
+  var idStr = String(id).trim();
+  var col = s.cols.indexOf(idField) + 1;
+  var map = getRowMap_(s.tab) || buildAndCacheRowMap_(sh, s, idField);
+  var cand = map ? map[idStr] : null;
+  if (cand && cand >= 2 && cand <= sh.getLastRow()) {
+    var val = sh.getRange(cand, col).getValues()[0][0];
+    if (String(val).trim() === idStr) {
+      return cand; // Match confirmed! Fast path
+    }
+  }
+  // Mismatch or missing: fall back to full scan
+  var fullRow = rowOfId_(sh, col, idStr);
+  buildAndCacheRowMap_(sh, s, idField);
+  return fullRow;
+}
+
+function readSingleRow_(sh, s, row) {
+  var width = Math.max(sh.getLastColumn(), allCols_(s).length);
+  if (width < 1) return null;
+  var header = sh.getRange(1, 1, 1, width).getValues()[0].map(String);
+  var r = sh.getRange(row, 1, 1, width).getValues()[0];
+  if (r.every(function (v) { return v === '' || v == null; })) return null;
+  var o = {};
+  var ours = {}; allCols_(s).forEach(function (c) { ours[c] = true; });
+  header.forEach(function (h, i) {
+    if (!h || !ours[h] || header.indexOf(h) !== i) return;
+    var v = r[i];
+    if (typeof v === 'string' && /^'=/.test(v)) v = v.slice(1);
+    if (h === EXTRA) { if (v) { try { var ex = JSON.parse(v); Object.keys(ex).forEach(function (k) { o[k] = ex[k]; }); } catch (x) {} } return; }
+    if (s.tail && s.tail.indexOf(h) >= 0 && (v === '' || v == null) && o[h] !== undefined) return;
+    if (s.lists && s.lists[h] !== undefined) { o[h] = splitList_(v, s.lists[h]); return; }
+    if (s.bools && s.bools.indexOf(h) >= 0) { o[h] = toBool_(v); return; }
+    if (s.nums && s.nums.indexOf(h) >= 0) { var n = parseFloat(v); o[h] = isNaN(n) ? 0 : n; return; }
+    o[h] = cell_(v);
+  });
+  s.cols.concat(s.tail || []).forEach(function (c) {
+    if (o[c] === undefined) o[c] = (s.lists && s.lists[c] !== undefined) ? [] : (s.bools && s.bools.indexOf(c) >= 0) ? false : (s.nums && s.nums.indexOf(c) >= 0) ? 0 : '';
+  });
+  if (s.key === 'projects' && o.program === '') o.program = null;
+  return o;
+}
 
 /** Simple trigger: any human edit in a data tab bumps the version so websites pull. */
 function onEdit(e) {
   var sheet, name;
   try { sheet = e.range.getSheet(); name = sheet.getName(); } catch (x) { return; }
   if (name === META_SHEET || name === ACTIVITY_SHEET) return;
+  if (name === USERS_SHEET) clearUsersCache_();
+  clearRowMap_(name);
   if (name !== USERS_SHEET && name !== AUDIT_SHEET && !SCHEMA.some(function (s) { return s.tab === name; })) return;
   var who = '';
   try { who = e.user && e.user.getEmail ? e.user.getEmail() : ''; } catch (x) { /* not available to every account type */ }
@@ -291,6 +443,8 @@ function onEdit(e) {
  */
 function onSheetChange(e) {
   if (['INSERT_ROW', 'REMOVE_ROW', 'INSERT_COLUMN', 'REMOVE_COLUMN', 'OTHER'].indexOf(e && e.changeType) < 0) return;
+  clearAllRowMaps_();
+  clearUsersCache_();
   var lock = LockService.getScriptLock(), locked = false;
   try { locked = lock.tryLock(4000); } catch (x) { /* the change has already happened */ }
   try { bumpVersion_('sheet change'); } catch (err) { /* never block the person's change */ }
@@ -307,40 +461,129 @@ function turnOnInstantUpdates() {
 }
 
 // ------------------------------------------------------------
+//  Performance timing (Phase 1) - non-PII micro-timings
+// ------------------------------------------------------------
+function isTimingEnabled_(body, e) {
+  if (body && body.timing !== undefined) return !!body.timing;
+  if (e && e.parameter && e.parameter.timing !== undefined) return e.parameter.timing === '1' || e.parameter.timing === 'true';
+  try { return props_().getProperty('ENABLE_TIMING') === 'true'; } catch (x) { return false; }
+}
+
+function createTimer_(enabled) {
+  if (!enabled) return null;
+  var start = Date.now(), marks = {}, last = start;
+  return {
+    step: function (name) {
+      var now = Date.now();
+      marks[name] = (marks[name] || 0) + (now - last);
+      last = now;
+    },
+    getMarks: function () {
+      marks.total = Date.now() - start;
+      return marks;
+    }
+  };
+}
+
+// ------------------------------------------------------------
 //  Web app API
 // ------------------------------------------------------------
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || 'ping';
+  var timer = createTimer_(isTimingEnabled_(null, e));
   try {
+    if (action === 'version') {
+      var qv = quickVersion_();
+      if (timer) timer.step('quick_version');
+      var res = { ok: true, version: qv };
+      if (timer) res.timing = timer.getMarks();
+      return json_(res);
+    }
     var cfg = authCfg_();
+    if (timer) timer.step('auth_cfg');
     var pub = { required: cfg.required, clientId: cfg.required ? cfg.clientId : '', domain: cfg.domain };
-    if (action === 'ping') return json_({ ok: true, app: APP, api: API, version: getVersion_(), auth: pub, signInReady: true });
-    if (action === 'version') return json_({ ok: true, version: quickVersion_() });
+    if (action === 'ping') {
+      var ver = getVersion_();
+      if (timer) timer.step('get_version');
+      var res = { ok: true, app: APP, api: API, version: ver, auth: pub, signInReady: true };
+      if (timer) res.timing = timer.getMarks();
+      return json_(res);
+    }
     if (action === 'pull') {
       if (cfg.required) return json_(authError_());
-      return json_(fullPull_({ role: 'Administrator', name: '' }));
+      var light = e && e.parameter && (e.parameter.light === '1' || e.parameter.light === 'true');
+      var pulled = fullPull_({ role: 'Administrator', name: '' }, timer, { light: light });
+      if (timer) pulled.timing = timer.getMarks();
+      return json_(pulled);
+    }
+    if (action === 'get_audit') {
+      if (cfg.required) return json_(authError_());
+      var limit = parseInt(e && e.parameter && e.parameter.limit, 10) || 600;
+      return json_({ ok: true, audit: readAudit_(limit) });
+    }
+    if (action === 'get_snapshots') {
+      if (cfg.required) return json_(authError_());
+      var limit = parseInt(e && e.parameter && e.parameter.limit, 10) || 1500;
+      return json_({ ok: true, snapshots: readTable_(SNAP_SHEET, SNAP_COLS).slice(-limit) });
+    }
+    if (action === 'get_trash') {
+      if (cfg.required) return json_(authError_());
+      var trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
+        return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
+      });
+      return json_({ ok: true, trash: trash });
     }
     return json_({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) { return json_({ ok: false, error: String(err && err.message || err) }); }
 }
 
-function fullPull_(a) {
-  ensureSystemTabs_();
-  var res = pull_();
-  res.api = API;
-  res.state.audit = readAudit_(600);
-  res.state.snapshots = readTable_(SNAP_SHEET, SNAP_COLS).slice(-1500);
-  var m = metaMap_();
-  try { if (m.options) res.state.options = JSON.parse(m.options); } catch (x) {}
+function fullPull_(a, timer, opts) {
+  opts = opts || {};
+  var cache = CacheService.getScriptCache();
+  if (cache.get('sys_tabs') !== '1') {
+    ensureSystemTabs_();
+    cache.put('sys_tabs', '1', 21600);
+    if (timer) timer.step('ensure_tabs');
+  }
+  var ver = quickVersion_();
+  var raw = getCachedRawState_(ver, timer);
+  var res = {
+    ok: true,
+    api: API,
+    version: raw.version,
+    updatedAt: raw.updatedAt,
+    updatedBy: raw.updatedBy,
+    empty: raw.empty,
+    state: JSON.parse(JSON.stringify(raw.state))
+  };
+
+  if (opts.light) {
+    res.state.audit = readAudit_(30);
+    if (timer) timer.step('read_audit');
+    res.state.snapshots = readTable_(SNAP_SHEET, SNAP_COLS).slice(-30);
+    if (timer) timer.step('read_snapshots');
+    res.state.trash = [];
+  } else {
+    res.state.audit = readAudit_(600);
+    if (timer) timer.step('read_audit');
+    res.state.snapshots = readTable_(SNAP_SHEET, SNAP_COLS).slice(-1500);
+    if (timer) timer.step('read_snapshots');
+    if (a.role === 'Administrator') {
+      res.state.trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
+        return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
+      });
+      if (timer) timer.step('read_trash');
+    }
+  }
+
   res.state = scopeState_(res.state, a);
+  if (timer) timer.step('scope_state');
   delete res.state.meta.sync; // the website keeps its own connection settings
   if (a.role === 'Project Owner') res.state.directory = directory_();
   if (a.role === 'Administrator') {
     res.state.directory = directory_();
     res.state.users = users_();
-    res.state.trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
-      return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
-    });
+    if (timer) timer.step('users_and_dir');
   }
   if (!a.open) res.me = a; // with sign-in off, the server does not know who this is
   res.auth = { required: authCfg_().required };
@@ -354,17 +597,61 @@ function doPost(e) {
   try {
     var body = {};
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
+    var timer = createTimer_(isTimingEnabled_(body, e));
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
     if (action === 'password_login') return json_(passwordLogin_(body));
     if (action === 'password_change') return json_(passwordChange_(body));
     if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
+    if (timer) timer.step('auth_actor');
     if (!a) return json_(authError_());
+    if (action === 'pull') {
+      var pulled = fullPull_(a, timer, { light: !!body.light });
+      if (timer) pulled.timing = timer.getMarks();
+      return json_(pulled);
+    }
+    if (action === 'get_audit') {
+      var limit = parseInt(body.limit, 10) || 600;
+      var audit = readAudit_(limit);
+      if (a.role !== 'Administrator') {
+        var rawSt = getCachedRawState_(quickVersion_(), timer);
+        var scopedSt = scopeState_(JSON.parse(JSON.stringify(rawSt.state)), a);
+        var seenPids = {};
+        (scopedSt.projects || []).forEach(function (p) { seenPids[p.id] = true; });
+        var gen = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
+        audit = audit.filter(function (r) { return r.action !== 'sheet_edit' && (r.projectId ? seenPids[r.projectId] : gen.indexOf(r.entityType) >= 0); });
+      }
+      return json_({ ok: true, audit: audit });
+    }
+    if (action === 'get_snapshots') {
+      var limit = parseInt(body.limit, 10) || 1500;
+      var snaps = readTable_(SNAP_SHEET, SNAP_COLS).slice(-limit);
+      if (a.role !== 'Administrator') {
+        var rawSt = getCachedRawState_(quickVersion_(), timer);
+        var scopedSt = scopeState_(JSON.parse(JSON.stringify(rawSt.state)), a);
+        var seenPids = {};
+        (scopedSt.projects || []).forEach(function (p) { seenPids[p.id] = true; });
+        snaps = snaps.filter(function (r) { return seenPids[r.projectId]; });
+      }
+      return json_({ ok: true, snapshots: snaps });
+    }
+    if (action === 'get_trash') {
+      if (a.role !== 'Administrator') return json_({ ok: false, error: 'Administrator access required.' });
+      var trash = readTable_(TRASH_SHEET, TRASH_COLS).filter(function (t) { return !t.restoredAt; }).slice(-200).reverse().map(function (t) {
+        return { trashId: t.trashId, ts: t.ts, actorName: t.actorName, collection: t.collection, recordId: t.recordId, record: t.record + t.record2 + t.record3 + t.record4, restoredAt: t.restoredAt };
+      });
+      return json_({ ok: true, trash: trash });
+    }
     lock.waitLock(25000); locked = true;
-    if (action === 'pull') return json_(fullPull_(a));
+    if (timer) timer.step('lock_wait');
     if (action === 'password_reset') return json_(passwordReset_(body, a));
-    if (action === 'apply') { var applied = apply_(body, a); SpreadsheetApp.flush(); return json_(applied); }
+    if (action === 'apply') {
+      var applied = apply_(body, a, null, timer);
+      SpreadsheetApp.flush();
+      if (timer) { timer.step('flush'); applied.timing = timer.getMarks(); }
+      return json_(applied);
+    }
     if (action === 'assign') { var given = assign_(body, a); SpreadsheetApp.flush(); return json_(given); }
     if (action === 'upload') return json_(upload_(body, a));
     if (action === 'notification_log') return json_(notificationLog_(a));
@@ -387,7 +674,7 @@ function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).se
 // ------------------------------------------------------------
 //  PULL — sheet → state JSON
 // ------------------------------------------------------------
-function pull_() {
+function pull_(timer) {
   var ss = SpreadsheetApp.getActive();
   if (!ss.getSheetByName(META_SHEET)) setupSheet();
   var startVersion = getVersion_(); // read first: an edit made while the tabs are read must still look new afterwards
@@ -398,6 +685,7 @@ function pull_() {
     var rows = readTab_(ss, s, idsNeeded);
     if (s.nested) { nestedBuckets[s.key] = rows; } else { state[s.key] = rows; }
   });
+  if (timer) timer.step('pull_schema_tabs');
   // write back any generated IDs (only happens for rows a human added without an ID)
   if (idsNeeded.length) { idsNeeded.forEach(function (w) { w.sheet.getRange(w.row, w.col).setValue(w.id); }); }
   // reassemble nested collections into projects
@@ -412,13 +700,17 @@ function pull_() {
   // activity + governance + meta
   var act = ss.getSheetByName(ACTIVITY_SHEET); var activity = [];
   if (act && act.getLastRow() > 1) activity = act.getRange(2, 1, act.getLastRow() - 1, 2).getValues().filter(function (r) { return r[0] !== '' || r[1] !== ''; }).map(function (r) { return { ts: cell_(r[0]), text: cell_(r[1]) }; });
+  if (timer) timer.step('pull_activity');
   var m = metaMap_();
-  var governance = null, meta = null;
+  var governance = null, meta = null, options = null;
   try { governance = m.governance ? JSON.parse(m.governance) : null; } catch (x) {}
   try { meta = m.meta ? JSON.parse(m.meta) : null; } catch (x) {}
+  try { if (m.options) options = JSON.parse(m.options); } catch (x) {}
+  if (timer) timer.step('pull_meta');
   state.updates = state.updates || [];
   state.activity = activity;
   state.governance = governance;
+  if (options) state.options = options;
   state.meta = meta || { app: APP, schema: 1 };
   state.meta.syncVersion = parseInt(m.version, 10) || 0;
   var empty = !(state.projects && state.projects.length) && !(state.tasks && state.tasks.length);
@@ -505,13 +797,19 @@ function push_(body) {
   // meta
   var meta = Object.assign({}, state.meta || {}); delete meta.syncVersion;
   var v = current + 1;
+  var nowIso = new Date().toISOString();
   metaSet_({
-    version: String(v), updatedAt: new Date().toISOString(), updatedBy: 'website' + (body.client ? ' (' + body.client + ')' : ''),
-    lastPushAt: new Date().toISOString(),
+    version: String(v), updatedAt: nowIso, updatedBy: 'website' + (body.client ? ' (' + body.client + ')' : ''),
+    lastPushAt: nowIso,
     governance: JSON.stringify(state.governance || null),
     meta: JSON.stringify(meta)
   });
-  return { ok: true, version: v, updatedAt: new Date().toISOString() };
+  try {
+    CacheService.getScriptCache().put('ver', String(v), VERSION_CACHE_SECONDS);
+    var rawPush = { ok: true, version: v, updatedAt: nowIso, updatedBy: 'website' + (body.client ? ' (' + body.client + ')' : ''), empty: false, state: state };
+    cachePutChunks_('raw_v' + v, JSON.stringify(rawPush), 21600);
+  } catch (x) {}
+  return { ok: true, version: v, updatedAt: nowIso };
 }
 
 function writeTab_(ss, s, rows) {
@@ -650,17 +948,31 @@ function userColumns_(sh) {
   head.forEach(function (h, i) { var k = String(h).trim(); if (k && at[k] === undefined) at[k] = i; });
   return at;
 }
+var USERS_CACHE_KEY = 'users_list';
+var USERS_CACHE_SECONDS = 300;
+
+function clearUsersCache_() {
+  try { CacheService.getScriptCache().remove(USERS_CACHE_KEY); } catch (x) {}
+}
+
 function users_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(USERS_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (e) {}
+  }
   var sh = SpreadsheetApp.getActive().getSheetByName(USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   var at = userColumns_(sh);
   if (at.email === undefined) return [];
   var cell = function (r, k) { return at[k] === undefined ? '' : r[at[k]]; };
-  return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().filter(function (r) { return String(cell(r, 'email')).trim() !== ''; }).map(function (r) {
+  var list = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().filter(function (r) { return String(cell(r, 'email')).trim() !== ''; }).map(function (r) {
     // "Manish Pandey (Head of Sales)": the part in brackets is another name tasks may use for this person.
     var raw = String(cell(r, 'name')).trim(), m = raw.match(/^(.*?)\s*\((.+)\)$/);
     return { email: String(cell(r, 'email')).trim().toLowerCase(), name: m ? m[1] : raw, rawName: raw, aliases: m ? m[2].split(/\s*,\s*/) : [], role: roleOf_(cell(r, 'role')), active: toBool_(cell(r, 'active')), addedBy: String(cell(r, 'addedBy') || ''), addedAt: String(cell(r, 'addedAt') || ''), employeeId: String(cell(r, 'employeeId') || ''), department: String(cell(r, 'department') || ''), designation: String(cell(r, 'designation') || ''), managerEmail: String(cell(r, 'managerEmail') || '').trim().toLowerCase(), joiningDate: cell_(cell(r, 'joiningDate')), updatedAt: String(cell(r, 'updatedAt') || ''), photoUrl: String(cell(r, 'photoUrl') || '') };
   });
+  try { cache.put(USERS_CACHE_KEY, JSON.stringify(list), USERS_CACHE_SECONDS); } catch (x) {}
+  return list;
 }
 function userByEmail_(email) {
   email = String(email || '').trim().toLowerCase();
@@ -859,7 +1171,9 @@ function passwordLogin_(body) {
   var email = String(body.email || '').trim().toLowerCase(), password = String(body.password || '');
   var wrong = { ok: false, auth: true, error: 'That email or password is not right.' };
   if (!/^[^\s@]{1,100}@[^\s@]{1,100}$/.test(email) || !password || password.length > 200) return wrong;
-  var u = userByEmail_(email), rec = u && u.active ? pwRecord_(email) : null;
+  var rec = pwRecord_(email);
+  var u = rec ? userByEmail_(email) : null;
+  if (!u || !u.active) rec = null;
   if (rec && pwLocked_(email)) return { ok: false, auth: true, error: 'Too many wrong tries. Wait 15 minutes, or ask a Super Admin to reset your password.' };
   // The hash runs either way, so a reply takes as long for an unknown email as for a known one.
   var hash = pwHash_(password, rec ? rec.s : 'unknown');
@@ -1225,7 +1539,7 @@ var COLLECTIONS = { projects: 'id', tasks: 'id', risks: 'id', dependencies: 'id'
 function schemaFor_(key) { return SCHEMA.filter(function (s) { return s.key === key; })[0]; }
 function findIn_(list, field, id) { for (var i = 0; i < list.length; i++) if (String(list[i][field]) === String(id)) return i; return -1; }
 
-function apply_(body, a, preloaded) {
+function apply_(body, a, preloaded, timer) {
   var ops = body.ops || [];
   if (!ops.length) return { ok: true, version: getVersion_(), stamped: [] };
   if (ops.length > 500) return { ok: false, error: 'Too many changes at once.' };
@@ -1235,9 +1549,12 @@ function apply_(body, a, preloaded) {
   var replayKey = 'req:' + (a.email || a.name || '') + ':' + reqId; // one person's request ID can never fetch another person's reply
   var seen = cache.get(replayKey);
   if (seen) return JSON.parse(seen); // the same save arrived twice: do not apply it twice
-  var pulled = preloaded || pull_();
-  var st = pulled.state;
+  var pulled = preloaded || getCachedRawState_(quickVersion_(), timer);
+  if (timer) timer.step('apply_pull');
+  var st = JSON.parse(JSON.stringify(pulled.state));
   var users = users_();
+  if (timer) timer.step('apply_users');
+  var ss = SpreadsheetApp.getActive();
   var rejected = [], plan = [];
   var ts = new Date().toISOString();
 
@@ -1280,6 +1597,12 @@ function apply_(body, a, preloaded) {
     var idField = COLLECTIONS[op.c];
     if (!idField) return reject('Unknown record type.', 'invalid');
     var list = st[op.c] = st[op.c] || [];
+    var s = schemaFor_(op.c);
+    var sh = s ? ss.getSheetByName(s.tab) : null;
+    var targetRow = -1;
+    if (sh && !op.create && idField) {
+      targetRow = findRowWithMap_(sh, s, idField, op.id);
+    }
     var idx = findIn_(list, idField, op.id);
     var cur = idx >= 0 ? list[idx] : null;
     if (a.role !== 'Administrator' && cur) {
@@ -1294,7 +1617,7 @@ function apply_(body, a, preloaded) {
       if (dd) return reject(dd, 'denied');
       if (JSON.stringify(cur).length > CELL_MAX * 4) return reject('This record is too large to keep in Deleted items, so it was not deleted.', 'invalid');
       list.splice(idx, 1);
-      plan.push({ c: op.c, id: op.id, cur: cur, next: null, idField: idField, reason: op.reason || '' });
+      plan.push({ c: op.c, id: op.id, cur: cur, next: null, idField: idField, reason: op.reason || '', row: targetRow });
       return;
     }
     if (op.create || !cur) {
@@ -1351,10 +1674,11 @@ function apply_(body, a, preloaded) {
     if (op.c === 'tasks' && next.due && !next.originalDue) next.originalDue = (cur && cur.due) || next.due;
     if (op.c === 'projects' && next.due && !next.originalDue) next.originalDue = (cur && cur.due) || next.due;
     if (cur) list[idx] = next; else list.push(next);
-    plan.push({ c: op.c, id: op.id, cur: cur, next: next, idField: idField, reason: op.reason || '', restoreOf: op.restoreOf || '' });
+    plan.push({ c: op.c, id: op.id, cur: cur, next: next, idField: idField, reason: op.reason || '', restoreOf: op.restoreOf || '', row: targetRow });
   });
 
   if (rejected.length) return { ok: false, rejected: rejected, version: pulled.version };
+  if (timer) timer.step('apply_plan');
 
   // A milestone follows its tasks, whoever finished them.
   var moved = false, touched = {};
@@ -1375,10 +1699,10 @@ function apply_(body, a, preloaded) {
     var next = JSON.parse(JSON.stringify(cur));
     next.milestones = ms; next.updatedAt = ts; next.updatedBy = a.name;
     st.projects[pi] = next; moved = true;
-    plan.push({ c: 'projects', id: pid, cur: cur, next: next, idField: 'id', reason: '' });
+    var projRow = findRowWithMap_(ss.getSheetByName('Projects'), schemaFor_('projects'), 'id', pid);
+    plan.push({ c: 'projects', id: pid, cur: cur, next: next, idField: 'id', reason: '', row: projRow });
   });
 
-  var ss = SpreadsheetApp.getActive();
   var audit = [], trash = [], stamped = [], done = [];
   var headerBad = '';
   var tabs = {}; plan.forEach(function (p) { if (p.c) { tabs[p.c] = true; if (p.c === 'projects') NESTED.forEach(function (k) { tabs[k] = true; }); } });
@@ -1389,7 +1713,7 @@ function apply_(body, a, preloaded) {
     if (p.doc) { var o = {}; o[p.doc] = JSON.stringify(p.value); metaSet_(o); audit.push([Utilities.getUuid(), ts, a.email || '', a.name || '', p.doc, p.doc, '', '', 'settings_changed', '', '', '', 'Changed ' + p.doc, reqId]); return; }
     if (p.users) { writeUser_(p.cur, p.next); audit.push([Utilities.getUuid(), ts, a.email || '', a.name || '', 'users', (p.next || p.cur).email, '', '', p.next ? 'user_changed' : 'user_removed', 'role', p.cur ? p.cur.role : '', p.next ? p.next.role : '', (p.next ? 'User ' + p.next.email + ' set to ' + p.next.role + (p.next.active ? '' : ' (inactive)') + (p.cur ? ', changed: ' + (USER_EDIT.filter(function (k) { return canon_(p.cur[k]) !== canon_(p.next[k]); }).join(', ') || 'nothing') : '') : 'Removed user ' + p.cur.email), reqId]); return; }
     var s = schemaFor_(p.c);
-    if (p.next) upsertRow_(ss, s, p.idField, p.next); else deleteRow_(ss, s, p.idField, p.id);
+    if (p.next) upsertRow_(ss, s, p.idField, p.next, p.row); else deleteRow_(ss, s, p.idField, p.id, p.row);
     if (p.c === 'projects') {
       NESTED.forEach(function (k) {
         var was = p.cur ? p.cur[k] : []; var now = p.next ? p.next[k] : [];
@@ -1407,16 +1731,27 @@ function apply_(body, a, preloaded) {
     if (p.next) stamped.push({ c: p.c, id: p.id, updatedAt: p.next.updatedAt, updatedBy: p.next.updatedBy, createdAt: p.next.createdAt, createdBy: p.next.createdBy, originalDue: p.next.originalDue, ownerEmail: p.next.ownerEmail, accountableEmail: p.next.accountableEmail, assignedBy: p.next.assignedBy, assignedByEmail: p.next.assignedByEmail, assignedAt: p.next.assignedAt, completedTs: p.next.completedTs });
     done.push(p);
   }); } catch (err) { failure = err; }
+  if (timer) timer.step('apply_write_rows');
   // Whatever did get written is recorded and announced, so a retry finishes the rest.
   // A notification problem is logged and retried. It never stops a save.
   var told = { audit: [], notified: [] };
   try { told = notify_(done, a, users, st, ts, reqId); }
   catch (err) { audit.push([Utilities.getUuid(), ts, a.email || '', a.name || '', 'notifications', reqId, '', '', 'notification_error', '', '', '', 'Notifications could not be queued: ' + short_(err && err.message || err), reqId]); }
   audit = audit.concat(told.audit);
+  if (timer) timer.step('apply_notify');
   appendRows_(TRASH_SHEET, trash);
   appendRows_(AUDIT_SHEET, audit);
+  if (timer) timer.step('apply_audit_trash');
   var v = getVersion_() + 1;
   metaSet_({ version: String(v), updatedAt: ts, updatedBy: a.name || 'website' });
+  if (!failure) {
+    try {
+      CacheService.getScriptCache().put('ver', String(v), VERSION_CACHE_SECONDS);
+      var nextRaw = { ok: true, version: v, updatedAt: ts, updatedBy: a.name || 'website', empty: false, state: st };
+      cachePutChunks_('raw_v' + v, JSON.stringify(nextRaw), 21600);
+    } catch (x) {}
+  }
+  if (timer) timer.step('apply_bump_version');
   if (failure) return { ok: false, version: v, error: 'Only part of this save reached the Sheet (' + String(failure.message || failure) + ').' };
   var res = { ok: true, version: v, stamped: stamped, audit: audit.length, refresh: moved || plan.some(function (p) { return p.users; }), notified: told.notified };
   res.entries = audit.slice(0, 50).map(function (r) { var o = {}; AUDIT_COLS.forEach(function (c, i) { o[c] = r[i]; }); return o; }).filter(function (o) { return a.role === 'Administrator' || o.entityType !== 'users'; });
@@ -1460,10 +1795,20 @@ function rowOfId_(sh, col, id) {
   for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
   return -1;
 }
-function upsertRow_(ss, s, idField, rec) {
+function upsertRow_(ss, s, idField, rec, knownRow) {
   var sh = ss.getSheetByName(s.tab);
   var col = s.cols.indexOf(idField) + 1;
-  var row = rowOfId_(sh, col, rec[idField]);
+  var row = knownRow > 0 ? knownRow : -1;
+  // Confirm the ID in that row before writing
+  if (row > 0 && row <= sh.getLastRow()) {
+    var check = sh.getRange(row, col).getValues()[0][0];
+    if (String(check).trim() !== String(rec[idField]).trim()) {
+      // ID mismatch: row shifted! Fall back to a full scan
+      row = rowOfId_(sh, col, rec[idField]);
+    }
+  } else if (row <= 0) {
+    row = rowOfId_(sh, col, rec[idField]);
+  }
   var vals = rowValues_(s, rec);
   if (row < 0) row = Math.max(sh.getLastRow(), 1) + 1;
   ensureRows_(sh, row);
@@ -1471,11 +1816,29 @@ function upsertRow_(ss, s, idField, rec) {
   rng.setNumberFormat('@');
   if (s.nums) s.nums.forEach(function (c) { sh.getRange(row, s.cols.indexOf(c) + 1, 1, 1).setNumberFormat('0'); });
   rng.setValues([vals]);
+  var map = getRowMap_(s.tab);
+  if (map) {
+    map[String(rec[idField])] = row;
+    setRowMap_(s.tab, map);
+  }
 }
-function deleteRow_(ss, s, idField, id) {
+function deleteRow_(ss, s, idField, id, knownRow) {
   var sh = ss.getSheetByName(s.tab);
-  var row = rowOfId_(sh, s.cols.indexOf(idField) + 1, id);
-  if (row > 0) deleteSheetRow_(sh, row);
+  var col = s.cols.indexOf(idField) + 1;
+  var row = knownRow > 0 ? knownRow : -1;
+  // Confirm the ID in that row before deleting
+  if (row > 0 && row <= sh.getLastRow()) {
+    var check = sh.getRange(row, col).getValues()[0][0];
+    if (String(check).trim() !== String(id).trim()) {
+      row = rowOfId_(sh, col, id);
+    }
+  } else if (row <= 0) {
+    row = rowOfId_(sh, col, id);
+  }
+  if (row > 0) {
+    deleteSheetRow_(sh, row);
+    clearRowMap_(s.tab);
+  }
 }
 /** Sheets refuses to delete its last row below the frozen header. */
 function deleteSheetRow_(sh, row) {
@@ -1512,6 +1875,7 @@ function replaceNested_(ss, s, projectId, rows) {
     sh.getRange(2, 1, all.length, width).setValues(all);
   }
   if (last - 1 > all.length) sh.getRange(all.length + 2, 1, last - 1 - all.length, width).clearContent();
+  clearRowMap_(s.tab);
 }
 function writeUser_(cur, next) {
   if (!next || !next.active) pwForget_((next || cur).email); // anyone let back in later starts with a new password
@@ -1521,7 +1885,7 @@ function writeUser_(cur, next) {
   // The tab may hold an address typed in capitals. Sign-in ignores case, so this must too.
   var row = -1, n = sh.getLastRow();
   if (n >= 2) sh.getRange(2, at.email + 1, n - 1, 1).getValues().forEach(function (r, i) { if (row < 0 && String(r[0]).trim().toLowerCase() === email) row = i + 2; });
-  if (!next) { if (row > 0) deleteSheetRow_(sh, row); return; }
+  if (!next) { if (row > 0) deleteSheetRow_(sh, row); clearUsersCache_(); return; }
   if (row < 0) row = Math.max(n, 1) + 1;
   ensureRows_(sh, row);
   var width = sh.getLastColumn();
@@ -1534,6 +1898,7 @@ function writeUser_(cur, next) {
   var rng = sh.getRange(row, 1, 1, width);
   rng.setNumberFormat('@');
   rng.setValues([vals]);
+  clearUsersCache_();
 }
 function markRestored_(trashId, ts) {
   var sh = SpreadsheetApp.getActive().getSheetByName(TRASH_SHEET);
@@ -1674,7 +2039,9 @@ function assign_(body, a) {
   var rec = { id: id, projectId: proj.id, name: name.slice(0, 300), desc: String(t.desc || '').slice(0, 5000), owner: people.map(function (u) { return u.name; }).join(', '), ownerEmail: people.map(function (u) { return u.email; }).join(', '), accountable: a.name || '', start: today, due: due, priority: t.priority, status: 'Not Started', progress: 0, kind: 'Task', datesProposed: false, assignKey: reqId };
   var res = apply_({ ops: [{ c: 'tasks', id: id, create: true, rec: rec }], requestId: reqId }, a, pulled);
   if (!res.ok) return { ok: false, code: res.rejected ? res.rejected[0].code : 'failed', error: res.rejected ? res.rejected[0].reason : res.error };
-  res.task = st.tasks.filter(function (x) { return x.id === id; })[0];
+  if (res.stamped && res.stamped[0]) Object.assign(rec, res.stamped[0]);
+  st.tasks.push(rec);
+  res.task = rec;
   res.employees = people.map(function (u) { return { name: u.name, email: u.email, employeeId: u.employeeId, designation: u.designation, department: u.department }; });
   return res;
 }
