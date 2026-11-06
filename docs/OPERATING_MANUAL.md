@@ -86,6 +86,12 @@ Managers see **Administration > Employees** too. They can update the department,
 
 Change **Role** on the employee's record. It applies at their next request. Give each person a different name: a name two people share gives neither of them rights on older tasks, so assign those by email instead. To let a Manager work on a project, make them its owner or add them under **Managers who can assign work here**. To hide a project from most people, make it restricted.
 
+## Editing in the Sheet
+
+A change made in the Sheet appears on open pages within about 5 seconds, with nothing to refresh. So nobody is interrupted, a page waits while someone is typing in a box or has a form open, then updates.
+
+To include rows being added or removed, click **Control Tower > Turn on instant updates to the website** once. Do not change IDs or column headings by hand.
+
 ## 10. Troubleshooting
 
 | What you see | What to do |

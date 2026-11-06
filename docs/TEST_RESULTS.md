@@ -2,13 +2,13 @@
 
 Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
 
-**498 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**511 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
 
 | Suite | Checks | What it runs against |
 |---|---|---|
 | `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
 | `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 114 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
+| `tests/automation.test.js` | 119 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
@@ -18,6 +18,7 @@ Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data an
 | `tests/e2e/delete.js` | 30 | Deleting tasks |
 | `tests/e2e/conflicts.js` | 9 | Two browsers at once, offline work |
 | `tests/e2e/compat.js` | 3 | The site refuses to talk to an older script |
+| `tests/e2e/live.js` | 7 | A change in the Sheet reaching an open page |
 | `tests/e2e/csp.js` | 6 | The site under the real security headers |
 | `tests/e2e/sweep.js` | 72 | 12 screens on phone, tablet and desktop, light and dark: overflow and script errors |
 

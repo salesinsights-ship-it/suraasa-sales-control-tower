@@ -8,6 +8,28 @@
   const KEY = 'suraasa_sales_control_tower_v1';
   const BASE_KEY = 'suraasa_sales_control_tower_base';
 
+  // Performance timing telemetry (Phase 1) - non-PII micro-timings
+  const TIMING = {
+    get enabled() {
+      try {
+        if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.includes('timing=1')) return true;
+        return localStorage.getItem('sct_timing') === 'true' || window.SCT_TIMING === true;
+      } catch (e) { return false; }
+    },
+    set enabled(val) {
+      try {
+        if (val) localStorage.setItem('sct_timing', 'true');
+        else localStorage.removeItem('sct_timing');
+        window.SCT_TIMING = !!val;
+      } catch (e) {}
+    },
+    log(step, data) {
+      if (!this.enabled) return;
+      const parts = Object.entries(data).map(([k, v]) => `${k}=${typeof v === 'number' ? Math.round(v * 10) / 10 + 'ms' : (typeof v === 'object' && v !== null ? JSON.stringify(v) : v)}`);
+      console.log(`[SCT Timing] ${step}: ${parts.join(', ')}`);
+    }
+  };
+
   // Fallback defaults for configurable option lists
   const FALLBACKS = {
     priorities: ['P0', 'P1', 'P2', 'P3'],
@@ -61,6 +83,10 @@
   // Set when the site is built. See build.js.
   const CONFIG = /*CONFIG*/{ apiUrl: '' }/*END*/;
   const API_NEEDED = 5; // the oldest script this site can work with
+  const POLL_MS = 3000; // how often an open page asks whether the Sheet has changed (3s while visible)
+  const POLL_VISIBLE_MS = 3000; // 3 seconds while page is visible
+  const POLL_HIDDEN_MS = 15000; // 15 seconds while page is hidden/minimized
+  const POLL_MAX_ERROR_MS = 30000; // maximum backoff delay on network errors
   const ROLE_LABEL = { 'Administrator': 'Super Admin', 'Project Owner': 'Manager', 'Task Owner': 'Employee', 'Viewer': 'Viewer' };
   const sheetLink = () => (window.SYNC && SYNC.sheetUrl) || '';
   const UI = {
@@ -568,7 +594,14 @@
 
   function render() {
     const ae = document.activeElement;
-    const keep = ae && ae.closest && ae.closest('#main') && ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"][data-id="' + ae.dataset.id + '"]' : null;
+    const isTyping = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+    const focusedId = ae && ae.id ? ae.id : null;
+    const focusedSel = ae && ae.closest && ae.closest('#main') && ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + ae.dataset.id + '"]' : '') : null;
+    const focusedVal = isTyping && ae.tagName !== 'SELECT' ? ae.value : null;
+    const selStart = isTyping && ae.selectionStart !== undefined ? ae.selectionStart : null;
+    const selEnd = isTyping && ae.selectionEnd !== undefined ? ae.selectionEnd : null;
+    const keepScroll = $('#main') ? $('#main').scrollTop : 0;
+
     const st = stats();
     const aq = actionQueue();
     renderNav(st);
@@ -581,9 +614,27 @@
     $('#main').classList.toggle('wide', UI.view === 'overview');
     hideTip();
     const y = window.SYNC;
-    const first = y && y.config.enabled && !y.base;
-    $('#main').innerHTML = (ME.open ? '<p class="flag red"><span><b>Emergency access is on.</b> Anyone with the link can read and change this data until it ends by itself. Fix the Users tab, then wait for it to end.</span></p>' : '') + (first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq));
-    if (keep) { try { const n = $(keep); if (n) n.focus(); } catch (e) { /* selector unavailable */ } }
+    const hasData = S && ((S.projects && S.projects.length) || (S.tasks && S.tasks.length));
+    const first = y && y.config.enabled && !y.base && !hasData;
+    const html = (ME.open ? '<p class="flag red"><span><b>Emergency access is on.</b> Anyone with the link can read and change this data until it ends by itself. Fix the Users tab, then wait for it to end.</span></p>' : '') + (first && y.checking ? skeleton() : first && y.config.status === 'error' ? firstLoadFailed() : (R[UI.view] || vOverview)(st, aq));
+
+    if ($('#main').innerHTML !== html) {
+      $('#main').innerHTML = html;
+      if (keepScroll && $('#main')) $('#main').scrollTop = keepScroll;
+    }
+
+    if (focusedId) {
+      const el = document.getElementById(focusedId);
+      if (el) {
+        if (focusedVal !== null && el.value !== focusedVal) el.value = focusedVal;
+        try {
+          el.focus();
+          if (selStart !== null && selEnd !== null && el.setSelectionRange) el.setSelectionRange(selStart, selEnd);
+        } catch (e) {}
+      }
+    } else if (focusedSel) {
+      try { const n = $(focusedSel); if (n) n.focus(); } catch (e) { /* selector unavailable */ }
+    }
     if (window.SYNC && window.SYNC.updateUI) window.SYNC.updateUI();
   }
 
@@ -641,8 +692,9 @@
     const done = t.status === 'Completed';
     const canWork = canWorkT(t);
     const inPlanOrTasks = (UI.view === 'tasks' || (UI.view === 'project' && UI.ptab === 'plan')) && !o.noDel && !UI.bulkOn;
-    const canDel = canManageT(t);
-    const delBtn = inPlanOrTasks ? (canDel ? '<button class="btn icon ghost task-del-btn" data-act="del-task-row" data-id="' + esc(t.id) + '" title="Delete task" aria-label="Delete task"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>' : '<span class="task-del-space"></span>') : '';
+    const canDel = canDeleteT(t);
+    const showDel = (isAdmin() || inPlanOrTasks) && !o.noDel && !UI.bulkOn;
+    const delBtn = showDel ? (canDel ? '<button class="btn icon ghost task-del-btn" data-act="del-task-row" data-id="' + esc(t.id) + '" title="Delete task" aria-label="Delete task"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>' : '<span class="task-del-space"></span>') : '';
     return '<div class="r r-task' + (done ? ' is-done' : '') + (t.status === 'Cancelled' ? ' is-cancelled' : '') + (t.parent ? ' is-sub' : '') + '" data-act="open-task" data-id="' + esc(t.id) + '">' +
       (UI.bulkOn ? '<input class="tick pick" type="checkbox" data-act="bulk-pick" data-id="' + esc(t.id) + '" ' + (UI.bulk.has(t.id) ? 'checked' : '') + ' aria-label="Select: ' + esc(t.name) + '">' : '<input class="tick" type="checkbox" data-act="task-done" data-id="' + esc(t.id) + '" ' + (done ? 'checked' : '') + (canWork ? '' : ' disabled') + ' aria-label="Mark done: ' + esc(t.name) + '">') +
       '<span class="r-main"><button class="r-t" data-act="open-task" data-id="' + esc(t.id) + '">' + esc(t.name) + '</button>' + (o.noProject ? '' : '<span class="r-s">' + esc(pName(t.projectId)) + '</span>') + '</span>' +
@@ -1582,6 +1634,7 @@
   const canWrite = () => ME.role !== 'Viewer';
   const canManageP = p => isAdmin() || (ME.role === 'Project Owner' && ownsP(p));
   const canManageT = t => canManageP(P(t.projectId));
+  const canDeleteT = t => isAdmin() || (t ? canManageT(t) : false);
   const canWorkT = t => canManageT(t) || (canWrite() && ownsT(t));
   const taskOnly = () => ME.role === 'Task Owner' || (ME.open && !!UI.me && !S.projects.some(ownsP));
   const liveProjects = () => S.projects.filter(p => !p.archivedAt);
@@ -1631,10 +1684,10 @@
   }
   function deleteTasks(list) {
     if (!list || !list.length) return;
-    const allowed = list.filter(canManageT);
+    const allowed = list.filter(canDeleteT);
     const skipped = list.length - allowed.length;
     if (!allowed.length) {
-      toast('You can only delete tasks in projects you own.', true);
+      toast('You do not have permission to delete these tasks.', true);
       return;
     }
 
@@ -1675,7 +1728,7 @@
     const details = [];
     if (subtasksCount > 0) details.push(plural(subtasksCount, 'subtask') + ' will also be deleted');
     if (waitingCount > 0) details.push(plural(waitingCount, 'other task') + ' ' + (waitingCount === 1 ? 'waits' : 'wait') + ' on ' + (allowed.length === 1 && subtasksCount === 0 ? 'it' : 'them'));
-    if (skipped > 0) details.push(plural(skipped, 'task') + ' in other projects will be skipped');
+    if (skipped > 0) details.push(plural(skipped, 'task') + ' will be skipped because you do not have permission to delete them');
     if (details.length) confirmMsg += '\n\n' + details.join('.\n') + '.';
 
     if (!confirm(confirmMsg)) return;
@@ -1805,7 +1858,7 @@
     const t = S.tasks.find(x => x.id === UI.taskId);
     if (!t) { closeModal(); toast('This task no longer exists.', true); return; }
     const p = P(t.projectId), peers = pTasks(t.projectId), pctV = ENGINE.taskPct(t, peers), mode = ENGINE.progressMode(t, peers);
-    const work = canWorkT(t), manage = canManageT(t);
+    const work = canWorkT(t), manage = canManageT(t), canDel = canDeleteT(t);
     const subs = ENGINE.subtasksOf(S.tasks, t.id);
     const deps = (t.dependsOn || []).map(id => S.tasks.find(x => x.id === id)).filter(Boolean);
     const blocks = ENGINE.downstream(S.tasks, t.id);
@@ -1845,7 +1898,7 @@
       '<section class="ts"><h3>Links and files</h3>' + (work ? '<label class="fsel"><span>Upload a file, up to 10 MB</span><input type="file" id="tk-file" data-id="' + esc(t.id) + '"></label>' : '') + (t.attachments || []).map((a, i) => '<div class="chk"><a href="' + esc(safeUrl(a.url)) + '" target="_blank" rel="noopener">' + esc(a.name || a.url) + '</a>' + (work ? '<button class="linkbtn danger" data-act="tk-link-del" data-i="' + i + '">Remove</button>' : '') + '</div>').join('') + (work ? '<div class="add-row"><input id="tk-link-new" type="url" aria-label="Link to a file" placeholder="Paste a Google Drive link"><button class="btn sm" data-act="tk-link-add">Add</button></div>' : (t.attachments || []).length ? '' : '<p class="quiet">None.</p>') + '</section>' +
       '<section class="ts"><h3>Notes</h3>' + (notes.length ? notes.map(n => '<div class="note-i"><div class="c-h"><b>' + esc(n.author || 'Someone') + '</b><span class="pill">' + esc(n.type || 'comment') + '</span><span class="quiet">' + esc(shortTime(n.ts)) + (n.edits && n.edits.length ? ', edited' : '') + '</span></div><p>' + esc(n.text) + '</p></div>').join('') : '<p class="quiet">No notes yet.</p>') + '</section>' +
       '<section class="ts"><h3>Activity</h3>' + timeline(a => a.taskId === t.id || a.entityId === t.id, t.id) + '</section>' +
-      '</div><div class="mf"><div class="mf-l">' + (manage ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="dup-task" data-id="' + esc(t.id) + '">Duplicate</button><button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
+      '</div><div class="mf"><div class="mf-l">' + (canDel ? '<button class="btn danger ghost" data-act="del-task" data-id="' + esc(t.id) + '">Delete task</button>' : '') + '</div>' + (manage ? '<button class="btn" data-act="dup-task" data-id="' + esc(t.id) + '">Duplicate</button><button class="btn" data-act="reassign-task" data-id="' + esc(t.id) + '">Reassign</button><button class="btn" data-act="edit-task" data-id="' + esc(t.id) + '">Edit details</button>' : '') + '<button class="btn" data-act="close-modal">Close</button></div></div></div>';
     const keep = $('#modal .mb') ? $('#modal .mb').scrollTop : 0;
     $('#modal-root').innerHTML = h;
     $('#modal-root')._dirty = false;
@@ -2226,6 +2279,7 @@
     ];
   }
   function vReports() {
+    if (!SYNC.fullSnapshotsLoaded && !SYNC.loadingSnapshots) SYNC.loadSnapshots();
     const rows = portfolioRows().sort((a, b) => String(a.p.priority).localeCompare(String(b.p.priority)));
     const byDay = {};
     (S.snapshots || []).forEach(r => { (byDay[r.date] = byDay[r.date] || []).push(r); });
@@ -2251,10 +2305,12 @@
     } else if (t === 'log') {
       body = notifLogView();
     } else if (t === 'audit') {
+      if (!SYNC.fullAuditLoaded && !SYNC.loadingAudit) SYNC.loadAudit();
       const q = UI.auditQ.toLowerCase();
       const all = (S.audit || []).filter(a => !q || (a.text + ' ' + a.actorName + ' ' + a.entityId).toLowerCase().includes(q));
       body = '<div class="bar-row"><label class="fsel"><span>Search</span><input id="audit-q" value="' + esc(UI.auditQ) + '" aria-label="Search the audit log"></label><p class="quiet">Latest ' + all.length + ' events. The full log is the AuditLog tab in the Sheet.</p></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Before</th><th>After</th></tr></thead><tbody>' + all.slice(0, UI.auditLimit).map(a => '<tr><td class="nw">' + esc(shortTime(a.ts)) + '</td><td>' + esc(a.actorName) + '</td><td>' + esc(a.text) + '</td><td>' + esc(a.oldValue) + '</td><td>' + esc(a.newValue) + '</td></tr>').join('') + '</tbody></table></div>' + (all.length > UI.auditLimit ? '<button class="linkbtn more" data-act="audit-more">Show more</button>' : '');
     } else if (t === 'trash') {
+      if (!SYNC.fullTrashLoaded && !SYNC.loadingTrash) SYNC.loadTrash();
       const tr = S.trash || [];
       body = tr.length ? '<div class="rows">' + tr.map(x => { let name = x.recordId; try { const r = JSON.parse(x.record); name = r.name || r.decision || r.desc || r.action || x.recordId; } catch (e) { /* shown by ID */ } return '<div class="r r-tl"><span class="r-main"><span class="r-t">' + esc(name) + '</span><span class="r-s">' + esc(x.collection) + ', deleted by ' + esc(x.actorName) + ' on ' + esc(shortTime(x.ts)) + '</span></span><button class="btn sm" data-act="restore-trash" data-id="' + esc(x.trashId) + '">Restore</button></div>'; }).join('') + '</div>' : emptyLine('Nothing has been deleted', 'Deleted items stay here so they can be restored.');
     } else if (t === 'health') {
@@ -3036,7 +3092,7 @@
     return cols.join(',') + '\n' + rows.map(r => cols.map(c => q(r[c])).join(',')).join('\n');
   }
 
-  function exportCsv(what) {
+  async function exportCsv(what) {
     if (what === 'portfolio') {
       const rows = portfolioRows().map(r => ({ id: r.p.id, name: r.p.name, owner: r.p.owner, team: r.p.department || '', priority: r.p.priority, status: r.p.status, health: r.h.level, reasons: r.h.reasons.join('; '), start: r.p.start, due: r.p.due, originalDue: r.p.originalDue || '', progress: r.pct, done: r.c.done, active: r.c.open, late: r.c.overdue, blocked: r.c.blocked, updated: r.last || '' }));
       download('projects_report_' + todayStr() + '.csv', csv(rows, Object.keys(rows[0] || { id: 1 })), 'text/csv');
@@ -3047,7 +3103,10 @@
     const fullTask = t => Object.assign({ stage: statusToStage(t.status), late: taskOverdue(t) ? 'OVERDUE' : '', files: (t.attachments || []).map(a => a.url), comments: (t.notes || []).map(n => (n.author || n.who || '') + ': ' + n.text) }, t);
     const taskCols = ['id', 'projectId', 'name', 'owner', 'ownerEmail', 'assignedBy', 'stage', 'status', 'priority', 'start', 'originalDue', 'due', 'completedAt', 'progress', 'updatedAt', 'updatedBy'];
     if (what === 'report-tasks') download('tasks_report_' + stamp + '.csv', csv(reportTasks().map(fullTask), taskCols), 'text/csv');
-    if (what === 'activity') download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
+    if (what === 'activity') {
+      if (!SYNC.fullAuditLoaded) await SYNC.loadAudit();
+      download('activity_' + stamp + '.csv', csv((S.audit || []).filter(a => !(UI.report.from || UI.report.to) || inRange(String(a.ts).slice(0, 10))), ['activityId', 'ts', 'actorName', 'entityType', 'entityId', 'projectId', 'taskId', 'action', 'field', 'oldValue', 'newValue', 'text', 'requestId']), 'text/csv');
+    }
     if (what.startsWith('project:')) { const id = what.slice(8), p = P(id), h = health(p), c = ENGINE.projectCounts(pTasks(id), dnum(todayStr())); download(id + '_report_' + stamp + '.csv', csv(pTasks(id).map(t => Object.assign({ stage: statusToStage(t.status), project: p.name, projectProgress: projectProgress(id), projectHealth: h.level, tasksDone: c.done, tasksOpen: c.open, tasksLate: c.overdue, tasksBlocked: c.blocked }, t)), ['project', 'projectProgress', 'projectHealth', 'tasksDone', 'tasksOpen', 'tasksLate', 'tasksBlocked'].concat(taskCols)), 'text/csv'); }
     if (what === 'projects') download('projects_' + stamp + '.csv', csv(S.projects.map(p => Object.assign({}, p, { files: (p.attachments || []).map(a => a.url), health: health(p).rag, progress: projectProgress(p.id), nextMilestone: (nextMilestone(p) || {}).name || '', nextMilestoneDue: (nextMilestone(p) || {}).due || '' })), ['id', 'name', 'category', 'type', 'program', 'priority', 'priorityProposed', 'owner', 'accountable', 'sponsor', 'status', 'health', 'progress', 'start', 'due', 'nextMilestone', 'nextMilestoneDue', 'objective', 'outcome', 'impact', 'metrics', 'dependencies', 'risks', 'nextAction', 'flags', 'ownerEmail', 'accountableEmail', 'managerEmails', 'members', 'files']), 'text/csv');
     if (what === 'tasks') download('tasks_' + stamp + '.csv', csv(S.tasks.map(fullTask), ['id', 'projectId', 'ws', 'ms', 'name', 'desc', 'owner', 'ownerEmail', 'assignedBy', 'assignedByEmail', 'assignedAt', 'accountable', 'start', 'due', 'priority', 'stage', 'status', 'progress', 'kind', 'parent', 'dependency', 'deliverable', 'criteria', 'late', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'completedAt', 'files', 'comments']), 'text/csv');
@@ -3163,6 +3222,21 @@
 
   const SYNC = {
     api: 0, auth: { required: true }, session: '', sheetUrl: '', serverOld: false, unreachable: false, version: null, base: null, busy: false, again: false, checking: false, unsent: false, deferred: null, _timer: null, _retry: null,
+    pollErrors: 0, pollTimer: null,
+    schedulePoll(customMs) {
+      if (this.pollTimer) clearTimeout(this.pollTimer);
+      let delay = customMs;
+      if (delay === undefined) {
+        if (typeof document !== 'undefined' && document.hidden) {
+          delay = POLL_HIDDEN_MS;
+        } else if (this.pollErrors > 0) {
+          delay = Math.min(POLL_MAX_ERROR_MS, POLL_VISIBLE_MS * Math.pow(2, Math.min(this.pollErrors, 4)));
+        } else {
+          delay = POLL_VISIBLE_MS;
+        }
+      }
+      this.pollTimer = setTimeout(() => this.poll(), delay);
+    },
     get config() {
       if (!S.meta.sync) S.meta.sync = { url: CONFIG.apiUrl, enabled: !!CONFIG.apiUrl, autoSync: true, lastSync: null, status: 'idle', error: null, baseVersion: 1 };
       return S.meta.sync;
@@ -3174,23 +3248,54 @@
         localStorage.removeItem('sct_user'); localStorage.removeItem('sct_local_users'); localStorage.removeItem('sct_reset_tokens');
         this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
         this.version = this.config.baseVersion;
+        const p = JSON.parse(localStorage.getItem('sct_person') || 'null');
+        if (p && p.email) {
+          Object.assign(ME, p);
+          UI.me = ME.name;
+        }
       } catch (e) { this.base = null; }
-      setInterval(() => this.poll(), 30000);
-      window.addEventListener('focus', () => this.poll());
+      this.schedulePoll(POLL_VISIBLE_MS);
+      window.addEventListener('focus', () => { this.pollErrors = 0; this.poll(); });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          this.pollErrors = 0;
+          this.poll();
+        } else {
+          this.schedulePoll(POLL_HIDDEN_MS);
+        }
+      });
       window.addEventListener('online', () => this.flush());
       window.addEventListener('beforeunload', e => { if (this.pending()) { e.preventDefault(); e.returnValue = ''; } });
+      document.addEventListener('focusout', () => {
+        setTimeout(() => { if (window.SYNC && window.SYNC.afterInput) window.SYNC.afterInput(); }, 80);
+      });
     },
     pending() { return !!(this.base && S && diffOps(this.base, S).length); },
     persistBase() { try { localStorage.setItem(BASE_KEY, JSON.stringify(this.base)); } catch (e) { /* the Sheet still has the data */ } },
     async request(body) {
       const target = this.apiUrl;
-      const res = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ session: this.session, actorName: UI.me || '' }, body)) });
-      return res.json();
+      const t0 = TIMING.enabled ? performance.now() : 0;
+      const payload = Object.assign({ session: this.session, actorName: UI.me || '' }, body);
+      if (TIMING.enabled) payload.timing = true;
+      const res = await fetch(target, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+      const json = await res.json();
+      if (TIMING.enabled) {
+        const roundtrip = performance.now() - t0;
+        TIMING.log('request:' + (body.action || 'push'), { roundtrip, ...(json && json.timing ? { server: json.timing } : {}) });
+      }
+      return json;
     },
     async get(action) {
       const u = this.apiUrl, sep = u.includes('?') ? '&' : '?';
-      const res = await fetch(u + sep + 'action=' + action + '&_=' + Date.now());
-      return res.json();
+      const t0 = TIMING.enabled ? performance.now() : 0;
+      const url = u + sep + 'action=' + action + (TIMING.enabled ? '&timing=1' : '') + '&_=' + Date.now();
+      const res = await fetch(url);
+      const json = await res.json();
+      if (TIMING.enabled) {
+        const roundtrip = performance.now() - t0;
+        TIMING.log('get:' + action, { roundtrip, ...(json && json.timing ? { server: json.timing } : {}) });
+      }
+      return json;
     },
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
     needSignIn(msg) {
@@ -3228,7 +3333,10 @@
     async enter(r) {
       if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
       this.session = r.session;
-      try { localStorage.setItem('sct_session', r.session); } catch (e) { /* stays for this tab */ }
+      try {
+        localStorage.setItem('sct_session', r.session);
+        if (r.user) localStorage.setItem('sct_person', JSON.stringify(r.user));
+      } catch (e) { /* stays for this tab */ }
       $('#signin').hidden = true;
       await this.pull(true);
     },
@@ -3237,14 +3345,23 @@
       try { await this.request({ action: 'logout' }); } catch (e) { /* the session still ends by itself */ }
       this.needSignIn('');
       // Leave no copy of the work on a shared computer.
-      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_browser_copy'); localStorage.removeItem('sct_owner'); } catch (e) { /* private window */ }
+      try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); localStorage.removeItem('sct_me'); localStorage.removeItem('sct_person'); localStorage.removeItem('sct_browser_copy'); localStorage.removeItem('sct_owner'); } catch (e) { /* private window */ }
       try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) { /* nothing to clear */ }
       location.reload();
     },
     // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
       if (!this.apiUrl) { this.unreachable = true; return this.needSignIn('This site has no server link. Set CT_API_URL when building it.'); }
-      this.checking = true; this.setStatus('syncing');
+      const hasCachedData = !!(this.session && ME && ME.email && S && ((S.projects && S.projects.length) || (S.tasks && S.tasks.length)));
+      if (hasCachedData) {
+        const si = $('#signin'); if (si) si.hidden = true;
+        this.checking = false;
+        this.setStatus('connected');
+        render();
+      } else {
+        this.checking = true;
+        this.setStatus('syncing');
+      }
       let p;
       try { p = await this.get('ping'); }
       catch (e) {
@@ -3260,6 +3377,21 @@
       if (this.api < API_NEEDED) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
       if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; }
       else if (!this.session) { this.checking = false; return this.needSignIn(''); }
+
+      // For returning users with cached data, check version first to refresh quietly
+      if (hasCachedData && this.version != null) {
+        try {
+          const vData = await this.get('version');
+          if (vData && vData.version !== undefined && vData.version === this.version) {
+            this.checking = false;
+            this.config.lastSync = nowIso();
+            this.setStatus('connected');
+            this.updateUI();
+            return;
+          }
+        } catch (x) {}
+      }
+
       await this.pull(true);
       this.checking = false; this.updateUI();
       render();
@@ -3280,6 +3412,11 @@
       const keep = pending.map(o => this.reconcile(o, fresh, lost)).filter(Boolean);
       this.base = clone(fresh);
       S = fresh;
+      if (this.version !== version) {
+        this.fullAuditLoaded = false;
+        this.fullSnapshotsLoaded = false;
+        this.fullTrashLoaded = false;
+      }
       this.version = version;
       keep.forEach(o => applyOp(S, o));
       if (lost.length) toast(lost[0] + (lost.length > 1 ? ' (and ' + (lost.length - 1) + ' more)' : ''), true);
@@ -3326,9 +3463,10 @@
     async pull(silent, drop) {
       if (!this.apiUrl) { toast('The server is not connected.', true); return; }
       if (this.busy) { this.again = true; return; }
+      const tPullStart = TIMING.enabled ? performance.now() : 0;
       this.setStatus('syncing');
       try {
-        const data = await this.request({ action: 'pull' });
+        const data = await this.request({ action: 'pull', light: true });
         if (data.auth === true) return this.needSignIn(data.error);
         if (data.error && !data.ok) throw new Error(data.error);
         const state = data.state || data;
@@ -3346,10 +3484,15 @@
           }
           Object.assign(ME, data.me, { open: false });
           UI.me = ME.name;
+          try { localStorage.setItem('sct_person', JSON.stringify(ME)); } catch (e) {}
         }
         this.sheetUrl = data.sheetUrl || '';
-        if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; return; }
+        if ($('#modal') && !drop) { this.deferred = { state, version: data.version, silent }; this.setStatus('connected'); return; }
+        const activeInput = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+        if (activeInput && !drop) { this.deferred = { state, version: data.version, silent }; this.setStatus('connected'); return; }
+        const tRebaseStart = TIMING.enabled ? performance.now() : 0;
         const left = this.rebase(state, data.version !== undefined ? data.version : this.version, drop);
+        if (TIMING.enabled) TIMING.log('rebase', { elapsed: performance.now() - tRebaseStart });
         this.config.lastSync = nowIso();
         this.setStatus('connected');
         this.config.error = null;
@@ -3362,9 +3505,11 @@
         this.setStatus('error', 'Could not get the latest data (' + err.message + ').');
         if (!silent) toast('Could not get the latest data', true);
       }
+      const tRenderStart = TIMING.enabled ? performance.now() : 0;
       this.updateUI();
       render();
       openFromLink();
+      if (TIMING.enabled) TIMING.log('pull_complete', { render: performance.now() - tRenderStart, total: performance.now() - tPullStart });
     },
     /** One confirmed assignment. The same requestId is safe to send again. */
     async assign(task, requestId) {
@@ -3373,12 +3518,90 @@
       if (r.ok) await this.pull(true);
       return r;
     },
-    afterModal() { if (this.deferred && !$('#modal')) { const d = this.deferred; this.deferred = null; this.rebase(d.state, d.version); this.config.lastSync = nowIso(); this.setStatus('connected'); this.flush(); } },
+    afterModal() {
+      if (this.deferred && !$('#modal')) {
+        const activeInput = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+        if (!activeInput) {
+          const d = this.deferred; this.deferred = null;
+          this.rebase(d.state, d.version);
+          this.config.lastSync = nowIso();
+          this.setStatus('connected');
+          this.flush();
+        }
+      }
+    },
+    afterInput() {
+      if (this.deferred && !$('#modal')) {
+        const activeInput = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+        if (!activeInput) {
+          const d = this.deferred; this.deferred = null;
+          this.rebase(d.state, d.version);
+          this.config.lastSync = nowIso();
+          this.setStatus('connected');
+          this.flush();
+        }
+      }
+    },
+    async loadAudit() {
+      if (this.fullAuditLoaded || this.loadingAudit || !this.apiUrl) return;
+      this.loadingAudit = true;
+      try {
+        const res = await this.request({ action: 'get_audit' });
+        if (res && res.ok && Array.isArray(res.audit)) {
+          this.fullAuditLoaded = true;
+          S.audit = res.audit;
+          if (this.base) this.base.audit = res.audit;
+          render();
+        }
+      } catch (e) {
+        console.warn('Could not load full audit log:', e);
+      } finally {
+        this.loadingAudit = false;
+      }
+    },
+    async loadSnapshots() {
+      if (this.fullSnapshotsLoaded || this.loadingSnapshots || !this.apiUrl) return;
+      this.loadingSnapshots = true;
+      try {
+        const res = await this.request({ action: 'get_snapshots' });
+        if (res && res.ok && Array.isArray(res.snapshots)) {
+          this.fullSnapshotsLoaded = true;
+          S.snapshots = res.snapshots;
+          if (this.base) this.base.snapshots = res.snapshots;
+          render();
+        }
+      } catch (e) {
+        console.warn('Could not load snapshots:', e);
+      } finally {
+        this.loadingSnapshots = false;
+      }
+    },
+    async loadTrash() {
+      if (this.fullTrashLoaded || this.loadingTrash || !this.apiUrl) return;
+      this.loadingTrash = true;
+      try {
+        const res = await this.request({ action: 'get_trash' });
+        if (res && res.ok && Array.isArray(res.trash)) {
+          this.fullTrashLoaded = true;
+          S.trash = res.trash;
+          if (this.base) this.base.trash = res.trash;
+          render();
+        }
+      } catch (e) {
+        console.warn('Could not load trash:', e);
+      } finally {
+        this.loadingTrash = false;
+      }
+    },
     onLocalChange() {
       if (!this.config.enabled || !this.config.url || this.config.autoSync === false) return;
       this.setStatus('syncing');
       clearTimeout(this._timer);
-      this._timer = setTimeout(() => this.flush(), 900);
+      const t0 = performance.now();
+      this._timer = setTimeout(() => {
+        if (TIMING.enabled) TIMING.log('save_debounce', { elapsed: performance.now() - t0 });
+        this.flush();
+      }, 300);
     },
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
@@ -3390,6 +3613,7 @@
       const ops = diffOps(this.base, S);
       if (!ops.length) { this.unsent = false; this.setStatus('connected'); return; }
       this.busy = true;
+      const tFlushStart = TIMING.enabled ? performance.now() : 0;
       // Until a save is acknowledged, a retry of the same change keeps its ID, so a lost reply cannot apply it twice.
       const sig = JSON.stringify(ops);
       if (!this.sending || this.sending.sig !== sig) this.sending = { sig, id: uid('REQ') + Date.now() };
@@ -3397,6 +3621,7 @@
       try {
         const res = await this.request({ action: 'apply', requestId, ops });
         this.busy = false;
+        if (TIMING.enabled) TIMING.log('apply_flush', { elapsed: performance.now() - tFlushStart, ops: ops.length });
         if (res.auth === true) return this.needSignIn(res.error);
         this.sending = null;
         if (res.rejected) return this.refused(res.rejected, ops);
@@ -3442,14 +3667,33 @@
       if (UI.taskId && $('#modal')) renderTaskPanel();
     },
     async poll() {
-      if (!ME.open && !this.session) return;
-      if (!this.apiUrl || !this.config.enabled || this.busy || this.config.status === 'syncing' || document.hidden) return;
+      if (!ME.open && !this.session) { this.schedulePoll(); return; }
+      if (!this.apiUrl || !this.config.enabled || this.busy || this.polling || this.deferred || this.config.status === 'syncing') {
+        this.schedulePoll();
+        return;
+      }
+      this.polling = true;
       try {
         const data = await this.get('version');
+        this.pollErrors = 0;
         if (this.unsent) return this.flush();
-        if (data.version !== undefined && data.version !== this.version) await this.pull(true);
-        else if (this.config.status === 'error') this.setStatus('connected');
-      } catch (e) { this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.'); }
+        if (data.version !== undefined && data.version !== this.version) {
+          // Someone typing keeps their text. The new data comes in when they leave the box.
+          const f = document.activeElement;
+          if (f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)) {
+            this.schedulePoll(1500);
+            return;
+          }
+          await this.pull(true);
+        } else if (this.config.status === 'error') this.setStatus('connected');
+      } catch (e) {
+        this.pollErrors++;
+        this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.');
+      }
+      finally {
+        this.polling = false;
+        this.schedulePoll();
+      }
     },
     async dailySnapshot() {
       if (this.api < API_NEEDED || !canWrite() || !seesAll()) return; // an employee's view has only part of the data
@@ -4111,5 +4355,16 @@
   SYNC.init();
   SYNC.boot();
   render();
-  window.SCT = { get state() { return S; }, get base() { return SYNC.base; }, ME, SYNC, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render, actAs(name) { UI.me = name; render(); } };
+  window.SCT = {
+    get state() { return S; },
+    get base() { return SYNC.base; },
+    ME, SYNC, health, stats, actionQueue, raciIssues, renamePerson, deletePerson, render,
+    actAs(name) { UI.me = name; render(); },
+    toggleTiming(bool) {
+      TIMING.enabled = bool !== undefined ? !!bool : !TIMING.enabled;
+      console.log('[SCT Timing] Performance timing is now ' + (TIMING.enabled ? 'ENABLED' : 'DISABLED'));
+      return TIMING.enabled;
+    },
+    get timingEnabled() { return TIMING.enabled; }
+  };
 })();

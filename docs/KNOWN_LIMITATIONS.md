@@ -31,6 +31,8 @@ Everything was tested in a real browser against the real `Code.gs`, on a simulat
 - **Whoever controls the Google account that owns the script can reset anyone's password,** and can read the password hashes. The team shares that account, so keep it secure.
 - **Password hashing is limited by Apps Script.** It has no purpose-built password function, so the hash is 500 rounds of HMAC-SHA256 with a secret kept in Script Properties.
 - **Password sign-in has not run on real Apps Script.** Check that a sign-in takes only a few seconds.
+- **Sheet edits reach open pages within about 5 seconds, not instantly.** Each open page asks Google every 5 seconds, because a Sheet cannot push to a website. A tab in the background waits until it is looked at.
+- **Rows added or removed by hand need one setting.** Without **Turn on instant updates to the website**, they appear only after the next ordinary edit.
 - **Rate limiting covers sign-in only.** Everything else needs a session, and Google applies its own quotas.
 - **AuditLog is protected with a warning, not a lock.** The site cannot edit it, and direct edits to it are logged. Anyone with edit access to the Sheet could still ignore the warning, so limit that access.
 - **Profiles are read-only for employees.** A Super Admin or their Manager keeps them up to date. Pictures come from their Google account at sign-in.
