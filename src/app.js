@@ -12,8 +12,8 @@
   const TIMING = {
     get enabled() {
       try {
-        if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.includes('timing=1')) return true;
-        return localStorage.getItem('sct_timing') === 'true' || window.SCT_TIMING === true;
+        const admin = typeof ME !== 'undefined' && ME && ME.role === 'Administrator';
+        return admin && (localStorage.getItem('sct_timing') === 'true' || window.SCT_TIMING === true);
       } catch (e) { return false; }
     },
     set enabled(val) {
@@ -82,7 +82,7 @@
   const ME = { role: 'Viewer', email: '', name: '', aliases: [], open: false }; // always from the server
   // Set when the site is built. See build.js.
   const CONFIG = /*CONFIG*/{ apiUrl: '' }/*END*/;
-  const API_NEEDED = 5; // the oldest script this site can work with
+  const API_NEEDED = 6; // the oldest script this site can work with
   const POLL_MS = 3000; // how often an open page asks whether the Sheet has changed (3s while visible)
   const POLL_VISIBLE_MS = 3000; // 3 seconds while page is visible
   const POLL_HIDDEN_MS = 15000; // 15 seconds while page is hidden/minimized
@@ -2542,6 +2542,21 @@
       metrics: [], dependencies: [], risks: [], assumptions: [], workstreams: [],
       milestones: [], raci: [], comments: [], flags: [], datesProposed: true
     };
+    const memberChoices = () => {
+      const set = new Set(), list = [];
+      (S.directory || []).forEach(u => {
+        if (u.name && !set.has(u.name)) { set.add(u.name); list.push(u.name); }
+        if (u.email && !set.has(u.email)) { set.add(u.email); list.push(u.email); }
+      });
+      (S.users || []).forEach(u => {
+        if (u.name && !set.has(u.name)) { set.add(u.name); list.push(u.name); }
+        if (u.email && !set.has(u.email)) { set.add(u.email); list.push(u.email); }
+      });
+      people().forEach(x => {
+        if (x && !set.has(x) && !isTBD(x)) { set.add(x); list.push(x); }
+      });
+      return list;
+    };
     const f = [
       { k: 'name', label: 'Project name', req: true, full: true },
       { k: 'objective', label: 'What is it for?', type: 'textarea', full: true, rows: 2 },
@@ -2563,7 +2578,7 @@
       { k: 'valueClass', label: 'Value class', type: 'select', allowBlank: true, options: opt('valueClasses'), more: true },
       { k: 'sponsor', label: 'Sponsor', type: 'datalist', options: people(), tbd: true, more: true },
       { k: 'department', label: 'Team', more: true },
-      { k: 'members', label: 'Team members (comma separated)', full: true, more: true },
+      { k: 'members', label: 'Team members (comma separated)', type: 'datalist', options: memberChoices(), full: true, more: true },
       { k: 'restricted', label: 'Who can see this', type: 'select', full: true, options: [['false', 'Everyone signed in'], ['true', 'Only its owner, team and task owners']], more: true },
       { k: 'priorityProposed', label: 'Priority is', type: 'select', options: [['true', 'Proposed'], ['false', 'Approved']], more: true },
       { k: 'datesProposed', label: 'Dates are', type: 'select', options: [['true', 'Proposed'], ['false', 'Confirmed']], more: true },
@@ -3245,12 +3260,13 @@
     init() {
       try {
         this.session = localStorage.getItem('sct_session') || '';
+        this.sessionConfirmed = false;
         localStorage.removeItem('sct_user'); localStorage.removeItem('sct_local_users'); localStorage.removeItem('sct_reset_tokens');
         this.base = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
         this.version = this.config.baseVersion;
         const p = JSON.parse(localStorage.getItem('sct_person') || 'null');
-        if (p && p.email) {
-          Object.assign(ME, p);
+        if (p && p.name) {
+          ME.name = p.name;
           UI.me = ME.name;
         }
       } catch (e) { this.base = null; }
@@ -3300,6 +3316,7 @@
     setStatus(status, error) { this.config.status = status; this.config.error = error || null; this.updateUI(); },
     needSignIn(msg) {
       this.session = '';
+      this.sessionConfirmed = false;
       ME.role = 'Viewer'; ME.email = ''; ME.name = ''; ME.aliases = []; ME.open = false; UI.me = ''; this.sheetUrl = '';
       try { localStorage.removeItem('sct_session'); localStorage.removeItem('sct_person'); } catch (e) { /* private window */ }
       const m = $('#main'); if (m) m.innerHTML = '';
@@ -3331,8 +3348,9 @@
       } catch (e) { showNewPassword('Could not reach the Sheet. Check your connection and try again.'); }
     },
     async enter(r) {
-      if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; return this.pull(true); }
+      if (r.open) { $('#signin').hidden = true; ME.open = true; ME.role = 'Administrator'; this.sessionConfirmed = true; return this.pull(true); }
       this.session = r.session;
+      this.sessionConfirmed = true;
       try {
         localStorage.setItem('sct_session', r.session);
         if (r.user) localStorage.setItem('sct_person', JSON.stringify(r.user));
@@ -3352,7 +3370,28 @@
     // On opening the site, get data before anyone can edit a stale copy.
     async boot() {
       if (!this.apiUrl) { this.unreachable = true; return this.needSignIn('This site has no server link. Set CT_API_URL when building it.'); }
-      const hasCachedData = !!(this.session && ME && ME.email && S && ((S.projects && S.projects.length) || (S.tasks && S.tasks.length)));
+      if (!this.session) {
+        this.checking = false;
+        showSignIn('');
+        try {
+          const p = await this.get('ping');
+          this.api = p.api || 1;
+          this.auth = p.auth || { required: true };
+          if (this.api < API_NEEDED) { this.serverOld = true; this.auth = { required: true }; return this.needSignIn(''); }
+          if (!this.auth.required) {
+            ME.open = true;
+            ME.role = 'Administrator';
+            this.sessionConfirmed = true;
+            const si = $('#signin'); if (si) si.hidden = true;
+            await this.pull(true);
+            render();
+          }
+        } catch (e) {
+          this.setStatus('error', 'Could not reach the Google Sheet.');
+        }
+        return;
+      }
+      const hasCachedData = !!(S && ((S.projects && S.projects.length) || (S.tasks && S.tasks.length)));
       if (hasCachedData) {
         const si = $('#signin'); if (si) si.hidden = true;
         this.checking = false;
@@ -3367,7 +3406,6 @@
       catch (e) {
         this.checking = false;
         this.setStatus('error', 'Could not reach the Google Sheet. Changes stay in this browser until it is back.');
-        if (!this.session) { this.unreachable = true; return this.needSignIn(''); }
         this.updateUI(); render();
         return;
       }
@@ -3375,23 +3413,7 @@
       this.auth = p.auth || { required: true };
       // An older script has no sign-in. Nothing is read from it or sent to it.
       if (this.api < API_NEEDED) { this.serverOld = true; this.auth = { required: true }; this.checking = false; return this.needSignIn(''); }
-      if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; }
-      else if (!this.session) { this.checking = false; return this.needSignIn(''); }
-
-      // For returning users with cached data, check version first to refresh quietly
-      if (hasCachedData && this.version != null) {
-        try {
-          const vData = await this.get('version');
-          if (vData && vData.version !== undefined && vData.version === this.version) {
-            this.checking = false;
-            this.config.lastSync = nowIso();
-            this.setStatus('connected');
-            this.updateUI();
-            return;
-          }
-        } catch (x) {}
-      }
-
+      if (!this.auth.required) { ME.open = true; ME.role = 'Administrator'; this.sessionConfirmed = true; }
       await this.pull(true);
       this.checking = false; this.updateUI();
       render();
@@ -3484,6 +3506,7 @@
           }
           Object.assign(ME, data.me, { open: false });
           UI.me = ME.name;
+          this.sessionConfirmed = true;
           try { localStorage.setItem('sct_person', JSON.stringify(ME)); } catch (e) {}
         }
         this.sheetUrl = data.sheetUrl || '';
@@ -3606,7 +3629,7 @@
     async push() { return this.flush(true); },
     async flush(fullLegacy) {
       if (!this.apiUrl) { toast('The Google Sheet is not connected.', true); return; }
-      if (!ME.open && (!this.session || !ME.email)) return; // nothing is sent before we know who is signed in
+      if (!ME.open && (!this.session || !ME.email || !this.sessionConfirmed)) return; // nothing is sent before we know who is signed in
       if (this.busy) { this.again = true; return; }
       if (this.api < API_NEEDED) return;
       if (!this.base) { this.setStatus('connected'); return; }

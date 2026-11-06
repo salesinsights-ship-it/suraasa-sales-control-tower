@@ -365,7 +365,7 @@ test('if the Sheet fails partway the save reports it, and a notification problem
 test('integration status reports the truth and holds no secrets', () => {
   const { b, pid, s } = company(); const a = s('boss@suraasa.com'); assign(b, a, pid); b.props.set('AUTH_CLIENT_SECRET_TEST', 'hush');
   const r = b.post({ action: 'integration_status', session: a });
-  assert.strictEqual(r.api, 5); assert.strictEqual(r.auth.required, true); assert.strictEqual(r.auth.clientIdSet, true); assert.strictEqual(r.email.mode, 'live'); assert.strictEqual(r.email.accepted, 1); assert.strictEqual(r.automation.retry, false); assert.strictEqual(r.sheet.problems.length, 0);
+  assert.strictEqual(r.api, 6); assert.strictEqual(r.auth.required, true); assert.strictEqual(r.auth.clientIdSet, true); assert.strictEqual(r.email.mode, 'live'); assert.strictEqual(r.email.accepted, 1); assert.strictEqual(r.automation.retry, false); assert.strictEqual(r.sheet.problems.length, 0);
   assert.ok(!JSON.stringify(r).includes('hush'));
 });
 test('a test email goes only to the person who pressed the button', () => {
@@ -775,7 +775,7 @@ function pwBackend() {
 const signIn = (b, email, password) => b.post({ action: 'password_login', email, password });
 test('sign-in works with no Google client ID at all', () => {
   const b = pwBackend(); b.ctx.pwStore_('staff@suraasa.com', 'correct horse battery', false);
-  const p = b.get({ action: 'ping' }); assert.strictEqual(p.api, 5); assert.strictEqual(p.auth.clientId, ''); assert.strictEqual(p.signInReady, true);
+  const p = b.get({ action: 'ping' }); assert.strictEqual(p.api, 6); assert.strictEqual(p.auth.clientId, ''); assert.strictEqual(p.signInReady, true);
   const r = signIn(b, 'Staff@Suraasa.com ', 'correct horse battery');
   assert.ok(r.ok && r.session); assert.strictEqual(r.mustChange, false);
   const s = b.post({ action: 'pull', session: r.session }); assert.ok(s.ok !== false && s.state); assert.strictEqual(s.me.email, 'staff@suraasa.com');
@@ -975,6 +975,9 @@ test('turning on instant updates makes one trigger, however many times it is cli
 });
 test('an edit made while the tabs are being read still looks new afterwards', () => {
   const { b, s } = company(), a = s('boss@suraasa.com'), sheets = b.ctx.readTab_; let done = false;
+  for (const k of b.cache.keys()) {
+    if (k.startsWith('raw_v')) b.cache.delete(k);
+  }
   b.ctx.readTab_ = function (...x) { if (!done) { done = true; b.ctx.bumpVersion_('edit during a read'); } return sheets(...x); };
   const r = pull(b, a); b.ctx.readTab_ = sheets;
   assert.ok(r.version < b.get({ action: 'version' }).version);

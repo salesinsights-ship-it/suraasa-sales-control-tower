@@ -75,7 +75,7 @@ test('every status has a stage, and each stage sets one status', () => {
   E.TASK_STATUSES.forEach(s => assert.ok(E.STAGES.includes(E.stageOf(s)), s));
   assert.deepStrictEqual(E.STAGES, ['Not yet started', 'Moved ahead', 'Completed', 'Parked', 'Dropped']);
   E.STAGES.forEach(x => assert.strictEqual(E.stageOf(E.STAGE_STATUS[x]), x));
-  assert.strictEqual(E.stageOf('Blocked'), 'Moved ahead'); assert.strictEqual(E.stageOf('In Review'), 'Moved ahead'); assert.strictEqual(E.stageOf('Backlog'), 'Not yet started');
+  assert.strictEqual(E.stageOf('Blocked'), 'Parked'); assert.strictEqual(E.stageOf('In Review'), 'Moved ahead'); assert.strictEqual(E.stageOf('Backlog'), 'Not yet started');
 });
 test('every stage can be reached from every status', () => {
   E.TASK_STATUSES.forEach(from => E.STAGES.forEach(x => {

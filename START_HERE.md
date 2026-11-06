@@ -2,7 +2,7 @@
 
 Control Tower is Suraasa's sales project and task platform. It is plain JavaScript with no framework, hosted on Vercel. A Google Apps Script web app is the backend, and a Google Sheet is the system of record.
 
-This copy is branch `feature/instant-sheet-updates` at `7d40326`, version 3.0.1.
+This copy is branch `fix/review-findings`, version 3.0.2.
 
 ## Current state
 
@@ -10,9 +10,9 @@ This copy is branch `feature/instant-sheet-updates` at `7d40326`, version 3.0.1.
 |---|---|
 | Live site | https://suraasa-sales-control-tower-rouge.vercel.app/ runs version 3.0.0 from `main` |
 | Repository | https://github.com/salesinsights-ship-it/suraasa-sales-control-tower |
-| Pull request 2 | Open, not merged. It contains this copy's live Sheet updates |
+| Pull request 2 | Open, not merged. It contains live Sheet updates and review fixes |
 | Sheet | `Suraasa Sales Control Tower 3.0`, owned by salesinsights@suraasa.com |
-| Script | Bound to that Sheet. API version 5 |
+| Script | Bound to that Sheet. API version 6 |
 | Sign-in | Email and password, checked on the server. No Google Cloud project is used |
 | Emails | Test mode. Everything goes to the script owner |
 
@@ -22,7 +22,7 @@ This copy is branch `feature/instant-sheet-updates` at `7d40326`, version 3.0.1.
 
 ```
 node build.js        # builds dist/ and index.html from src/
-npm test             # engine, backend and automation tests
+npm test             # engine, backend, automation, phase6, task1 and review suites
 npm run test:e2e     # browser tests. Needs Playwright with Chromium
 ```
 
@@ -46,10 +46,9 @@ Tests run the real `apps-script/Code.gs` on a simulated Sheet (`tests/mock-gas.j
 
 ## Open items
 
-1. Merge pull request 2, publish the new `Code.gs` as a new version, then click **Control Tower > Turn on instant updates to the website**.
-2. Confirm on the real site that a sign-in works and that a change saves to the Sheet.
-3. The owner of the old Sheet must archive its old Web app links. They still serve project data publicly.
-4. Make the GitHub repository private. Old passwords and project data are in its history.
-5. Vercel's free Hobby plan is for non-commercial use. Check whether this project may stay on it.
+1. Publish the new `Code.gs` in Apps Script as a **New version** (API 6), keeping the same link.
+2. Merge the website pull request and deploy on Vercel.
+3. Confirm on the real site that sign-in works, that changes save to the Sheet, and turn on instant updates if desired.
+4. Vercel's free Hobby plan is for non-commercial use. Check whether this project may stay on it.
 
 `src/seed.js` holds real project data, so treat this folder as private. See `docs/KNOWN_LIMITATIONS.md` for the rest.

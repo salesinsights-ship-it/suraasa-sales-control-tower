@@ -20,7 +20,7 @@ const ENGINE = (function () {
   // The simple view of a task. Each stage is a way of setting the status, so the two can never disagree.
   const STAGE_STATUS = { 'Not yet started': 'Not Started', 'Moved ahead': 'In Progress', 'Completed': 'Completed', 'Parked': 'On Hold', 'Dropped': 'Cancelled' };
   const STAGES = Object.keys(STAGE_STATUS);
-  const stageOf = status => (status === 'Backlog' || status === 'Not Started' || !status ? 'Not yet started' : status === 'Completed' ? 'Completed' : status === 'On Hold' ? 'Parked' : status === 'Cancelled' ? 'Dropped' : 'Moved ahead');
+  const stageOf = status => (status === 'Backlog' || status === 'Not Started' || !status ? 'Not yet started' : status === 'Completed' ? 'Completed' : (status === 'On Hold' || status === 'Blocked') ? 'Parked' : status === 'Cancelled' ? 'Dropped' : 'Moved ahead');
   const DEFAULT_RULES = { overdueShareAtRisk: 10, overdueShareDelayed: 25, stagnantDays: 14, soonDays: 7 };
 
   const dayNum = s => Math.floor(new Date(s + 'T00:00:00').getTime() / 86400000);

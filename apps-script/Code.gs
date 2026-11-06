@@ -32,7 +32,7 @@ var META_SHEET = '_Meta';
 var ACTIVITY_SHEET = 'Activity';
 var EXTRA = '_extra';
 var NL = '\n';
-var API = 5;
+var API = 6;
 var DEFAULT_SITE_URL = 'https://suraasa-sales-control-tower-rouge.vercel.app/';
 
 var STATUS_P = ['Not Started', 'In Progress', 'On Hold', 'Blocked', 'Completed'];
@@ -273,7 +273,8 @@ function showStatus() { var m = metaMap_(); SpreadsheetApp.getUi().alert('Versio
 //  and items can be evicted at any time.
 // ------------------------------------------------------------
 var CHUNK_SIZE = 85000;
-var _origReadTab = typeof readTab_ !== 'undefined' ? readTab_ : null;
+var STATE_CACHE_SECONDS = 180; // 3 minutes
+var ROWMAP_CACHE_SECONDS = 180; // 3 minutes
 
 function cachePutChunks_(prefix, str, ttl) {
   var cache = CacheService.getScriptCache();
@@ -283,7 +284,7 @@ function cachePutChunks_(prefix, str, ttl) {
     entries[prefix + '_' + i] = str.substr(i * CHUNK_SIZE, CHUNK_SIZE);
   }
   entries[prefix + '_m'] = JSON.stringify({ n: numChunks, len: str.length });
-  cache.putAll(entries, ttl || 21600);
+  cache.putAll(entries, ttl || STATE_CACHE_SECONDS);
 }
 
 function cacheGetChunks_(prefix) {
@@ -308,9 +309,6 @@ function cacheGetChunks_(prefix) {
 }
 
 function getCachedRawState_(ver, timer) {
-  if (typeof readTab_ !== 'undefined' && _origReadTab && readTab_ !== _origReadTab) {
-    return pull_(timer);
-  }
   var cacheKey = 'raw_v' + ver;
   var cachedStr = cacheGetChunks_(cacheKey);
   if (cachedStr) {
@@ -323,7 +321,7 @@ function getCachedRawState_(ver, timer) {
   var pulled = pull_(timer);
   if (timer) timer.step('pull_tabs');
   try {
-    cachePutChunks_('raw_v' + pulled.version, JSON.stringify(pulled), 21600);
+    cachePutChunks_('raw_v' + pulled.version, JSON.stringify(pulled), STATE_CACHE_SECONDS);
     if (timer) timer.step('cache_store');
   } catch (x) {}
   return pulled;
@@ -344,7 +342,7 @@ function getRowMap_(tab) {
 
 function setRowMap_(tab, map) {
   try {
-    CacheService.getScriptCache().put('rowmap_' + tab, JSON.stringify(map), 21600);
+    CacheService.getScriptCache().put('rowmap_' + tab, JSON.stringify(map), ROWMAP_CACHE_SECONDS);
   } catch (x) {}
 }
 
@@ -393,7 +391,9 @@ function readSingleRow_(sh, s, row) {
   var width = Math.max(sh.getLastColumn(), allCols_(s).length);
   if (width < 1) return null;
   var header = sh.getRange(1, 1, 1, width).getValues()[0].map(String);
-  var r = sh.getRange(row, 1, 1, width).getValues()[0];
+  var chunk1 = sh.getRange(row, 1, 1, Math.min(width, 20)).getValues()[0];
+  var chunk2 = width > 20 ? sh.getRange(row, 21, 1, width - 20).getValues()[0] : [];
+  var r = chunk1.concat(chunk2);
   if (r.every(function (v) { return v === '' || v == null; })) return null;
   var o = {};
   var ours = {}; allCols_(s).forEach(function (c) { ours[c] = true; });
@@ -463,10 +463,12 @@ function turnOnInstantUpdates() {
 // ------------------------------------------------------------
 //  Performance timing (Phase 1) - non-PII micro-timings
 // ------------------------------------------------------------
-function isTimingEnabled_(body, e) {
-  if (body && body.timing !== undefined) return !!body.timing;
-  if (e && e.parameter && e.parameter.timing !== undefined) return e.parameter.timing === '1' || e.parameter.timing === 'true';
-  try { return props_().getProperty('ENABLE_TIMING') === 'true'; } catch (x) { return false; }
+function isTimingEnabled_(body, e, a) {
+  try {
+    if (props_().getProperty('ENABLE_TIMING') === 'true') return true;
+  } catch (x) {}
+  if (a && a.role === 'Administrator') return true;
+  return false;
 }
 
 function createTimer_(enabled) {
@@ -490,7 +492,7 @@ function createTimer_(enabled) {
 // ------------------------------------------------------------
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) || 'ping';
-  var timer = createTimer_(isTimingEnabled_(null, e));
+  var timer = createTimer_(isTimingEnabled_(null, e, null));
   try {
     if (action === 'version') {
       var qv = quickVersion_();
@@ -597,13 +599,13 @@ function doPost(e) {
   try {
     var body = {};
     try { body = JSON.parse(e.postData && e.postData.contents || '{}'); } catch (x) { return json_({ ok: false, error: 'Body is not JSON' }); }
-    var timer = createTimer_(isTimingEnabled_(body, e));
     var action = body.action || 'push';
     if (action === 'login') return json_(login_(body));
     if (action === 'password_login') return json_(passwordLogin_(body));
     if (action === 'password_change') return json_(passwordChange_(body));
     if (action === 'logout') return json_(logout_(body));
     var a = actor_(body);
+    var timer = createTimer_(isTimingEnabled_(body, e, a));
     if (timer) timer.step('auth_actor');
     if (!a) return json_(authError_());
     if (action === 'pull') {
@@ -614,26 +616,15 @@ function doPost(e) {
     if (action === 'get_audit') {
       var limit = parseInt(body.limit, 10) || 600;
       var audit = readAudit_(limit);
-      if (a.role !== 'Administrator') {
-        var rawSt = getCachedRawState_(quickVersion_(), timer);
-        var scopedSt = scopeState_(JSON.parse(JSON.stringify(rawSt.state)), a);
-        var seenPids = {};
-        (scopedSt.projects || []).forEach(function (p) { seenPids[p.id] = true; });
-        var gen = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
-        audit = audit.filter(function (r) { return r.action !== 'sheet_edit' && (r.projectId ? seenPids[r.projectId] : gen.indexOf(r.entityType) >= 0); });
-      }
+      var rawSt = getCachedRawState_(quickVersion_(), timer);
+      audit = scopeAuditRows_(audit, rawSt.state, a);
       return json_({ ok: true, audit: audit });
     }
     if (action === 'get_snapshots') {
       var limit = parseInt(body.limit, 10) || 1500;
       var snaps = readTable_(SNAP_SHEET, SNAP_COLS).slice(-limit);
-      if (a.role !== 'Administrator') {
-        var rawSt = getCachedRawState_(quickVersion_(), timer);
-        var scopedSt = scopeState_(JSON.parse(JSON.stringify(rawSt.state)), a);
-        var seenPids = {};
-        (scopedSt.projects || []).forEach(function (p) { seenPids[p.id] = true; });
-        snaps = snaps.filter(function (r) { return seenPids[r.projectId]; });
-      }
+      var rawSt = getCachedRawState_(quickVersion_(), timer);
+      snaps = scopeSnapshotsRows_(snaps, rawSt.state, a);
       return json_({ ok: true, snapshots: snaps });
     }
     if (action === 'get_trash') {
@@ -807,7 +798,7 @@ function push_(body) {
   try {
     CacheService.getScriptCache().put('ver', String(v), VERSION_CACHE_SECONDS);
     var rawPush = { ok: true, version: v, updatedAt: nowIso, updatedBy: 'website' + (body.client ? ' (' + body.client + ')' : ''), empty: false, state: state };
-    cachePutChunks_('raw_v' + v, JSON.stringify(rawPush), 21600);
+    cachePutChunks_('raw_v' + v, JSON.stringify(rawPush), STATE_CACHE_SECONDS);
   } catch (x) {}
   return { ok: true, version: v, updatedAt: nowIso };
 }
@@ -1249,24 +1240,82 @@ function canSeeProject_(p, tasks, a) {
   if ((p.members || []).some(function (m) { return isMine_(m, a); })) return true;
   return tasks.some(function (t) { return t.projectId === p.id && ownsTask_(t, a); });
 }
-function scopeState_(state, a) {
-  if (a.role === 'Administrator') return state;
+function scopeAuditRows_(audit, rawState, a) {
+  if (!Array.isArray(audit)) return [];
+  if (a.role === 'Administrator') return audit;
   var seen = {};
-  state.projects = state.projects.filter(function (p) { var ok = canSeeProject_(p, state.tasks, a); if (ok) seen[p.id] = true; return ok; });
-  ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
-    state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
+  var tasks = (rawState && rawState.tasks) || [];
+  var projects = (rawState && rawState.projects) || [];
+  projects.forEach(function (p) {
+    if (canSeeProject_(p, tasks, a)) seen[p.id] = true;
   });
   var general = ['decisions', 'risks', 'dependencies', 'actions', 'updates'];
-  state.audit = (state.audit || []).filter(function (r) { return r.action !== 'sheet_edit' && (r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0); });
-  state.snapshots = (state.snapshots || []).filter(function (r) { return seen[r.projectId]; });
+  var filtered = audit.filter(function (r) {
+    return r.action !== 'sheet_edit' && (r.projectId ? seen[r.projectId] : general.indexOf(r.entityType) >= 0);
+  });
   if (a.role === 'Task Owner') {
-    // Employees see their own tasks and subtasks, and only what belongs to the projects those tasks are in.
     var mine = {}, theirs = {};
-    state.tasks.forEach(function (t) { if (ownsTask_(t, a) || isMine_(t.accountable, a)) mine[t.id] = true; if (givenWork_(t, a)) theirs[t.projectId] = true; });
+    tasks.forEach(function (t) {
+      if (ownsTask_(t, a) || isMine_(t.accountable, a)) mine[t.id] = true;
+      if (givenWork_(t, a)) theirs[t.projectId] = true;
+    });
     var grew = true;
     while (grew) {
       grew = false;
-      state.tasks.forEach(function (t) { if (!mine[t.id] && t.parent && mine[t.parent]) { mine[t.id] = true; grew = true; } });
+      tasks.forEach(function (t) {
+        if (!mine[t.id] && t.parent && mine[t.parent]) {
+          mine[t.id] = true;
+          grew = true;
+        }
+      });
+    }
+    return filtered.filter(function (r) {
+      return r.taskId ? (mine[r.taskId] || (r.action === 'owner_changed' && r.field === 'owner' && isMine_(r.oldValue, a))) : theirs[r.projectId];
+    }).map(function (r) {
+      if (!r.taskId || mine[r.taskId]) return r;
+      return { activityId: r.activityId, ts: r.ts, actorName: '', actorEmail: '', entityType: r.entityType, entityId: r.entityId, projectId: r.projectId, taskId: r.taskId, action: r.action, field: r.field, oldValue: r.oldValue, newValue: '', text: 'A task you owned was given to someone else.', requestId: '' };
+    });
+  }
+  return filtered;
+}
+
+function scopeSnapshotsRows_(snaps, rawState, a) {
+  if (!Array.isArray(snaps)) return [];
+  if (a.role === 'Administrator') return snaps;
+  var tasks = (rawState && rawState.tasks) || [];
+  var projects = (rawState && rawState.projects) || [];
+  var seen = {};
+  projects.forEach(function (p) {
+    if (canSeeProject_(p, tasks, a)) seen[p.id] = true;
+  });
+  if (a.role === 'Task Owner') {
+    var theirs = {};
+    tasks.forEach(function (t) {
+      if (givenWork_(t, a)) theirs[t.projectId] = true;
+    });
+    return snaps.filter(function (r) { return theirs[r.projectId]; });
+  }
+  return snaps.filter(function (r) { return seen[r.projectId]; });
+}
+
+function scopeState_(state, a) {
+  if (a.role === 'Administrator') return state;
+  var seen = {};
+  var tasks = state.tasks || [];
+  state.projects = state.projects.filter(function (p) { var ok = canSeeProject_(p, tasks, a); if (ok) seen[p.id] = true; return ok; });
+  ['tasks', 'risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
+    state[k] = (state[k] || []).filter(function (r) { return !r.projectId || seen[r.projectId]; });
+  });
+  state.audit = scopeAuditRows_(state.audit, state, a);
+  state.snapshots = scopeSnapshotsRows_(state.snapshots, state, a);
+  if (a.role === 'Task Owner') {
+    // Employees see their own tasks and subtasks, and only what belongs to the projects those tasks are in.
+    var mine = {}, theirs = {};
+    tasks.forEach(function (t) { if (ownsTask_(t, a) || isMine_(t.accountable, a)) mine[t.id] = true; if (givenWork_(t, a)) theirs[t.projectId] = true; });
+    var grew = true;
+    while (grew) {
+      grew = false;
+      tasks.forEach(function (t) { if (!mine[t.id] && t.parent && mine[t.parent]) { mine[t.id] = true; grew = true; } });
     }
     state.tasks = state.tasks.filter(function (t) { return mine[t.id]; });
     // Other projects: just enough to choose one for a new task.
@@ -1276,12 +1325,6 @@ function scopeState_(state, a) {
     ['risks', 'dependencies', 'decisions', 'updates', 'actions'].forEach(function (k) {
       state[k] = (state[k] || []).filter(function (r) { return r.projectId ? theirs[r.projectId] : isMine_(r.owner, a); });
     });
-    // The one thing kept about a task someone no longer owns: that it moved on, so they are told.
-    state.audit = state.audit.filter(function (r) { return r.taskId ? mine[r.taskId] || (r.action === 'owner_changed' && r.field === 'owner' && isMine_(r.oldValue, a)) : theirs[r.projectId]; }).map(function (r) {
-      if (!r.taskId || mine[r.taskId]) return r;
-      return { activityId: r.activityId, ts: r.ts, actorName: '', actorEmail: '', entityType: r.entityType, entityId: r.entityId, projectId: r.projectId, taskId: r.taskId, action: r.action, field: r.field, oldValue: r.oldValue, newValue: '', text: 'A task you owned was given to someone else.', requestId: '' };
-    });
-    state.snapshots = state.snapshots.filter(function (r) { return theirs[r.projectId]; });
   }
   state.activity = []; // the old free-text list names projects and has no project field to filter on
   return state;
@@ -1605,6 +1648,36 @@ function apply_(body, a, preloaded, timer) {
     }
     var idx = findIn_(list, idField, op.id);
     var cur = idx >= 0 ? list[idx] : null;
+
+    if (!op.create && sh && idField) {
+      if (targetRow > 0 && s) {
+        var liveRec = readSingleRow_(sh, s, targetRow);
+        if (liveRec) {
+          if (op.c === 'projects' && cur) {
+            NESTED.forEach(function (k) {
+              if (cur[k] !== undefined && liveRec[k] === undefined) {
+                liveRec[k] = cur[k];
+              }
+            });
+          }
+          cur = liveRec;
+          if (idx >= 0) list[idx] = liveRec; else list.push(liveRec);
+        } else {
+          if (idx >= 0) list.splice(idx, 1);
+          cur = null;
+          targetRow = -1;
+        }
+      } else if (targetRow < 0) {
+        if (idx >= 0) list.splice(idx, 1);
+        cur = null;
+        if (!op.del) return reject('This record no longer exists.', 'missing');
+      }
+    }
+    if (op.create && sh && idField) {
+      var existingRow = findRowWithMap_(sh, s, idField, op.id);
+      if (existingRow > 0) return reject('This ID already exists: ' + op.id, 'duplicate');
+    }
+
     if (a.role !== 'Administrator' && cur) {
       var pid = op.c === 'projects' ? cur.id : cur.projectId;
       var pr = st.projects.filter(function (p) { return p.id === pid; })[0];
@@ -1612,16 +1685,16 @@ function apply_(body, a, preloaded, timer) {
     }
     var next;
     if (op.del) {
-      if (!cur) return; // already gone: nothing to do
-      var dd = deny_(a, op.c, cur, null, st);
+      if (!cur && targetRow < 0) return; // already gone from Sheet and cache: nothing to do
+      var dd = deny_(a, op.c, cur || { id: op.id }, null, st);
       if (dd) return reject(dd, 'denied');
-      if (JSON.stringify(cur).length > CELL_MAX * 4) return reject('This record is too large to keep in Deleted items, so it was not deleted.', 'invalid');
-      list.splice(idx, 1);
+      if (cur && JSON.stringify(cur).length > CELL_MAX * 4) return reject('This record is too large to keep in Deleted items, so it was not deleted.', 'invalid');
+      if (idx >= 0) list.splice(idx, 1);
       plan.push({ c: op.c, id: op.id, cur: cur, next: null, idField: idField, reason: op.reason || '', row: targetRow });
       return;
     }
     if (op.create || !cur) {
-      if (cur) return reject('This ID already exists: ' + op.id, 'duplicate');
+      if (cur && op.create) return reject('This ID already exists: ' + op.id, 'duplicate');
       if (idField === 'id' && !op.restoreOf && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(op.id))) return reject('That is not a valid ID.', 'invalid');
       if (!op.rec) return reject('This record no longer exists.', 'missing');
       next = JSON.parse(JSON.stringify(op.rec));
@@ -1748,7 +1821,7 @@ function apply_(body, a, preloaded, timer) {
     try {
       CacheService.getScriptCache().put('ver', String(v), VERSION_CACHE_SECONDS);
       var nextRaw = { ok: true, version: v, updatedAt: ts, updatedBy: a.name || 'website', empty: false, state: st };
-      cachePutChunks_('raw_v' + v, JSON.stringify(nextRaw), 21600);
+      cachePutChunks_('raw_v' + v, JSON.stringify(nextRaw), STATE_CACHE_SECONDS);
     } catch (x) {}
   }
   if (timer) timer.step('apply_bump_version');

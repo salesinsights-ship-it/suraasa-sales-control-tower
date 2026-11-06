@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.2, 6 November 2026
+
+**Independent Review Fixes**
+1. **Audit and Snapshot Permissions Scoping**: Unified scoping and redaction across `get_audit` and `get_snapshots` with `scopeState_`. Direct endpoint requests for Employees, Viewers, and Managers now enforce strict role and project boundaries, hiding other employees' tasks and redacting former owner task details.
+2. **Workstation Identity Confirmation and Unsaved Work Protection**: Fixed assignment regression where unsaved browser work could be submitted under a subsequent user's name on a shared workstation. `sct_person` is no longer treated as confirmed email until verified by the server. Any pending work from a previous session is preserved safely in `sct_browser_copy` for manual download rather than transmitted under a new user's credentials.
+3. **Stale Cache TTL and Hand-Edit Conflict Checks**: Reduced raw state cache TTL from 6 hours to 3 minutes (180 seconds). Hand-deleted rows in the Sheet are rejected as `missing` rather than resurrected from cache. Direct Sheet edits are verified live per row in `apply_`, preventing stale data overwrites while handling shifted or sorted rows.
+4. **API Version Bump to 6**: Raised backend `API` and frontend `API_NEEDED` to 6. Out-of-sync clients or scripts receive a clear mismatch prompt instructing the user to update the Apps Script deployment.
+5. **Telemetry and Test Monkey-Patch Cleanup**: Removed test-only monkey patch checks (`_origReadTab`) from production `Code.gs`. Restricted timing telemetry exclusively to `ENABLE_TIMING === 'true'` in Script Properties or signed-in Super Admins, blocking public URL `?timing=1` telemetry overrides.
+6. **Instant Sign-In Form**: Shows sign-in UI immediately (< 100ms) upon page load without waiting for background server ping.
+7. **Search Engine Anti-Indexing**: Added `<meta name="robots" content="noindex, nofollow">` to HTML shell, plus `X-Robots-Tag: noindex, nofollow` and `Permissions-Policy` headers in `vercel.json` to prevent search engine crawler indexing.
+8. **Stage View Mapping Fix**: Fixed Stage view logic so `Blocked` tasks map accurately to `Parked` instead of displaying as `Moved ahead`.
+9. **Employee Directory Datalist for Project Teams**: Added verified employee directory suggestions (`datalist`) for project team members while preserving custom free-text input.
+10. **Documentation Sanitization & Updates**: Sanitized open security details from `START_HERE.md`, updated `docs/KNOWN_LIMITATIONS.md` with cache and API 6 details, and updated `docs/TEST_RESULTS.md` with full test suite results.
+
 ## 3.0.1, 5 November 2026
 
 - A change made in the Google Sheet now appears on open pages within about 5 seconds, with no refresh.

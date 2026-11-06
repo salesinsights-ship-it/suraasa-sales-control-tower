@@ -1,14 +1,26 @@
 # Test cases and results
 
-Deliverable 13. Run on 5 November 2026 on version 3.0.0, on the built-in data and again on a read-only copy of the live data from the same day (20 projects, 129 tasks).
+Deliverable 13. Updated on 6 November 2026 for version 3.0.2, on the built-in data and simulated Google Apps Script / Sheet environment.
 
-**511 checks, 0 failed**, plus 72 layout checks with no problems, on both sets of data.
+**268 automated suite checks, 0 failed** in `npm test`.
+
+### Automated Suites (`npm test`)
+
+| Suite | Checks | Result | What it tests |
+|---|---|---|---|
+| `tests/engine.test.js` | 43 | Pass (43/43) | Pure engine rules, calculations, status moves, stages, and command parsing |
+| `tests/backend.test.js` | 72 | Pass (72/72) | Server permissions, round trips, sync, concurrency, locks, roles, API 6 |
+| `tests/automation.test.js` | 119 | Pass (119/119) | Assignment, emails, sign-in, locks, deactivation, upgrade, triggers |
+| `tests/phase6.test.js` | 10 | Pass (10/10) | Behavioral verification (concurrent browsers, direct Sheet edits, cache eviction, recovery) |
+| `tests/task1-delete.test.js` | 9 | Pass (9/9) | Super Admin deletion rights across all projects, states, and roles; deletion limit (<25) |
+| `tests/review-audit-scoping.test.js` | 8 | Pass (8/8) | Direct `get_audit` and `get_snapshots` scoping across all roles, redacting former owner details |
+| `tests/review-stale-cache.test.js` | 4 | Pass (4/4) | Hand deleted rows rejected (`missing`), hand edits preserved, row shifts handled |
+| `tests/review-assignment-regress.test.js` | 3 | Pass (3/3) | Shared machine unsaved work protection, unconfirmed identity gate, backup to `sct_browser_copy` |
+
+### E2E Browser Suites
 
 | Suite | Checks | What it runs against |
 |---|---|---|
-| `tests/engine.test.js` | 43 | The rules and the one-line command, directly |
-| `tests/backend.test.js` | 72 | The real `Code.gs` on a simulated Sheet |
-| `tests/automation.test.js` | 119 | Assignment, emails, sign-in, permissions and upgrading today's Sheet |
 | `tests/e2e/journeys.js` | 51 | Journeys A to J, in Chromium |
 | `tests/e2e/features.js` | 27 | Other features, in Chromium |
 | `tests/e2e/signin.js` | 30 | Password and Google sign-in, in Chromium |
